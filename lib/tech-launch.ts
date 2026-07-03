@@ -8,7 +8,7 @@ import { z } from "zod";
 import { getCountQuery, submitCountSql, type CountQuery } from "@/lib/count-api";
 import { getTechLaunchReadinessCache, saveTechLaunchReadinessCache } from "@/lib/db";
 
-const sqlPath = path.resolve(process.cwd(), "..", "tech_launch_telemetry_metrics.sql");
+const sqlPath = path.join(process.cwd(), "data", "tech_launch_telemetry_metrics.sql");
 
 export const techLaunchAppOptions = [
   "hexago",
