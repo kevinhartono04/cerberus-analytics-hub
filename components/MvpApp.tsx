@@ -8,6 +8,7 @@ import {
   Copy,
   Eye,
   FileText,
+  Gauge,
   Link2,
   Library,
   LogIn,
@@ -802,6 +803,22 @@ function SidebarNavButton({
       <Icon className={`h-4 w-4 shrink-0 ${isActive ? "text-white" : "text-slate-500 group-hover:text-ink"}`} />
       {collapsed ? null : <span className="truncate max-md:hidden">{item.label}</span>}
     </button>
+  );
+}
+
+function SidebarRouteLink({ collapsed }: { collapsed: boolean }) {
+  return (
+    <a
+      href="/tech-launch"
+      title={collapsed ? "Tech Launch" : undefined}
+      aria-label="Tech Launch"
+      className={`focus-ring group flex h-11 w-full items-center gap-3 rounded-md border border-transparent bg-transparent px-3 text-sm font-semibold text-slate-500 transition-colors hover:border-line hover:bg-sage hover:text-ink ${
+        collapsed ? "justify-center" : "justify-start max-md:justify-center"
+      }`}
+    >
+      <Gauge className="h-4 w-4 shrink-0 text-slate-500 group-hover:text-ink" />
+      {collapsed ? null : <span className="truncate max-md:hidden">Tech Launch</span>}
+    </a>
   );
 }
 
@@ -2830,6 +2847,7 @@ export default function MvpApp({ library }: { library: LibrarySnapshot }) {
                 collapsed={sidebarCollapsed}
               />
             ))}
+            <SidebarRouteLink collapsed={sidebarCollapsed} />
           </nav>
 
           <div className="border-t border-line p-3">

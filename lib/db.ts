@@ -25,6 +25,7 @@ let cachedSnapshot: LibrarySnapshot | null = null;
 let sqlClient: postgres.Sql | null = null;
 let savedSpecsTableReady: Promise<void> | null = null;
 let appUsersTableReady: Promise<void> | null = null;
+let techLaunchCacheTableReady: Promise<void> | null = null;
 
 function getDatabaseUrl() {
   return (
@@ -186,6 +187,39 @@ function ensureSqliteAppUsersTable() {
       role TEXT NOT NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
+    )
+  `);
+}
+
+async function ensureTechLaunchCacheTable() {
+  if (!techLaunchCacheTableReady) {
+    const sql = getSql();
+    techLaunchCacheTableReady = sql`
+      CREATE TABLE IF NOT EXISTS tech_launch_readiness_cache (
+        cache_key TEXT PRIMARY KEY NOT NULL,
+        payload TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL
+      )
+    `
+      .then(() => undefined)
+      .catch((error) => {
+        techLaunchCacheTableReady = null;
+        throw error;
+      });
+  }
+
+  await techLaunchCacheTableReady;
+  return getSql();
+}
+
+function ensureSqliteTechLaunchCacheTable() {
+  sqliteExec(`
+    CREATE TABLE IF NOT EXISTS tech_launch_readiness_cache (
+      cache_key TEXT PRIMARY KEY NOT NULL,
+      payload TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL
     )
   `);
 }
@@ -644,4 +678,72 @@ export async function deleteSavedSpec(id: string) {
     WHERE id = ${id}
   `;
   return result.count > 0;
+}
+
+export type TechLaunchReadinessCacheRecord = {
+  cacheKey: string;
+  payload: string;
+  createdAt: string;
+  expiresAt: string;
+};
+
+function rowToTechLaunchCacheRecord(row: Record<string, unknown>): TechLaunchReadinessCacheRecord {
+  return {
+    cacheKey: asString(row.cache_key),
+    payload: asString(row.payload),
+    createdAt: asString(row.created_at),
+    expiresAt: asString(row.expires_at),
+  };
+}
+
+export async function getTechLaunchReadinessCache(cacheKey: string): Promise<TechLaunchReadinessCacheRecord | null> {
+  if (shouldUseLocalSqlite()) {
+    ensureSqliteTechLaunchCacheTable();
+    const [row] = sqliteJsonRows<Record<string, unknown>>(`
+      SELECT cache_key, payload, created_at, expires_at
+      FROM tech_launch_readiness_cache
+      WHERE cache_key = ${sqliteLiteral(cacheKey)}
+      LIMIT 1
+    `);
+    return row ? rowToTechLaunchCacheRecord(row) : null;
+  }
+
+  const sql = await ensureTechLaunchCacheTable();
+  const [row] = await sql<Record<string, unknown>[]>`
+    SELECT cache_key, payload, created_at, expires_at
+    FROM tech_launch_readiness_cache
+    WHERE cache_key = ${cacheKey}
+    LIMIT 1
+  `;
+  return row ? rowToTechLaunchCacheRecord(row) : null;
+}
+
+export async function saveTechLaunchReadinessCache(record: TechLaunchReadinessCacheRecord) {
+  if (shouldUseLocalSqlite()) {
+    ensureSqliteTechLaunchCacheTable();
+    sqliteExec(`
+      INSERT INTO tech_launch_readiness_cache (cache_key, payload, created_at, expires_at)
+      VALUES (
+        ${sqliteLiteral(record.cacheKey)},
+        ${sqliteLiteral(record.payload)},
+        ${sqliteLiteral(record.createdAt)},
+        ${sqliteLiteral(record.expiresAt)}
+      )
+      ON CONFLICT(cache_key) DO UPDATE SET
+        payload = excluded.payload,
+        created_at = excluded.created_at,
+        expires_at = excluded.expires_at
+    `);
+    return;
+  }
+
+  const sql = await ensureTechLaunchCacheTable();
+  await sql`
+    INSERT INTO tech_launch_readiness_cache (cache_key, payload, created_at, expires_at)
+    VALUES (${record.cacheKey}, ${record.payload}, ${record.createdAt}, ${record.expiresAt})
+    ON CONFLICT(cache_key) DO UPDATE SET
+      payload = excluded.payload,
+      created_at = excluded.created_at,
+      expires_at = excluded.expires_at
+  `;
 }

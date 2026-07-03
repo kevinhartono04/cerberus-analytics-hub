@@ -24,3 +24,10 @@ export const appUsers = pgTable("app_users", {
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });
+
+export const techLaunchReadinessCache = pgTable("tech_launch_readiness_cache", {
+  cacheKey: text("cache_key").primaryKey(),
+  payload: text("payload").notNull(),
+  createdAt: text("created_at").notNull(),
+  expiresAt: text("expires_at").notNull(),
+});
