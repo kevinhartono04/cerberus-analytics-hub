@@ -10,7 +10,7 @@ import {
   SlidersHorizontal,
   XCircle,
 } from "lucide-react";
-import { FormEvent, ReactNode, useMemo, useRef, useState } from "react";
+import { FormEvent, ReactNode, useId, useMemo, useRef, useState } from "react";
 
 const appOptions = [
   "hexago",
@@ -200,6 +200,27 @@ function SummaryCard({
       </div>
       <div className="mt-3 text-sm text-slate-600">{detail}</div>
     </div>
+  );
+}
+
+function ColumnHeader({ label, description }: { label: string; description: string }) {
+  const descriptionId = useId();
+
+  return (
+    <span
+      className="group relative inline-flex cursor-help items-center"
+      tabIndex={0}
+      aria-describedby={descriptionId}
+    >
+      <span className="border-b border-dotted border-slate-500/70">{label}</span>
+      <span
+        id={descriptionId}
+        role="tooltip"
+        className="pointer-events-none absolute left-0 top-full z-30 mt-2 w-56 rounded-md border border-line bg-surface-highest px-3 py-2 text-left text-xs font-medium normal-case leading-snug text-ink opacity-0 shadow-soft transition-opacity group-hover:opacity-100 group-focus:opacity-100"
+      >
+        {description}
+      </span>
+    </span>
   );
 }
 
@@ -438,14 +459,30 @@ export default function TechLaunchDashboard() {
                 <table className="min-w-full text-left text-sm">
                   <thead className="bg-sage text-[11px] font-semibold uppercase text-slate-500">
                     <tr>
-                      <th className="px-4 py-3">Metric</th>
-                      <th className="px-4 py-3">Verdict</th>
-                      <th className="px-4 py-3">% Within Benchmark*</th>
-                      <th className="px-4 py-3">Benchmark</th>
-                      <th className="px-4 py-3">Median</th>
-                      <th className="px-4 py-3">P80</th>
-                      <th className="px-4 py-3">Samples</th>
-                      <th className="px-4 py-3">Benchmark View</th>
+                      <th className="px-4 py-3">
+                        <ColumnHeader label="Metric" description="Telemetry metric being evaluated for launch readiness." />
+                      </th>
+                      <th className="px-4 py-3">
+                        <ColumnHeader label="Verdict" description="Readiness call based on the tolerance-adjusted sample share." />
+                      </th>
+                      <th className="px-4 py-3">
+                        <ColumnHeader label="% Within Benchmark*" description="Share of samples passing the benchmark after the tolerance adjustment." />
+                      </th>
+                      <th className="px-4 py-3">
+                        <ColumnHeader label="Benchmark" description="Launch readiness threshold for this metric." />
+                      </th>
+                      <th className="px-4 py-3">
+                        <ColumnHeader label="Median" description="Middle observed value across samples." />
+                      </th>
+                      <th className="px-4 py-3">
+                        <ColumnHeader label="P80" description="80th percentile value; 80% of samples are at or below this value." />
+                      </th>
+                      <th className="px-4 py-3">
+                        <ColumnHeader label="Samples" description="Number of telemetry samples included for this metric." />
+                      </th>
+                      <th className="px-4 py-3">
+                        <ColumnHeader label="Benchmark View" description="How far the observed value is from the benchmark." />
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-line">

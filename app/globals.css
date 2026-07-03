@@ -130,6 +130,11 @@ select {
   color: #8c90a1;
 }
 
+.theme-dark :where(input[type="date"])::-webkit-calendar-picker-indicator {
+  filter: invert(1) brightness(1.7);
+  opacity: 0.9;
+}
+
 .theme-dark :where(select option) {
   background-color: #0b1324;
   color: #dae2fd;
