@@ -21,7 +21,7 @@ describe("Tech Launch readiness helpers", () => {
 
     expect(sql).toContain("app_name = 'wordblast' -- modifiable parameter");
     expect(sql).toContain("ep.platform = 'android' -- modifiable parameter");
-    expect(sql).toContain("ep.created_at between TO_DATE('2026-06-25') and TO_DATE('2026-07-02') -- modifiable parameter");
+    expect(sql).toContain("ep.created_at::date between TO_DATE('2026-06-25') and TO_DATE('2026-07-02') -- modifiable parameter");
     expect(sql).toContain("app_version = '1.0.0-canary' -- modifiable parameter");
   });
 

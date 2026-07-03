@@ -48,7 +48,7 @@ with bs as (
       'Telemetry_Battery_Consumption',
       'Telemetry_ThermalState'
     )
-    and ep.created_at between current_date()-7 and current_date() -- modifiable parameter
+    and ep.created_at::date between current_date()-7 and current_date() -- modifiable parameter
     and app_version = '1.0.0' -- modifiable parameter
     and value > 0
     and value is not null

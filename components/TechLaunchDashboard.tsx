@@ -3,7 +3,10 @@
 import {
   Activity,
   AlertTriangle,
+  CalendarDays,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Database,
   Gauge,
   RefreshCw,
@@ -97,7 +100,52 @@ type ReadinessPendingResponse = {
 type ReadinessApiResponse = ReadinessResponse | ReadinessPendingResponse;
 
 function isoDate(date: Date) {
-  return date.toISOString().slice(0, 10);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function parseIsoDate(value: string) {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function addDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function addMonths(date: Date, months: number) {
+  const next = new Date(date);
+  next.setMonth(next.getMonth() + months);
+  return next;
+}
+
+function startOfMonth(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+function endOfMonth(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth() + 1, 0);
+}
+
+function startOfWeek(date: Date) {
+  const next = new Date(date);
+  const day = next.getDay();
+  const mondayOffset = day === 0 ? -6 : 1 - day;
+  next.setDate(next.getDate() + mondayOffset);
+  return next;
+}
+
+function monthTitle(date: Date) {
+  return new Intl.DateTimeFormat(undefined, { month: "long", year: "numeric" }).format(date);
+}
+
+function presetRange(days: number) {
+  const end = new Date();
+  return { startDate: isoDate(addDays(end, -(days - 1))), endDate: isoDate(end) };
 }
 
 function defaultFilters(): Filters {
@@ -224,6 +272,219 @@ function ColumnHeader({ label, description }: { label: string; description: stri
   );
 }
 
+function LoadingSpinner({ className = "h-4 w-4" }: { className?: string }) {
+  return <RefreshCw className={`${className} animate-spin`} aria-hidden="true" />;
+}
+
+function DateRangePicker({
+  startDate,
+  endDate,
+  onChange,
+}: {
+  startDate: string;
+  endDate: string;
+  onChange: (range: Pick<Filters, "startDate" | "endDate">) => void;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [draftStart, setDraftStart] = useState(startDate);
+  const [draftEnd, setDraftEnd] = useState(endDate);
+  const [visibleMonth, setVisibleMonth] = useState(() => startOfMonth(parseIsoDate(startDate)));
+  const presets = [
+    { label: "Today", range: () => presetRange(1) },
+    { label: "Yesterday", range: () => {
+      const yesterday = addDays(new Date(), -1);
+      return { startDate: isoDate(yesterday), endDate: isoDate(yesterday) };
+    } },
+    { label: "Last 3 days", range: () => presetRange(3) },
+    { label: "Last 7 days", range: () => presetRange(7) },
+    { label: "Last 14 days", range: () => presetRange(14) },
+    { label: "Last 30 days", range: () => presetRange(30) },
+    { label: "Last 3 months", range: () => {
+      const end = new Date();
+      return { startDate: isoDate(addMonths(end, -3)), endDate: isoDate(end) };
+    } },
+    { label: "Last month", range: () => {
+      const month = addMonths(new Date(), -1);
+      return { startDate: isoDate(startOfMonth(month)), endDate: isoDate(endOfMonth(month)) };
+    } },
+    { label: "Last week", range: () => {
+      const lastWeekStart = addDays(startOfWeek(new Date()), -7);
+      return { startDate: isoDate(lastWeekStart), endDate: isoDate(addDays(lastWeekStart, 6)) };
+    } },
+    { label: "This month", range: () => {
+      const today = new Date();
+      return { startDate: isoDate(startOfMonth(today)), endDate: isoDate(today) };
+    } },
+  ];
+
+  function openPicker() {
+    setDraftStart(startDate);
+    setDraftEnd(endDate);
+    setVisibleMonth(startOfMonth(parseIsoDate(startDate)));
+    setIsOpen(true);
+  }
+
+  function applyPreset(range: Pick<Filters, "startDate" | "endDate">) {
+    setDraftStart(range.startDate);
+    setDraftEnd(range.endDate);
+    setVisibleMonth(startOfMonth(parseIsoDate(range.startDate)));
+    onChange(range);
+    setIsOpen(false);
+  }
+
+  function selectDate(value: string) {
+    if (!draftStart || draftEnd) {
+      setDraftStart(value);
+      setDraftEnd("");
+      return;
+    }
+    if (value < draftStart) {
+      setDraftStart(value);
+      setDraftEnd(draftStart);
+      return;
+    }
+    setDraftEnd(value);
+  }
+
+  function applyDraft() {
+    if (!draftStart || !draftEnd) return;
+    onChange({ startDate: draftStart, endDate: draftEnd });
+    setIsOpen(false);
+  }
+
+  function renderMonth(month: Date) {
+    const firstDay = startOfMonth(month);
+    const startOffset = firstDay.getDay();
+    const days = Array.from({ length: endOfMonth(month).getDate() }, (_, index) => new Date(month.getFullYear(), month.getMonth(), index + 1));
+    const blanks = Array.from({ length: startOffset }, (_, index) => index);
+
+    return (
+      <div className="min-w-[260px] flex-1">
+        <div className="mb-4 text-center text-sm font-bold text-ink">{monthTitle(month)}</div>
+        <div className="mb-2 grid grid-cols-7 gap-1 text-center text-xs font-bold text-slate-500">
+          {["S", "M", "T", "W", "T", "F", "S"].map((day, index) => (
+            <div key={`${day}-${index}`} className="py-1">
+              {day}
+            </div>
+          ))}
+        </div>
+        <div className="grid grid-cols-7 gap-1">
+          {blanks.map((blank) => (
+            <div key={`blank-${blank}`} className="h-9" />
+          ))}
+          {days.map((day) => {
+            const value = isoDate(day);
+            const isStart = value === draftStart;
+            const isEnd = value === draftEnd;
+            const isInRange = draftStart && draftEnd && value > draftStart && value < draftEnd;
+            const isToday = value === isoDate(new Date());
+            return (
+              <button
+                key={value}
+                type="button"
+                onClick={() => selectDate(value)}
+                className={`focus-ring h-9 rounded-md text-sm font-semibold transition-colors ${
+                  isStart || isEnd
+                    ? "bg-cobalt text-white"
+                    : isInRange
+                      ? "bg-cobalt/20 text-ink"
+                      : "bg-sage text-slate-600 hover:bg-cobalt/15 hover:text-ink"
+                } ${isToday && !isStart && !isEnd ? "ring-1 ring-cobalt/60" : ""}`}
+              >
+                {day.getDate()}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative">
+      <span className="mb-2 block text-sm font-semibold text-ink">Date Range</span>
+      <button
+        type="button"
+        onClick={() => (isOpen ? setIsOpen(false) : openPicker())}
+        className="focus-ring flex h-11 w-full items-center justify-between gap-3 rounded-md border border-line bg-white px-3 text-left text-sm shadow-sm"
+      >
+        <span className="min-w-0 truncate text-sm text-ink">
+          {startDate} to {endDate}
+        </span>
+        <CalendarDays className="h-4 w-4 shrink-0 text-white" />
+      </button>
+
+      {isOpen ? (
+        <div className="absolute left-0 top-full z-50 mt-2 w-[min(92vw,760px)] overflow-hidden rounded-lg border border-line bg-white shadow-soft">
+          <div className="grid max-h-[520px] grid-cols-1 md:grid-cols-[160px_1fr]">
+            <div className="border-b border-line bg-sage p-3 md:border-b-0 md:border-r">
+              <div className="flex max-h-64 flex-col gap-1 overflow-y-auto pr-1">
+                {presets.map((preset) => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    onClick={() => applyPreset(preset.range())}
+                    className="focus-ring rounded-md px-3 py-2 text-left text-sm font-semibold text-slate-600 hover:bg-white hover:text-ink"
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="p-4">
+              <div className="mb-4 flex flex-wrap items-center gap-3 text-xs font-bold uppercase text-slate-500">
+                <span>Start</span>
+                <span className="rounded-md border border-line bg-sage px-3 py-2 font-mono text-ink">{draftStart || "Select date"}</span>
+                <span>End</span>
+                <span className="rounded-md border border-line bg-sage px-3 py-2 font-mono text-ink">{draftEnd || "Select date"}</span>
+                <div className="ml-auto flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setVisibleMonth((current) => addMonths(current, -1))}
+                    className="focus-ring flex h-9 w-9 items-center justify-center rounded-md border border-line bg-sage text-slate-600 hover:bg-white hover:text-ink"
+                    aria-label="Previous month"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setVisibleMonth((current) => addMonths(current, 1))}
+                    className="focus-ring flex h-9 w-9 items-center justify-center rounded-md border border-line bg-sage text-slate-600 hover:bg-white hover:text-ink"
+                    aria-label="Next month"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+              <div className="grid gap-6 lg:grid-cols-2">
+                {renderMonth(visibleMonth)}
+                {renderMonth(addMonths(visibleMonth, 1))}
+              </div>
+              <div className="mt-5 flex justify-end gap-2 border-t border-line pt-4">
+                <button
+                  type="button"
+                  onClick={() => setIsOpen(false)}
+                  className="focus-ring h-10 rounded-md border border-line bg-white px-4 text-sm font-semibold text-slate-600 hover:bg-sage hover:text-ink"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={!draftStart || !draftEnd}
+                  onClick={applyDraft}
+                  className="focus-ring h-10 rounded-md bg-cobalt px-4 text-sm font-semibold text-white hover:bg-cobalt/90 disabled:opacity-50"
+                >
+                  Apply
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export default function TechLaunchDashboard() {
   const [filters, setFilters] = useState<Filters>(() => defaultFilters());
   const [data, setData] = useState<ReadinessResponse | null>(null);
@@ -331,7 +592,7 @@ export default function TechLaunchDashboard() {
             <SlidersHorizontal className="h-4 w-4" />
             Filters
           </div>
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1.2fr_1fr_1fr_1fr_1fr_auto_auto]">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1.1fr_0.8fr_1fr_1.7fr_auto_auto]">
             <label className="block">
               <span className="mb-2 block text-sm font-semibold text-ink">App</span>
               <select
@@ -365,30 +626,17 @@ export default function TechLaunchDashboard() {
                 className="focus-ring h-11 w-full rounded-md border border-line bg-white px-3 text-sm shadow-sm"
               />
             </label>
-            <label className="block">
-              <span className="mb-2 block text-sm font-semibold text-ink">Start Date</span>
-              <input
-                type="date"
-                value={filters.startDate}
-                onChange={(event) => setFilters((current) => ({ ...current, startDate: event.target.value }))}
-                className="focus-ring h-11 w-full rounded-md border border-line bg-white px-3 text-sm shadow-sm"
-              />
-            </label>
-            <label className="block">
-              <span className="mb-2 block text-sm font-semibold text-ink">End Date</span>
-              <input
-                type="date"
-                value={filters.endDate}
-                onChange={(event) => setFilters((current) => ({ ...current, endDate: event.target.value }))}
-                className="focus-ring h-11 w-full rounded-md border border-line bg-white px-3 text-sm shadow-sm"
-              />
-            </label>
+            <DateRangePicker
+              startDate={filters.startDate}
+              endDate={filters.endDate}
+              onChange={(range) => setFilters((current) => ({ ...current, ...range }))}
+            />
             <button
               type="submit"
               disabled={isLoading}
               className="focus-ring mt-7 inline-flex h-11 items-center justify-center gap-2 rounded-md bg-cobalt px-4 text-sm font-semibold text-white hover:bg-cobalt/90 disabled:opacity-60"
             >
-              <Activity className="h-4 w-4" />
+              {isLoading ? <LoadingSpinner /> : <Activity className="h-4 w-4" />}
               {isLoading ? "Running" : "Run"}
             </button>
             <button
@@ -397,7 +645,7 @@ export default function TechLaunchDashboard() {
               onClick={() => void loadReadiness(true)}
               className="focus-ring mt-7 inline-flex h-11 items-center justify-center gap-2 rounded-md border border-line bg-white px-4 text-sm font-semibold hover:bg-slate-50 disabled:opacity-60"
             >
-              <RefreshCw className="h-4 w-4" />
+              {isLoading ? <LoadingSpinner /> : <RefreshCw className="h-4 w-4" />}
               Refresh
             </button>
           </div>
@@ -440,22 +688,30 @@ export default function TechLaunchDashboard() {
               />
             </section>
 
-            <section className="overflow-hidden rounded-lg border border-line bg-white shadow-sm">
+            <section className="relative overflow-hidden rounded-lg border border-line bg-white shadow-sm" aria-busy={isLoading}>
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3">
                 <div>
                   <h2 className="font-bold text-ink">Readiness Metrics</h2>
                   <p className="mt-1 text-sm text-slate-600">
                     Last run {new Date(data.metadata.executedAt).toLocaleString()}
                     {data.metadata.durationMs ? ` · Count duration ${Math.round(data.metadata.durationMs)}ms` : ""}
-                    {isLoading && statusText ? ` · ${statusText}` : ""}
                   </p>
                 </div>
-                <div className="rounded-md border border-line bg-sage px-3 py-2 font-mono text-xs text-slate-500">
-                  {data.filters.appName} · {data.filters.platform} · {data.filters.appVersion}
+                <div className="flex flex-wrap items-center gap-2">
+                  {isLoading ? (
+                    <div className="inline-flex h-9 items-center gap-2 rounded-md border border-cobalt/40 bg-cobalt/15 px-3 text-sm font-semibold text-cobalt">
+                      <LoadingSpinner />
+                      {statusText || "Running Count query..."}
+                    </div>
+                  ) : null}
+                  <div className="rounded-md border border-line bg-sage px-3 py-2 font-mono text-xs text-slate-500">
+                    {data.filters.appName} · {data.filters.platform} · {data.filters.appVersion}
+                  </div>
                 </div>
               </div>
 
-              <div className="overflow-x-auto">
+              <div className="relative overflow-x-auto">
+                <div className={`transition-opacity ${isLoading ? "opacity-35" : "opacity-100"}`}>
                 <table className="min-w-full text-left text-sm">
                   <thead className="bg-sage text-[11px] font-semibold uppercase text-slate-500">
                     <tr>
@@ -524,6 +780,16 @@ export default function TechLaunchDashboard() {
                     ))}
                   </tbody>
                 </table>
+                </div>
+
+                {isLoading ? (
+                  <div className="pointer-events-none absolute inset-0 flex min-h-56 items-center justify-center bg-mist/45 backdrop-blur-[1px]">
+                    <div className="inline-flex items-center gap-3 rounded-md border border-line bg-white px-4 py-3 text-sm font-semibold text-ink shadow-soft">
+                      <LoadingSpinner className="h-5 w-5 text-cobalt" />
+                      <span>{statusText || "Running Count query..."}</span>
+                    </div>
+                  </div>
+                ) : null}
               </div>
 
               {!sortedRows.length ? (
@@ -536,8 +802,15 @@ export default function TechLaunchDashboard() {
             <p className="mt-4 text-sm text-slate-500">* 15% tolerance is applied.</p>
           </>
         ) : (
-          <div className="rounded-lg border border-dashed border-line bg-white px-4 py-14 text-center text-sm text-slate-500">
-            {isLoading ? statusText || "Loading Tech Launch readiness..." : "Run the dashboard to load readiness metrics."}
+          <div className="rounded-lg border border-dashed border-line bg-white px-4 py-14 text-center text-sm text-slate-500" aria-busy={isLoading}>
+            {isLoading ? (
+              <div className="flex flex-col items-center gap-3">
+                <LoadingSpinner className="h-6 w-6 text-cobalt" />
+                <span>{statusText || "Loading Tech Launch readiness..."}</span>
+              </div>
+            ) : (
+              "Run the dashboard to load readiness metrics."
+            )}
           </div>
         )}
       </div>

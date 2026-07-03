@@ -151,8 +151,8 @@ export function buildTechLaunchSql(filtersInput: unknown) {
   );
   sql = replaceRequired(
     sql,
-    /ep\.created_at\s+between\s+current_date\(\)-7\s+and\s+current_date\(\)\s*-- modifiable parameter/i,
-    `ep.created_at between ${sqlDateLiteral(filters.startDate)} and ${sqlDateLiteral(filters.endDate)} -- modifiable parameter`,
+    /ep\.created_at(?:::date)?\s+between\s+current_date\(\)\s*-\s*7\s+and\s+current_date\(\)\s*-- modifiable parameter/i,
+    `ep.created_at::date between ${sqlDateLiteral(filters.startDate)} and ${sqlDateLiteral(filters.endDate)} -- modifiable parameter`,
   );
   sql = replaceRequired(
     sql,

@@ -2,14 +2,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ZodError } from "zod";
 
 import { POST } from "@/app/api/tech-launch/readiness/route";
+import { POST as STATUS_POST } from "@/app/api/tech-launch/readiness/status/route";
 
 const mocks = vi.hoisted(() => ({
   getReadiness: vi.fn(),
+  getReadinessStatus: vi.fn(),
   requireCurrentAppUser: vi.fn(),
 }));
 
 vi.mock("@/lib/tech-launch", () => ({
   getTechLaunchReadiness: mocks.getReadiness,
+  getTechLaunchReadinessStatus: mocks.getReadinessStatus,
 }));
 
 vi.mock("@/lib/auth", () => ({
@@ -70,6 +73,13 @@ describe("Tech Launch readiness API", () => {
       metadata: { executedAt: "2026-07-02T00:00:00.000Z" },
       cache: { hit: false, key: "cache-key", expiresAt: "2026-07-02T00:15:00.000Z" },
     });
+    mocks.getReadinessStatus.mockReset().mockResolvedValue({
+      status: "running",
+      filters: body,
+      metadata: { jobKey: "job-key", submittedAt: "2026-07-02T00:00:00.000Z" },
+      cache: { hit: false, key: "cache-key" },
+      pollAfterMs: 1500,
+    });
   });
 
   it("requires authentication", async () => {
@@ -85,13 +95,27 @@ describe("Tech Launch readiness API", () => {
     expect(mocks.getReadiness).not.toHaveBeenCalled();
   });
 
-  it("returns readiness data for authenticated users", async () => {
+  it("returns readiness data for authenticated viewers", async () => {
     const response = await POST(authedRequest());
     const json = await response.json();
 
     expect(response.status).toBe(200);
     expect(json.cache.key).toBe("cache-key");
     expect(mocks.getReadiness).toHaveBeenCalledWith(body);
+  });
+
+  it("returns readiness status for authenticated viewers", async () => {
+    const response = await STATUS_POST(
+      authedRequest({
+        jobKey: "job-key",
+        filters: body,
+      }),
+    );
+    const json = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(json.metadata.jobKey).toBe("job-key");
+    expect(mocks.getReadinessStatus).toHaveBeenCalledWith({ jobKey: "job-key", filters: body });
   });
 
   it("returns 400 for validation errors", async () => {
