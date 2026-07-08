@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildTechLaunchAppVersionsSql,
   buildTechLaunchSql,
+  parseTechLaunchAppVersions,
   parseTechLaunchRows,
   summarizeTechLaunchRows,
   techLaunchCacheKey,
@@ -27,6 +29,30 @@ describe("Tech Launch readiness helpers", () => {
 
   it("keeps cache keys stable for equivalent normalized filters", () => {
     expect(techLaunchCacheKey(filters)).toBe(techLaunchCacheKey({ ...filters, appVersion: " 1.0.0 " }));
+  });
+
+  it("builds app version lookup SQL from app, platform, and date filters", () => {
+    const sql = buildTechLaunchAppVersionsSql(filters);
+
+    expect(sql).toContain("ep.platform = 'android'");
+    expect(sql).toContain("ep.created_at::date between TO_DATE('2026-06-25') and TO_DATE('2026-07-02')");
+    expect(sql).toContain("app_name = 'wordblast'");
+    expect(sql).toContain("order by last_seen desc, sample_count desc, app_version desc");
+  });
+
+  it("parses app version Count CSV previews", () => {
+    const versions = parseTechLaunchAppVersions(
+      [
+        "app_version,sample_count,first_seen,last_seen",
+        "1.2.0,1200,2026-06-25,2026-07-02",
+        "1.1.0,400,2026-06-25,2026-06-29",
+      ].join("\n"),
+    );
+
+    expect(versions).toEqual([
+      { appVersion: "1.2.0", sampleCount: 1200, firstSeen: "2026-06-25", lastSeen: "2026-07-02" },
+      { appVersion: "1.1.0", sampleCount: 400, firstSeen: "2026-06-25", lastSeen: "2026-06-29" },
+    ]);
   });
 
   it("parses Count CSV previews into metric rows", () => {

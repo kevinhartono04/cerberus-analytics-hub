@@ -5,7 +5,7 @@ import path from "node:path";
 import { parse as parseCsv } from "csv-parse/sync";
 import { z } from "zod";
 
-import { getCountQuery, submitCountSql, type CountQuery } from "@/lib/count-api";
+import { getCountQuery, runCountSql, submitCountSql, type CountQuery } from "@/lib/count-api";
 import { getTechLaunchReadinessCache, saveTechLaunchReadinessCache } from "@/lib/db";
 
 const sqlPath = path.join(process.cwd(), "data", "tech_launch_telemetry_metrics.sql");
@@ -32,14 +32,16 @@ export const techLaunchPlatformOptions = ["android", "ios"] as const;
 
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 
+const techLaunchFilterFields = {
+  appName: z.enum(techLaunchAppOptions),
+  platform: z.enum(techLaunchPlatformOptions),
+  appVersion: z.string().trim().min(1).max(80),
+  startDate: z.string().regex(datePattern, "Use YYYY-MM-DD"),
+  endDate: z.string().regex(datePattern, "Use YYYY-MM-DD"),
+};
+
 export const techLaunchFilterSchema = z
-  .object({
-    appName: z.enum(techLaunchAppOptions),
-    platform: z.enum(techLaunchPlatformOptions),
-    appVersion: z.string().trim().min(1).max(80),
-    startDate: z.string().regex(datePattern, "Use YYYY-MM-DD"),
-    endDate: z.string().regex(datePattern, "Use YYYY-MM-DD"),
-  })
+  .object(techLaunchFilterFields)
   .refine((filters) => filters.startDate <= filters.endDate, {
     path: ["endDate"],
     message: "End date must be on or after start date",
@@ -49,6 +51,18 @@ export const techLaunchRequestSchema = techLaunchFilterSchema.extend({
   forceRefresh: z.boolean().optional(),
 });
 
+export const techLaunchAppVersionsRequestSchema = z
+  .object({
+    appName: techLaunchFilterFields.appName,
+    platform: techLaunchFilterFields.platform,
+    startDate: techLaunchFilterFields.startDate,
+    endDate: techLaunchFilterFields.endDate,
+  })
+  .refine((filters) => filters.startDate <= filters.endDate, {
+    path: ["endDate"],
+    message: "End date must be on or after start date",
+  });
+
 export const techLaunchStatusRequestSchema = z.object({
   jobKey: z.string().trim().min(1),
   filters: techLaunchFilterSchema,
@@ -56,6 +70,7 @@ export const techLaunchStatusRequestSchema = z.object({
 
 export type TechLaunchFilters = z.infer<typeof techLaunchFilterSchema>;
 export type TechLaunchRequest = z.infer<typeof techLaunchRequestSchema>;
+export type TechLaunchAppVersionsRequest = z.infer<typeof techLaunchAppVersionsRequestSchema>;
 export type TechLaunchStatusRequest = z.infer<typeof techLaunchStatusRequestSchema>;
 export type TechLaunchVerdict = "green" | "yellow" | "red" | "insufficient data";
 
@@ -119,6 +134,29 @@ export type TechLaunchReadinessPendingResponse = {
 
 export type TechLaunchReadinessResponse = TechLaunchReadinessCompletedResponse | TechLaunchReadinessPendingResponse;
 
+export type TechLaunchAppVersionOption = {
+  appVersion: string;
+  sampleCount: number;
+  firstSeen: string;
+  lastSeen: string;
+};
+
+export type TechLaunchAppVersionsResponse = {
+  filters: TechLaunchAppVersionsRequest;
+  versions: TechLaunchAppVersionOption[];
+  metadata: {
+    jobKey?: string;
+    durationMs?: number;
+    numRows?: number;
+    executedAt: string;
+  };
+  cache: {
+    hit: boolean;
+    key: string;
+    expiresAt: string;
+  };
+};
+
 function readBaseSql() {
   return fs.readFileSync(sqlPath, "utf8");
 }
@@ -162,6 +200,56 @@ export function buildTechLaunchSql(filtersInput: unknown) {
   return sql;
 }
 
+export function buildTechLaunchAppVersionsSql(filtersInput: unknown) {
+  const filters = normalizedTechLaunchAppVersionFilters(filtersInput);
+  return `
+with events as (
+  select
+    case
+      when ep.app_id = 18 then 'hexago'
+      when ep.app_id = 22 then 'marble'
+      when ep.app_id = 9 then 'tripletile'
+      when ep.app_id = 28 then 'wooblast'
+      when ep.app_id = 4 then 'woodoku'
+      when ep.app_id = 117 then 'blockkingdom'
+      when ep.app_id = 23 then 'bubblego'
+      when ep.app_id = 119 then 'mahjongbloom'
+      when ep.app_id = 122 then 'wordblast'
+      when ep.app_id = 125 then 'jelly'
+      when ep.app_id = 3003 then 'bloomsort'
+      when ep.app_id = 3001 then 'wordrush'
+      when ep.app_id = 3004 then 'sizzle'
+      when ep.app_id = 3005 then 'dotpaint'
+      when ep.app_id = 3006 then 'bubblewordchain'
+      else null
+    end as app_name,
+    ep.app_version,
+    ep.platform,
+    ep.created_at::date as event_date
+  from (
+      select * from tds_db.raw.ludios_telemetry_events_production where app_id in (3001, 3003, 3004, 3005, 3006)
+          union all
+      select * from tds_db.raw.telemetry_events_production where app_id in (18,22,117,122)
+  ) ep
+  where
+    ep.platform = ${sqlLiteral(filters.platform)}
+    and ep.created_at::date between ${sqlDateLiteral(filters.startDate)} and ${sqlDateLiteral(filters.endDate)}
+)
+select
+  app_version,
+  count(1) as sample_count,
+  min(event_date)::varchar as first_seen,
+  max(event_date)::varchar as last_seen
+from events
+where
+  app_name = ${sqlLiteral(filters.appName)}
+  and app_version is not null
+  and app_version <> ''
+group by 1
+order by last_seen desc, sample_count desc, app_version desc
+`.trim();
+}
+
 export function normalizedTechLaunchFilters(input: unknown): TechLaunchFilters {
   const filters = techLaunchFilterSchema.parse(input);
   return {
@@ -177,15 +265,35 @@ function hashText(value: string) {
   return crypto.createHash("sha256").update(value).digest("hex");
 }
 
+function normalizedTechLaunchAppVersionFilters(input: unknown): TechLaunchAppVersionsRequest {
+  const filters = techLaunchAppVersionsRequestSchema.parse(input);
+  return {
+    appName: filters.appName,
+    platform: filters.platform,
+    startDate: filters.startDate,
+    endDate: filters.endDate,
+  };
+}
+
 export function techLaunchCacheKey(filtersInput: unknown) {
   const filters = normalizedTechLaunchFilters(filtersInput);
   const sqlVersionHash = hashText(readBaseSql());
   return hashText(JSON.stringify({ filters, sqlVersionHash }));
 }
 
+export function techLaunchAppVersionsCacheKey(filtersInput: unknown) {
+  const filters = normalizedTechLaunchAppVersionFilters(filtersInput);
+  return `app-versions:${hashText(JSON.stringify({ filters, version: 1 }))}`;
+}
+
 function cacheTtlMs() {
   const seconds = Number(process.env.TECH_LAUNCH_CACHE_TTL_SECONDS ?? 900);
   return Math.max(60, Number.isFinite(seconds) ? seconds : 900) * 1000;
+}
+
+function appVersionsCacheTtlMs() {
+  const seconds = Number(process.env.TECH_LAUNCH_APP_VERSION_CACHE_TTL_SECONDS ?? 3600);
+  return Math.max(60, Number.isFinite(seconds) ? seconds : 3600) * 1000;
 }
 
 function toNumber(value: unknown) {
@@ -226,6 +334,24 @@ export function parseTechLaunchRows(resultPreview: string | undefined): TechLaun
       higherIsBetter: name === "Telemetry_FPS_Average",
     };
   });
+}
+
+export function parseTechLaunchAppVersions(resultPreview: string | undefined): TechLaunchAppVersionOption[] {
+  if (!resultPreview?.trim()) return [];
+  const records = parseCsv(resultPreview, {
+    columns: true,
+    skip_empty_lines: true,
+    trim: true,
+  }) as Array<Record<string, unknown>>;
+
+  return records
+    .map((row) => ({
+      appVersion: String(rowValue(row, "app_version") ?? ""),
+      sampleCount: toNumber(rowValue(row, "sample_count")) ?? 0,
+      firstSeen: String(rowValue(row, "first_seen") ?? ""),
+      lastSeen: String(rowValue(row, "last_seen") ?? ""),
+    }))
+    .filter((row) => row.appVersion);
 }
 
 export function summarizeTechLaunchRows(rows: TechLaunchMetricRow[]): TechLaunchSummary {
@@ -283,6 +409,20 @@ function responseFromPayload(payload: string, cacheKey: string): TechLaunchReadi
   };
 }
 
+function appVersionsResponseFromPayload(payload: string, cacheKey: string): TechLaunchAppVersionsResponse {
+  const parsed = JSON.parse(payload) as Omit<TechLaunchAppVersionsResponse, "cache"> & {
+    cache: Omit<TechLaunchAppVersionsResponse["cache"], "hit">;
+  };
+  return {
+    ...parsed,
+    cache: {
+      ...parsed.cache,
+      key: cacheKey,
+      hit: true,
+    },
+  };
+}
+
 async function cachedTechLaunchReadiness(
   filters: TechLaunchFilters,
   cacheKey: string,
@@ -296,6 +436,21 @@ async function cachedTechLaunchReadiness(
         // Ignore malformed cache payloads and replace them with a fresh Count result.
       }
     }
+  return null;
+}
+
+async function cachedTechLaunchAppVersions(
+  cacheKey: string,
+  now = new Date(),
+): Promise<TechLaunchAppVersionsResponse | null> {
+  const cached = await getTechLaunchReadinessCache(cacheKey);
+  if (cached && new Date(cached.expiresAt) > now) {
+    try {
+      return appVersionsResponseFromPayload(cached.payload, cacheKey);
+    } catch {
+      // Ignore malformed cache payloads and replace them with a fresh Count result.
+    }
+  }
   return null;
 }
 
@@ -338,6 +493,47 @@ async function completedResponseFromQuery(
       expiresAt,
     });
   }
+
+  return response;
+}
+
+export async function getTechLaunchAppVersions(input: unknown): Promise<TechLaunchAppVersionsResponse> {
+  const filters = normalizedTechLaunchAppVersionFilters(input);
+  const cacheKey = techLaunchAppVersionsCacheKey(filters);
+  const now = new Date();
+  const cached = await cachedTechLaunchAppVersions(cacheKey, now);
+  if (cached) return cached;
+
+  const countResult = await runCountSql(buildTechLaunchAppVersionsSql(filters), {
+    cacheStrategy: "default",
+    previewRows: 1000,
+  });
+  if (countResult.query.status === "error") throw new Error(countResult.query.error ?? "Count query failed");
+
+  const versions = parseTechLaunchAppVersions(countResult.query.result_preview);
+  const expiresAt = new Date(now.getTime() + appVersionsCacheTtlMs()).toISOString();
+  const response: TechLaunchAppVersionsResponse = {
+    filters,
+    versions,
+    metadata: {
+      jobKey: countResult.query.job_key,
+      durationMs: countResult.query.result_metadata?.duration,
+      numRows: countResult.query.result_metadata?.num_rows,
+      executedAt: now.toISOString(),
+    },
+    cache: {
+      hit: false,
+      key: cacheKey,
+      expiresAt,
+    },
+  };
+
+  await saveTechLaunchReadinessCache({
+    cacheKey,
+    payload: JSON.stringify(response),
+    createdAt: now.toISOString(),
+    expiresAt,
+  });
 
   return response;
 }

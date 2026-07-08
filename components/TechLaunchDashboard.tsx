@@ -4,6 +4,7 @@ import {
   Activity,
   AlertTriangle,
   CalendarDays,
+  ChevronDown,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
@@ -13,24 +14,24 @@ import {
   SlidersHorizontal,
   XCircle,
 } from "lucide-react";
-import { FormEvent, ReactNode, useId, useMemo, useRef, useState } from "react";
+import { FormEvent, ReactNode, useEffect, useId, useMemo, useRef, useState } from "react";
 
 const appOptions = [
+  "blockkingdom",
+  "bloomsort",
+  "bubblego",
+  "bubblewordchain",
+  "dotpaint",
   "hexago",
+  "jelly",
+  "mahjongbloom",
   "marble",
+  "sizzle",
   "tripletile",
   "wooblast",
   "woodoku",
-  "blockkingdom",
-  "bubblego",
-  "mahjongbloom",
   "wordblast",
-  "jelly",
-  "bloomsort",
   "wordrush",
-  "sizzle",
-  "dotpaint",
-  "bubblewordchain",
 ] as const;
 
 type Verdict = "green" | "yellow" | "red" | "insufficient data";
@@ -99,6 +100,24 @@ type ReadinessPendingResponse = {
 
 type ReadinessApiResponse = ReadinessResponse | ReadinessPendingResponse;
 
+type AppVersionOption = {
+  appVersion: string;
+  sampleCount: number;
+  firstSeen: string;
+  lastSeen: string;
+};
+
+type AppVersionsResponse = {
+  versions: AppVersionOption[];
+  cache: {
+    hit: boolean;
+    key: string;
+    expiresAt: string;
+  };
+};
+
+const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+
 function isoDate(date: Date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -155,10 +174,74 @@ function defaultFilters(): Filters {
   return {
     appName: "wordblast",
     platform: "android",
-    appVersion: "1.0.0",
+    appVersion: "",
     startDate: isoDate(start),
     endDate: isoDate(end),
   };
+}
+
+function isAppName(value: string): value is Filters["appName"] {
+  return (appOptions as readonly string[]).includes(value);
+}
+
+function isPlatform(value: string): value is Filters["platform"] {
+  return value === "android" || value === "ios";
+}
+
+function isDateValue(value: string) {
+  return datePattern.test(value);
+}
+
+function filtersFromSearchParams(params: URLSearchParams): Filters | null {
+  const hasFilterParam = ["appName", "platform", "appVersion", "startDate", "endDate"].some((key) => params.has(key));
+  if (!hasFilterParam) return null;
+
+  const next = defaultFilters();
+  const appName = params.get("appName");
+  const platform = params.get("platform");
+  const appVersion = params.get("appVersion");
+  const startDate = params.get("startDate");
+  const endDate = params.get("endDate");
+
+  if (appName) {
+    if (!isAppName(appName)) return null;
+    next.appName = appName;
+  }
+  if (platform) {
+    if (!isPlatform(platform)) return null;
+    next.platform = platform;
+  }
+  if (appVersion?.trim()) next.appVersion = appVersion.trim();
+  if (startDate) {
+    if (!isDateValue(startDate)) return null;
+    next.startDate = startDate;
+  }
+  if (endDate) {
+    if (!isDateValue(endDate)) return null;
+    next.endDate = endDate;
+  }
+  if (next.startDate > next.endDate) return null;
+  return next;
+}
+
+function writeFiltersToUrl(filters: Filters, run: boolean) {
+  if (typeof window === "undefined") return;
+  const url = new URL(window.location.href);
+  url.searchParams.set("appName", filters.appName);
+  url.searchParams.set("platform", filters.platform);
+  if (filters.appVersion) {
+    url.searchParams.set("appVersion", filters.appVersion);
+  } else {
+    url.searchParams.delete("appVersion");
+  }
+  url.searchParams.set("startDate", filters.startDate);
+  url.searchParams.set("endDate", filters.endDate);
+  if (run) {
+    url.searchParams.set("run", "1");
+  } else {
+    url.searchParams.delete("run");
+  }
+  window.history.replaceState(null, "", `${url.pathname}?${url.searchParams.toString()}${url.hash}`);
 }
 
 function pct(value: number | null) {
@@ -274,6 +357,63 @@ function ColumnHeader({ label, description }: { label: string; description: stri
 
 function LoadingSpinner({ className = "h-4 w-4" }: { className?: string }) {
   return <RefreshCw className={`${className} animate-spin`} aria-hidden="true" />;
+}
+
+function FilterDropdown<T extends string>({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: T;
+  options: Array<{ value: T; label: string }>;
+  onChange: (value: T) => void;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const selectedLabel = options.find((option) => option.value === value)?.label ?? value;
+
+  return (
+    <label className="block">
+      <span className="mb-2 block text-sm font-semibold text-ink">{label}</span>
+      <div
+        className="relative"
+        onBlur={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget)) setIsOpen(false);
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => setIsOpen((open) => !open)}
+          className="focus-ring flex h-11 w-full items-center justify-between gap-3 rounded-md border border-line bg-white px-3 text-left text-sm shadow-sm"
+          aria-expanded={isOpen}
+        >
+          <span className="truncate text-ink">{selectedLabel}</span>
+          <ChevronDown className={`h-4 w-4 shrink-0 text-slate-500 transition-transform ${isOpen ? "rotate-180" : ""}`} />
+        </button>
+        {isOpen ? (
+          <div className="absolute left-0 top-full z-50 mt-2 max-h-72 w-full overflow-y-auto rounded-md border border-line bg-surface-highest p-1 shadow-soft">
+            {options.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => {
+                  onChange(option.value);
+                  setIsOpen(false);
+                }}
+                className={`focus-ring block w-full rounded-md px-3 py-2 text-left text-sm font-semibold transition-colors hover:bg-sage ${
+                  option.value === value ? "bg-cobalt/15 text-ink" : "text-slate-600"
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    </label>
+  );
 }
 
 function DateRangePicker({
@@ -491,7 +631,25 @@ export default function TechLaunchDashboard() {
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [statusText, setStatusText] = useState("");
+  const [versionOptions, setVersionOptions] = useState<AppVersionOption[]>([]);
+  const [isLoadingVersions, setIsLoadingVersions] = useState(false);
+  const [versionError, setVersionError] = useState("");
+  const [versionCacheStatus, setVersionCacheStatus] = useState("");
+  const [isVersionMenuOpen, setIsVersionMenuOpen] = useState(false);
+  const [pendingUrlRun, setPendingUrlRun] = useState(false);
   const requestIdRef = useRef(0);
+  const versionRequestIdRef = useRef(0);
+  const hasReadUrlRef = useRef(false);
+  const skipNextUrlSyncRef = useRef(false);
+
+  function updateFilters(patch: Partial<Filters>) {
+    requestIdRef.current += 1;
+    setIsLoading(false);
+    setData(null);
+    setError("");
+    setStatusText("");
+    setFilters((current) => ({ ...current, ...patch }));
+  }
 
   async function postReadiness(path: string, body: unknown) {
     const response = await fetch(path, {
@@ -501,6 +659,16 @@ export default function TechLaunchDashboard() {
     });
     if (!response.ok) throw new Error(await response.text());
     return (await response.json()) as ReadinessApiResponse;
+  }
+
+  async function postAppVersions(body: Pick<Filters, "appName" | "platform" | "startDate" | "endDate">) {
+    const response = await fetch("/api/tech-launch/app-versions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) throw new Error(await response.text());
+    return (await response.json()) as AppVersionsResponse;
   }
 
   async function wait(ms: number) {
@@ -528,10 +696,11 @@ export default function TechLaunchDashboard() {
     }
   }
 
-  async function loadReadiness(forceRefresh = false) {
+  async function loadReadiness(forceRefresh = false, options: { updateUrlRun?: boolean } = {}) {
     const requestId = requestIdRef.current + 1;
     requestIdRef.current = requestId;
     const filterSnapshot = { ...filters };
+    if (options.updateUrlRun !== false) writeFiltersToUrl(filterSnapshot, true);
     setIsLoading(true);
     setError("");
     setStatusText(forceRefresh ? "Submitting fresh Count query..." : "Checking cache...");
@@ -555,13 +724,80 @@ export default function TechLaunchDashboard() {
     }
   }
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const urlFilters = filtersFromSearchParams(new URLSearchParams(window.location.search));
+    hasReadUrlRef.current = true;
+    skipNextUrlSyncRef.current = true;
+    if (!urlFilters) return;
+    setFilters(urlFilters);
+    if (new URLSearchParams(window.location.search).get("run") === "1") setPendingUrlRun(true);
+  }, []);
+
+  useEffect(() => {
+    if (!hasReadUrlRef.current) return;
+    if (pendingUrlRun) return;
+    if (skipNextUrlSyncRef.current) {
+      skipNextUrlSyncRef.current = false;
+      return;
+    }
+    writeFiltersToUrl(filters, false);
+  }, [filters]);
+
+  useEffect(() => {
+    const requestId = versionRequestIdRef.current + 1;
+    versionRequestIdRef.current = requestId;
+    setIsLoadingVersions(true);
+    setVersionError("");
+    setVersionCacheStatus("");
+
+    void postAppVersions({
+      appName: filters.appName,
+      platform: filters.platform,
+      startDate: filters.startDate,
+      endDate: filters.endDate,
+    })
+      .then((result) => {
+        if (versionRequestIdRef.current !== requestId) return;
+        setVersionOptions(result.versions);
+        setVersionCacheStatus(result.cache.hit ? "Version list loaded from cache" : "Version list refreshed");
+      })
+      .catch((err) => {
+        if (versionRequestIdRef.current !== requestId) return;
+        setVersionOptions([]);
+        setVersionError(err instanceof Error ? err.message : "Could not load app versions");
+      })
+      .finally(() => {
+        if (versionRequestIdRef.current === requestId) setIsLoadingVersions(false);
+      });
+  }, [filters.appName, filters.platform, filters.startDate, filters.endDate]);
+
   const sortedRows = useMemo(() => {
     const rank: Record<Verdict, number> = { red: 0, yellow: 1, "insufficient data": 2, green: 3 };
     return [...(data?.rows ?? [])].sort((a, b) => rank[a.verdict] - rank[b.verdict] || a.metricTitle.localeCompare(b.metricTitle));
   }, [data]);
 
+  const visibleVersionOptions = useMemo(() => {
+    const query = filters.appVersion.trim().toLowerCase();
+    if (!query) return versionOptions.slice(0, 12);
+    const filtered = versionOptions.filter((option) => option.appVersion.toLowerCase().includes(query));
+    return filtered.slice(0, 12);
+  }, [filters.appVersion, versionOptions]);
+
+  const selectedVersion = versionOptions.find((option) => option.appVersion === filters.appVersion);
+  const hasMissingSelectedVersion = Boolean(filters.appVersion && !isLoadingVersions && !selectedVersion);
+  const hasTypedVersion = Boolean(filters.appVersion.trim());
+  const canRunReadiness = Boolean(hasTypedVersion && !isLoading);
+
+  useEffect(() => {
+    if (!pendingUrlRun || !hasTypedVersion) return;
+    setPendingUrlRun(false);
+    void loadReadiness(false, { updateUrlRun: false });
+  }, [pendingUrlRun, hasTypedVersion]);
+
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!canRunReadiness) return;
     void loadReadiness(false);
   }
 
@@ -593,47 +829,125 @@ export default function TechLaunchDashboard() {
             Filters
           </div>
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1.1fr_0.8fr_1fr_1.7fr_auto_auto]">
-            <label className="block">
-              <span className="mb-2 block text-sm font-semibold text-ink">App</span>
-              <select
-                value={filters.appName}
-                onChange={(event) => setFilters((current) => ({ ...current, appName: event.target.value }))}
-                className="focus-ring h-11 w-full rounded-md border border-line bg-white px-3 text-sm shadow-sm"
-              >
-                {appOptions.map((app) => (
-                  <option key={app} value={app}>
-                    {app}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="block">
-              <span className="mb-2 block text-sm font-semibold text-ink">Platform</span>
-              <select
-                value={filters.platform}
-                onChange={(event) => setFilters((current) => ({ ...current, platform: event.target.value as Filters["platform"] }))}
-                className="focus-ring h-11 w-full rounded-md border border-line bg-white px-3 text-sm shadow-sm"
-              >
-                <option value="android">android</option>
-                <option value="ios">ios</option>
-              </select>
-            </label>
+            <FilterDropdown
+              label="App"
+              value={filters.appName as Filters["appName"]}
+              options={appOptions.map((app) => ({ value: app, label: app }))}
+              onChange={(appName) => updateFilters({ appName })}
+            />
+            <FilterDropdown
+              label="Platform"
+              value={filters.platform}
+              options={[
+                { value: "android", label: "android" },
+                { value: "ios", label: "ios" },
+              ]}
+              onChange={(platform) => updateFilters({ platform })}
+            />
             <label className="block">
               <span className="mb-2 block text-sm font-semibold text-ink">App Version</span>
-              <input
-                value={filters.appVersion}
-                onChange={(event) => setFilters((current) => ({ ...current, appVersion: event.target.value }))}
-                className="focus-ring h-11 w-full rounded-md border border-line bg-white px-3 text-sm shadow-sm"
-              />
+              <div
+                className="relative"
+                onBlur={(event) => {
+                  if (!event.currentTarget.contains(event.relatedTarget)) setIsVersionMenuOpen(false);
+                }}
+              >
+                <input
+                  value={filters.appVersion}
+                  onChange={(event) => {
+                    updateFilters({ appVersion: event.target.value });
+                    setIsVersionMenuOpen(true);
+                  }}
+                  onFocus={() => setIsVersionMenuOpen(true)}
+                  placeholder={isLoadingVersions ? "Type version or wait for suggestions" : "Type or select version"}
+                  className="focus-ring h-11 w-full rounded-md border border-line bg-white px-3 pr-20 text-sm shadow-sm"
+                  role="combobox"
+                  aria-expanded={isVersionMenuOpen}
+                  aria-controls="tech-launch-app-version-options"
+                />
+                {filters.appVersion ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      updateFilters({ appVersion: "" });
+                      setIsVersionMenuOpen(true);
+                    }}
+                    className="focus-ring absolute right-9 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-slate-500 hover:bg-sage hover:text-ink"
+                    aria-label="Clear app version"
+                  >
+                    <XCircle className="h-4 w-4" />
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => setIsVersionMenuOpen((open) => !open)}
+                  className="focus-ring absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-slate-500 hover:bg-sage hover:text-ink"
+                  aria-label="Toggle app version suggestions"
+                  aria-expanded={isVersionMenuOpen}
+                >
+                  <ChevronDown className={`h-4 w-4 transition-transform ${isVersionMenuOpen ? "rotate-180" : ""}`} />
+                </button>
+                {isVersionMenuOpen ? (
+                  <div
+                    id="tech-launch-app-version-options"
+                    role="listbox"
+                    className="absolute left-0 top-full z-50 mt-2 max-h-72 w-full overflow-y-auto rounded-md border border-line bg-surface-highest p-1 shadow-soft"
+                  >
+                    {isLoadingVersions ? (
+                      <div className="flex items-center gap-2 px-3 py-3 text-sm font-semibold text-slate-500">
+                        <LoadingSpinner />
+                        Loading suggestions...
+                      </div>
+                    ) : visibleVersionOptions.length ? (
+                      visibleVersionOptions.map((option) => (
+                        <button
+                          key={option.appVersion}
+                          type="button"
+                          role="option"
+                          aria-selected={filters.appVersion === option.appVersion}
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => {
+                            updateFilters({ appVersion: option.appVersion });
+                            setIsVersionMenuOpen(false);
+                          }}
+                          className={`focus-ring block w-full rounded-md px-3 py-2 text-left transition-colors hover:bg-sage ${
+                            filters.appVersion === option.appVersion ? "bg-cobalt/15 text-ink" : "text-slate-600"
+                          }`}
+                        >
+                          <span className="block text-sm font-bold text-ink">{option.appVersion}</span>
+                          <span className="mt-1 block text-xs">
+                            {new Intl.NumberFormat(undefined, { notation: "compact" }).format(option.sampleCount)} samples
+                          </span>
+                        </button>
+                      ))
+                    ) : (
+                      <div className="px-3 py-3 text-sm text-slate-500">
+                        No matching suggestions. You can still run this typed version.
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+              </div>
+              <p className={`mt-2 min-h-5 text-xs ${versionError || hasMissingSelectedVersion ? "text-amber" : "text-slate-500"}`}>
+                {versionError
+                  ? "Version suggestions could not load. You can still run a known version."
+                  : hasMissingSelectedVersion
+                    ? "Version not found in selected range. Query may return no rows."
+                    : isLoadingVersions
+                      ? "Loading suggestions. You can type a known version now."
+                      : selectedVersion
+                        ? `${new Intl.NumberFormat().format(selectedVersion.sampleCount)} samples · ${selectedVersion.firstSeen} to ${selectedVersion.lastSeen}`
+                        : versionCacheStatus || "Type a version or choose from suggestions."}
+              </p>
             </label>
             <DateRangePicker
               startDate={filters.startDate}
               endDate={filters.endDate}
-              onChange={(range) => setFilters((current) => ({ ...current, ...range }))}
+              onChange={(range) => updateFilters(range)}
             />
             <button
               type="submit"
-              disabled={isLoading}
+              disabled={!canRunReadiness}
               className="focus-ring mt-7 inline-flex h-11 items-center justify-center gap-2 rounded-md bg-cobalt px-4 text-sm font-semibold text-white hover:bg-cobalt/90 disabled:opacity-60"
             >
               {isLoading ? <LoadingSpinner /> : <Activity className="h-4 w-4" />}
@@ -641,7 +955,7 @@ export default function TechLaunchDashboard() {
             </button>
             <button
               type="button"
-              disabled={isLoading}
+              disabled={!canRunReadiness}
               onClick={() => void loadReadiness(true)}
               className="focus-ring mt-7 inline-flex h-11 items-center justify-center gap-2 rounded-md border border-line bg-white px-4 text-sm font-semibold hover:bg-slate-50 disabled:opacity-60"
             >

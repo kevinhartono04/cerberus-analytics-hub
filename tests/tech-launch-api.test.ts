@@ -1,16 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ZodError } from "zod";
 
+import { POST as APP_VERSIONS_POST } from "@/app/api/tech-launch/app-versions/route";
 import { POST } from "@/app/api/tech-launch/readiness/route";
 import { POST as STATUS_POST } from "@/app/api/tech-launch/readiness/status/route";
 
 const mocks = vi.hoisted(() => ({
+  getAppVersions: vi.fn(),
   getReadiness: vi.fn(),
   getReadinessStatus: vi.fn(),
   requireCurrentAppUser: vi.fn(),
 }));
 
 vi.mock("@/lib/tech-launch", () => ({
+  getTechLaunchAppVersions: mocks.getAppVersions,
   getTechLaunchReadiness: mocks.getReadiness,
   getTechLaunchReadinessStatus: mocks.getReadinessStatus,
 }));
@@ -80,6 +83,17 @@ describe("Tech Launch readiness API", () => {
       cache: { hit: false, key: "cache-key" },
       pollAfterMs: 1500,
     });
+    mocks.getAppVersions.mockReset().mockResolvedValue({
+      filters: {
+        appName: body.appName,
+        platform: body.platform,
+        startDate: body.startDate,
+        endDate: body.endDate,
+      },
+      versions: [{ appVersion: "1.0.0", sampleCount: 1200, firstSeen: "2026-06-25", lastSeen: "2026-07-02" }],
+      metadata: { executedAt: "2026-07-02T00:00:00.000Z" },
+      cache: { hit: false, key: "versions-cache-key", expiresAt: "2026-07-02T01:00:00.000Z" },
+    });
   });
 
   it("requires authentication", async () => {
@@ -116,6 +130,21 @@ describe("Tech Launch readiness API", () => {
     expect(response.status).toBe(200);
     expect(json.metadata.jobKey).toBe("job-key");
     expect(mocks.getReadinessStatus).toHaveBeenCalledWith({ jobKey: "job-key", filters: body });
+  });
+
+  it("returns app versions for authenticated viewers", async () => {
+    const payload = {
+      appName: body.appName,
+      platform: body.platform,
+      startDate: body.startDate,
+      endDate: body.endDate,
+    };
+    const response = await APP_VERSIONS_POST(authedRequest(payload));
+    const json = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(json.versions[0].appVersion).toBe("1.0.0");
+    expect(mocks.getAppVersions).toHaveBeenCalledWith(payload);
   });
 
   it("returns 400 for validation errors", async () => {
