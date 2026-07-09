@@ -8,7 +8,6 @@ import {
   Copy,
   Eye,
   FileText,
-  Gauge,
   Link2,
   Library,
   LogIn,
@@ -31,6 +30,7 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { UseFormReturn, useForm } from "react-hook-form";
 
+import ProductSwitcher from "@/components/ProductSwitcher";
 import { splitTextList } from "@/lib/canonical";
 import {
   GeneratedEvent,
@@ -803,22 +803,6 @@ function SidebarNavButton({
       <Icon className={`h-4 w-4 shrink-0 ${isActive ? "text-white" : "text-slate-500 group-hover:text-ink"}`} />
       {collapsed ? null : <span className="truncate max-md:hidden">{item.label}</span>}
     </button>
-  );
-}
-
-function SidebarRouteLink({ collapsed }: { collapsed: boolean }) {
-  return (
-    <a
-      href="/tech-launch"
-      title={collapsed ? "Tech Launch" : undefined}
-      aria-label="Tech Launch"
-      className={`focus-ring group flex h-11 w-full items-center gap-3 rounded-md border border-transparent bg-transparent px-3 text-sm font-semibold text-slate-500 transition-colors hover:border-line hover:bg-sage hover:text-ink ${
-        collapsed ? "justify-center" : "justify-start max-md:justify-center"
-      }`}
-    >
-      <Gauge className="h-4 w-4 shrink-0 text-slate-500 group-hover:text-ink" />
-      {collapsed ? null : <span className="truncate max-md:hidden">Tech Launch</span>}
-    </a>
   );
 }
 
@@ -2835,9 +2819,17 @@ export default function MvpApp({ library }: { library: LibrarySnapshot }) {
                 <h1 className="text-lg font-bold leading-tight text-ink max-md:hidden">Cerberus Analytics Hub</h1>
               )}
             </div>
+            <div className="mt-4">
+              <ProductSwitcher current="spec-generator" collapsed={sidebarCollapsed} />
+            </div>
           </div>
 
           <nav className="flex flex-1 flex-col gap-1 p-3" aria-label="Primary navigation">
+            {sidebarCollapsed ? null : (
+              <div className="px-3 pb-2 pt-1 text-[11px] font-bold uppercase tracking-wide text-slate-500 max-md:hidden">
+                Workflow
+              </div>
+            )}
             {visibleNavigationItems.map((item) => (
               <SidebarNavButton
                 key={item.tab}
@@ -2847,7 +2839,6 @@ export default function MvpApp({ library }: { library: LibrarySnapshot }) {
                 collapsed={sidebarCollapsed}
               />
             ))}
-            <SidebarRouteLink collapsed={sidebarCollapsed} />
           </nav>
 
           <div className="border-t border-line p-3">

@@ -16,6 +16,8 @@ import {
 } from "lucide-react";
 import { FormEvent, ReactNode, useEffect, useId, useMemo, useRef, useState } from "react";
 
+import ProductSwitcher from "@/components/ProductSwitcher";
+
 const appOptions = [
   "blockkingdom",
   "bloomsort",
@@ -815,12 +817,9 @@ export default function TechLaunchDashboard() {
               Live Snowflake telemetry via Count API, cached by filter set for fast repeat loads.
             </p>
           </div>
-          <a
-            href="/"
-            className="focus-ring inline-flex h-10 items-center rounded-md border border-line bg-white px-4 text-sm font-semibold text-slate-500 hover:bg-sage hover:text-ink"
-          >
-            Analytics Hub
-          </a>
+          <div className="w-full sm:w-72">
+            <ProductSwitcher current="tech-launch" />
+          </div>
         </div>
 
         <form onSubmit={submit} className="mb-5 rounded-lg border border-line bg-white p-4 shadow-sm">
