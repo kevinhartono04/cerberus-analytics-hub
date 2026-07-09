@@ -30,7 +30,7 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { UseFormReturn, useForm } from "react-hook-form";
 
-import ProductSwitcher from "@/components/ProductSwitcher";
+import CerberusShell, { ShellNavItem } from "@/components/CerberusShell";
 import { splitTextList } from "@/lib/canonical";
 import {
   GeneratedEvent,
@@ -142,6 +142,12 @@ const interstitialAdPlacementOptions = ["game_end", "session_resume", "mid_game"
 const payloadDataTypeOptions = ["String", "Integer", "Float", "Bool", "Array"];
 type PayloadDataType = (typeof payloadDataTypeOptions)[number];
 
+const intakeLabelClass = "mb-2 block font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500";
+const intakeInputClass =
+  "focus-ring h-[42px] w-full rounded-[9px] border border-line/70 bg-[#0a111e] px-3 text-sm font-semibold text-slate-300 shadow-none placeholder:text-slate-500";
+const intakeTextareaClass =
+  "focus-ring min-h-[62px] w-full resize-y rounded-[9px] border border-line/70 bg-[#0a111e] px-3 py-2 text-sm leading-relaxed text-slate-300 shadow-none placeholder:text-slate-500";
+
 const eventGroupOptions = [
   {
     id: "gameplay",
@@ -226,11 +232,11 @@ function Field({
 }) {
   return (
     <label className="block">
-      <span className="mb-2 block text-sm font-semibold text-ink">{label}</span>
+      <span className={intakeLabelClass}>{label}</span>
       <textarea
         {...register(name)}
         placeholder={placeholder}
-        className="focus-ring min-h-24 w-full resize-y rounded-md border border-line bg-white px-3 py-2 text-sm shadow-sm"
+        className={intakeTextareaClass}
       />
     </label>
   );
@@ -251,11 +257,11 @@ function TextInput({
 }) {
   return (
     <label className="block">
-      <span className="mb-2 block text-sm font-semibold text-ink">{label}</span>
+      <span className={intakeLabelClass}>{label}</span>
       <input
         {...register(name)}
         placeholder={placeholder}
-        className="focus-ring h-11 w-full rounded-md border border-line bg-white px-3 text-sm shadow-sm"
+        className={intakeInputClass}
       />
       {help ? <span className="mt-2 block text-xs text-slate-500">{help}</span> : null}
     </label>
@@ -281,6 +287,8 @@ function CheckboxDropdown({
   const selected = splitTextList(value);
   const selectedSet = new Set(selected);
   const tone = categoryTone(label);
+  const visibleSelections = selected.slice(0, 5);
+  const hiddenSelectionCount = Math.max(0, selected.length - visibleSelections.length);
 
   function toggle(option: string) {
     const next = selectedSet.has(option)
@@ -290,28 +298,48 @@ function CheckboxDropdown({
   }
 
   return (
-    <details className={`rounded-md border border-line border-l-2 bg-white shadow-sm open:shadow-md ${tone.border}`}>
-      <summary className="focus-ring flex cursor-pointer list-none items-center justify-between gap-3 rounded-md px-4 py-3">
-        <span>
-          <span className={`block text-sm font-semibold ${tone.text}`}>{label}</span>
-          <span className="mt-1 block text-xs text-slate-500">
-            {selected.length ? `${selected.length} selected` : helper}
+    <details className={`group rounded-[11px] border border-line/70 border-l-2 bg-[#0a111e] shadow-none open:shadow-soft ${tone.border}`}>
+      <summary className="focus-ring flex cursor-pointer list-none items-start justify-between gap-3 rounded-[11px] px-4 py-3">
+        <span className="min-w-0 flex-1">
+          <span className="flex items-center justify-between gap-3">
+            <span className="block text-sm font-bold text-slate-300">{label}</span>
+            <span className="shrink-0 font-mono text-[10px] text-slate-500">
+              {selected.length ? `${selected.length} selected` : "Optional"}
+            </span>
           </span>
+          {visibleSelections.length ? (
+            <span className="mt-2 flex flex-wrap gap-1.5">
+              {visibleSelections.map((item) => (
+                <span key={item} className="rounded-[7px] border border-line/80 bg-[#151c2e] px-2 py-1 text-[11px] text-slate-300">
+                  {item}
+                </span>
+              ))}
+              {hiddenSelectionCount ? (
+                <span className="rounded-[7px] border border-line bg-sage px-2 py-1 text-[11px] text-slate-500">
+                  +{hiddenSelectionCount}
+                </span>
+              ) : null}
+            </span>
+          ) : (
+            <span className="mt-2 block text-xs leading-relaxed text-slate-500">{helper}</span>
+          )}
         </span>
-        <ToneChip tone={tone}>Choose</ToneChip>
+        <span className="tone-chip w-fit rounded border border-line/80 bg-[#151c2e] px-2 py-1 font-mono text-[10px] font-semibold uppercase tracking-[0.04em] text-slate-400">
+          Choose
+        </span>
       </summary>
-      <div className="border-t border-line p-4">
+      <div className="border-t border-line/70 p-4">
         <div className="grid gap-2 sm:grid-cols-2">
           {options.map((option) => (
             <label
               key={option}
-              className="flex items-start gap-2 rounded-md border border-line bg-mist px-3 py-2 text-sm hover:bg-slate-50"
+              className="flex items-start gap-2 rounded-md border border-line/70 bg-[#0d1424] px-3 py-2 text-sm text-text-muted hover:bg-sage"
             >
               <input
                 type="checkbox"
                 checked={selectedSet.has(option)}
                 onChange={() => toggle(option)}
-                className="mt-0.5 h-4 w-4 rounded border-line text-cobalt"
+                className="mt-0.5 h-4 w-4 rounded border-line bg-[#0a111e] text-cobalt"
               />
               <span>{option}</span>
             </label>
@@ -319,12 +347,12 @@ function CheckboxDropdown({
         </div>
         {allowCustom ? (
           <label className="mt-3 block">
-            <span className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <span className={intakeLabelClass}>
               Selected / custom entries
             </span>
             <textarea
               {...form.register(name)}
-              className="focus-ring min-h-20 w-full resize-y rounded-md border border-line bg-white px-3 py-2 text-sm"
+              className={intakeTextareaClass}
               placeholder="Selections appear here. Add custom items separated by commas."
             />
           </label>
@@ -402,7 +430,14 @@ function categoryTone(value: string) {
       bar: "bg-violet",
     };
   }
-  if (lower.includes("game") || lower.includes("play") || lower.includes("core")) {
+  if (
+    lower.includes("game") ||
+    lower.includes("play") ||
+    lower.includes("core") ||
+    lower.includes("mechanic") ||
+    lower.includes("powerup") ||
+    lower.includes("revive")
+  ) {
     return {
       text: "text-cobalt",
       border: "border-l-cobalt",
@@ -2796,95 +2831,64 @@ export default function MvpApp({ library }: { library: LibrarySnapshot }) {
     await refreshSavedSpecs();
   }
 
+  const shellNavigationItems: ShellNavItem<Tab>[] = visibleNavigationItems.map((item) => ({
+    id: item.tab,
+    label: item.label,
+    icon: item.icon,
+  }));
+
   return (
-    <main className="theme-dark min-h-screen bg-mist">
-      <div className="flex min-h-screen">
-        <aside
-          className={`sticky top-0 flex h-screen shrink-0 flex-col border-r border-line bg-white/95 transition-[width] duration-200 ${
-            sidebarCollapsed ? "w-20" : "w-20 md:w-72"
-          }`}
-        >
-          <div className={`border-b border-line px-4 py-5 ${sidebarCollapsed ? "text-center" : ""}`}>
-            <div
-              className={`flex items-center gap-3 ${
-                sidebarCollapsed ? "justify-center" : "max-md:justify-center"
-              }`}
-            >
-              <img
-                src="/cerberus_logo_512.png"
-                alt="Cerberus Analytics Hub"
-                className="h-10 w-10 shrink-0 rounded-md object-contain"
-              />
-              {sidebarCollapsed ? null : (
-                <h1 className="text-lg font-bold leading-tight text-ink max-md:hidden">Cerberus Analytics Hub</h1>
-              )}
-            </div>
-            <div className="mt-4">
-              <ProductSwitcher current="spec-generator" collapsed={sidebarCollapsed} />
-            </div>
-          </div>
-
-          <nav className="flex flex-1 flex-col gap-1 p-3" aria-label="Primary navigation">
-            {sidebarCollapsed ? null : (
-              <div className="px-3 pb-2 pt-1 text-[11px] font-bold uppercase tracking-wide text-slate-500 max-md:hidden">
-                Workflow
-              </div>
-            )}
-            {visibleNavigationItems.map((item) => (
-              <SidebarNavButton
-                key={item.tab}
-                item={item}
-                activeTab={activeTab}
-                setActiveTab={setActiveTab}
-                collapsed={sidebarCollapsed}
-              />
-            ))}
-          </nav>
-
-          <div className="border-t border-line p-3">
-            <AuthPanel auth={auth} collapsed={sidebarCollapsed} />
-          </div>
-
-          <div className="border-t border-line p-3">
-            <button
-              type="button"
-              title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-              aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-              onClick={() => setSidebarCollapsed((value) => !value)}
-              className={`focus-ring flex h-10 w-full items-center gap-2 rounded-md border border-line bg-mist px-3 text-sm font-semibold text-slate-500 hover:bg-sage hover:text-ink ${
-                sidebarCollapsed ? "justify-center" : "justify-start max-md:justify-center"
-              }`}
-            >
-              {sidebarCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
-              {sidebarCollapsed ? null : <span className="max-md:hidden">Collapse</span>}
-            </button>
-          </div>
-        </aside>
-
-        <section className="min-w-0 flex-1">
-          <div className="mx-auto max-w-[1440px] px-4 py-6 md:px-8">
+    <CerberusShell<Tab>
+      currentProduct="spec-generator"
+      navItems={shellNavigationItems}
+      activeNav={activeTab}
+      onNavChange={setActiveTab}
+      collapsed={sidebarCollapsed}
+      onToggleCollapsed={() => setSidebarCollapsed((value) => !value)}
+      user={{
+        authenticated: auth.authenticated,
+        name: auth.user?.name,
+        email: auth.user?.email,
+        roleLabel: auth.user ? roleLabels[auth.user.role] : undefined,
+      }}
+    >
         {activeTab === "intake" ? (
-          <section className="grid gap-6 lg:grid-cols-[1fr_340px]">
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5 rounded-lg border border-line bg-white p-5 shadow-soft">
-              <div className="grid gap-4 md:grid-cols-2">
+          <>
+          <div className="mb-6">
+            <div className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.16em] text-cobalt">
+              <span className="h-1.5 w-1.5 rounded-full bg-cobalt shadow-[0_0_10px_#3d82ff]" />
+              Spec Generator · Intake
+            </div>
+            <h1 className="mt-3 font-display text-3xl font-extrabold leading-tight text-[#f4f6ff]">Describe the game</h1>
+            <p className="mt-2 max-w-2xl text-sm text-slate-500">
+              Fill the intake and generate a draft analytics spec matched against the reference library.
+            </p>
+          </div>
+          <section className="grid items-start gap-[18px] lg:grid-cols-[1fr_320px]">
+            <form
+              onSubmit={form.handleSubmit(onSubmit)}
+              className="space-y-[18px] rounded-2xl border border-line/70 bg-[linear-gradient(180deg,#0e1626,#0c1421)] p-[22px] shadow-soft"
+            >
+              <div className="grid gap-[14px] md:grid-cols-2">
                 <label className="block">
-                  <span className="mb-2 block text-sm font-semibold text-ink">Game Title</span>
+                  <span className={intakeLabelClass}>Game Title</span>
                   <input
                     {...form.register("gameTitle")}
-                    className="focus-ring h-11 w-full rounded-md border border-line bg-white px-3 text-sm shadow-sm"
+                    className={intakeInputClass}
                     placeholder="Sizzle Sort"
                   />
                 </label>
                 <label className="block">
-                  <span className="mb-2 block text-sm font-semibold text-ink">Genre</span>
+                  <span className={intakeLabelClass}>Genre</span>
                   <input
                     {...form.register("genre")}
-                    className="focus-ring h-11 w-full rounded-md border border-line bg-white px-3 text-sm shadow-sm"
+                    className={intakeInputClass}
                     placeholder="Match-3 timed puzzle"
                   />
                 </label>
               </div>
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="font-mono text-[10px] uppercase tracking-[0.12em] text-slate-500">Feature Selection</div>
+              <div className="grid gap-3 md:grid-cols-2">
                 {intakeOptionGroups.map((group) => (
                   <CheckboxDropdown key={group.name} form={form} {...group} allowCustom={group.name !== "ads"} />
                 ))}
@@ -2909,10 +2913,10 @@ export default function MvpApp({ library }: { library: LibrarySnapshot }) {
                   />
                 ) : null}
               </div>
-              <div className="grid gap-4 md:grid-cols-2">
-                <Field label="Game Modes" name="gameModes" register={form.register} />
+              <div className="grid gap-[14px] md:grid-cols-2">
                 <Field label="Win Conditions" name="winConditions" register={form.register} />
                 <Field label="Lose Conditions" name="loseConditions" register={form.register} />
+                <Field label="Game Modes" name="gameModes" register={form.register} />
                 <Field label="Items / Powerups" name="itemsOrPowerups" register={form.register} />
                 <TextInput
                   label="Powerup Names"
@@ -2931,16 +2935,16 @@ export default function MvpApp({ library }: { library: LibrarySnapshot }) {
                 </div>
               ) : null}
               {!canCreateOrEdit ? (
-                <p className="rounded-md border border-line bg-sage p-3 text-sm text-slate-700">
+                <p className="rounded-md border border-line bg-sage p-3 text-sm text-slate-600">
                   Sign in as an admin or editor to generate and save specs.
                 </p>
               ) : null}
               {error ? <p className="rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</p> : null}
-              <div className="flex flex-wrap gap-3">
+              <div className="flex flex-wrap gap-3 pt-1">
                 <button
                   type="submit"
                   disabled={isGenerating || !canCreateOrEdit}
-                  className="focus-ring inline-flex items-center gap-2 rounded-md bg-cobalt px-4 py-2 text-sm font-semibold text-white hover:bg-cobalt/90 disabled:opacity-60"
+                  className="focus-ring inline-flex h-11 items-center gap-2 rounded-[10px] bg-cobalt px-[18px] text-sm font-semibold text-white shadow-[0_8px_22px_-8px_#3d82ff] hover:bg-cobalt/90 disabled:opacity-60"
                 >
                   <Play className="h-4 w-4" />
                   {isGenerating ? "Generating..." : "Generate Spec"}
@@ -2948,7 +2952,7 @@ export default function MvpApp({ library }: { library: LibrarySnapshot }) {
                 <button
                   type="button"
                   onClick={() => form.reset(exampleIntake)}
-                  className="focus-ring inline-flex items-center gap-2 rounded-md border border-line bg-white px-4 py-2 text-sm font-semibold hover:bg-slate-50"
+                  className="focus-ring inline-flex h-11 items-center gap-2 rounded-[10px] border border-line/70 bg-[#121b2c] px-4 text-sm font-semibold text-text-muted hover:bg-[#17223a]"
                 >
                   <Sparkles className="h-4 w-4" />
                   Load Example
@@ -2956,31 +2960,36 @@ export default function MvpApp({ library }: { library: LibrarySnapshot }) {
               </div>
             </form>
 
-            <aside className="space-y-4">
-              <div className="rounded-lg border border-line bg-white p-4 shadow-sm">
-                <div className="flex items-center gap-2 font-bold text-ink">
-                  <Library className="h-4 w-4" />
+            <aside className="space-y-[14px]">
+              <div className="rounded-[14px] border border-line/70 bg-[linear-gradient(180deg,#101a2d,#0d1626)] p-[18px] shadow-soft">
+                <div className="flex items-center gap-2 font-display text-sm font-bold text-slate-300">
+                  <Library className="h-4 w-4 text-slate-400" />
                   Library Seed
                 </div>
-                <p className="mt-2 text-sm text-slate-600">
-                  Seeded from {library.events.length} canonical events and {library.generationPacks.length} generation packs.
+                <p className="mt-3 text-[12.5px] leading-relaxed text-slate-500">
+                  Seeded from <span className="font-semibold text-text-muted">{library.events.length} canonical events</span> and{" "}
+                  <span className="font-semibold text-text-muted">{library.generationPacks.length} generation packs</span>.
                 </p>
               </div>
-              <div className="rounded-lg border border-line bg-white p-4 shadow-sm">
-                <div className="flex items-center gap-2 font-bold text-ink">
-                  <BookOpen className="h-4 w-4" />
+              <div className="rounded-[14px] border border-line/70 bg-[linear-gradient(180deg,#101a2d,#0d1626)] p-[18px] shadow-soft">
+                <div className="flex items-center gap-2 font-display text-sm font-bold text-slate-300">
+                  <BookOpen className="h-4 w-4 text-slate-400" />
                   Intake Tips
                 </div>
-                <ul className="mt-2 space-y-2 text-sm text-slate-600">
+                <ul className="mt-3 space-y-2.5 text-[12.5px] leading-relaxed text-slate-500">
                   {splitTextList("Mention ads only if the game has ads; Include IAP/store terms if purchases exist; Add lose conditions to improve Game_End payload recommendations").map(
                     (tip) => (
-                      <li key={tip}>{tip}</li>
+                      <li key={tip} className="flex gap-2">
+                        <span className="mt-px text-cobalt">›</span>
+                        <span>{tip}</span>
+                      </li>
                     ),
                   )}
                 </ul>
               </div>
             </aside>
           </section>
+          </>
         ) : null}
 
         {activeTab === "review" ? (
@@ -3013,9 +3022,6 @@ export default function MvpApp({ library }: { library: LibrarySnapshot }) {
         ) : null}
         {activeTab === "library" ? <LibraryBrowser library={library} /> : null}
         {activeTab === "users" && canManageUsers(auth.user) ? <UserRoleAdmin currentUser={auth.user} /> : null}
-          </div>
-        </section>
-      </div>
-    </main>
+    </CerberusShell>
   );
 }

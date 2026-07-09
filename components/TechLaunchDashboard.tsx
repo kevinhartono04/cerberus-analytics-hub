@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { FormEvent, ReactNode, useEffect, useId, useMemo, useRef, useState } from "react";
 
-import ProductSwitcher from "@/components/ProductSwitcher";
+import CerberusShell from "@/components/CerberusShell";
 
 const appOptions = [
   "blockkingdom",
@@ -804,21 +804,18 @@ export default function TechLaunchDashboard() {
   }
 
   return (
-    <main className="theme-dark min-h-screen bg-mist">
-      <div className="mx-auto max-w-[1440px] px-4 py-6 md:px-8">
+    <CerberusShell currentProduct="tech-launch">
         <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
           <div>
-            <div className="flex items-center gap-2 text-xs font-semibold uppercase text-cobalt">
+            <div className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.16em] text-emerald">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald shadow-[0_0_10px_#4edea3]" />
               <Gauge className="h-4 w-4" />
-              Tech Launch
+              Tech Launch · Readiness
             </div>
-            <h1 className="mt-2 text-3xl font-bold text-ink">Readiness Dashboard</h1>
+            <h1 className="mt-3 font-display text-3xl font-extrabold leading-tight text-[#f4f6ff]">Readiness Dashboard</h1>
             <p className="mt-2 max-w-3xl text-sm text-slate-600">
               Live Snowflake telemetry via Count API, cached by filter set for fast repeat loads.
             </p>
-          </div>
-          <div className="w-full sm:w-72">
-            <ProductSwitcher current="tech-launch" />
           </div>
         </div>
 
@@ -1126,7 +1123,6 @@ export default function TechLaunchDashboard() {
             )}
           </div>
         )}
-      </div>
-    </main>
+    </CerberusShell>
   );
 }
