@@ -132,6 +132,7 @@ export default function CerberusShell<T extends string>({
   collapsed = false,
   onToggleCollapsed,
   user,
+  contentClassName = "max-w-[1320px]",
   children,
 }: {
   currentProduct: HubProductId;
@@ -141,6 +142,7 @@ export default function CerberusShell<T extends string>({
   collapsed?: boolean;
   onToggleCollapsed?: () => void;
   user?: ShellUser;
+  contentClassName?: string;
   children: ReactNode;
 }) {
   return (
@@ -237,8 +239,8 @@ export default function CerberusShell<T extends string>({
           ) : null}
         </aside>
 
-        <section className="max-h-screen min-w-0 flex-1 overflow-y-auto">
-          <div className="mx-auto max-w-[1320px] px-4 py-8 md:px-9">{children}</div>
+        <section className="max-h-screen min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
+          <div className={`mx-auto w-full px-4 py-8 md:px-9 ${contentClassName}`}>{children}</div>
         </section>
       </div>
     </main>

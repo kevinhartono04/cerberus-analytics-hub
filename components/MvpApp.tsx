@@ -147,6 +147,11 @@ const intakeInputClass =
   "focus-ring h-[42px] w-full rounded-[9px] border border-line/70 bg-[#0a111e] px-3 text-sm font-semibold text-slate-300 shadow-none placeholder:text-slate-500";
 const intakeTextareaClass =
   "focus-ring min-h-[62px] w-full resize-y rounded-[9px] border border-line/70 bg-[#0a111e] px-3 py-2 text-sm leading-relaxed text-slate-300 shadow-none placeholder:text-slate-500";
+const editorLabelClass = "mb-2 block font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500";
+const editorInputClass =
+  "focus-ring h-[42px] w-full rounded-[9px] border border-line/70 bg-[#0a111e] px-3 text-sm font-semibold text-slate-300 shadow-none placeholder:text-slate-500 disabled:opacity-60";
+const editorTextareaClass =
+  "focus-ring min-h-[62px] w-full resize-y rounded-[9px] border border-line/70 bg-[#0a111e] px-3 py-2 text-sm leading-relaxed text-slate-300 shadow-none placeholder:text-slate-500 disabled:opacity-60";
 
 const eventGroupOptions = [
   {
@@ -510,6 +515,17 @@ function Metric({ label, value }: { label: string; value: string | number }) {
   );
 }
 
+function EditorMetric({ label, value }: { label: string; value: string | number }) {
+  const tone = metricTone(label, value);
+  return (
+    <div className="relative overflow-hidden rounded-[14px] border border-line/70 bg-[linear-gradient(180deg,#101a2d,#0d1626)] px-[18px] py-4">
+      <div className={`absolute inset-x-0 top-0 h-0.5 ${tone.bar}`} />
+      <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">{label}</div>
+      <div className={`metric-value mt-2 font-display text-3xl font-extrabold leading-none ${tone.metric}`}>{value}</div>
+    </div>
+  );
+}
+
 function payloadFieldFromName(name: string): GeneratedPayloadField {
   return {
     fieldName: name,
@@ -713,91 +729,94 @@ function PayloadDetailsEditor({
   canEdit: boolean;
 }) {
   return (
-    <div className="space-y-3">
-      {payloadFields.map((payload, payloadIndex) => (
-        <div key={`payload-${payloadIndex}`} className="rounded-md border border-line bg-mist p-3">
-          <div className="grid gap-3 lg:grid-cols-[180px_104px_minmax(280px,1fr)_180px_76px]">
-            <label className="block">
-              <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">Payload</span>
-              <input
-                aria-label={`${eventName} payload name ${payloadIndex + 1}`}
-                value={payload.canonicalFieldName}
-                readOnly={!canEdit}
-                onChange={(event) =>
-                  onChange(payloadIndex, {
-                    fieldName: event.target.value,
-                    canonicalFieldName: event.target.value,
-                  })
-                }
-                className="focus-ring h-9 w-full rounded-md border border-line bg-white px-2 font-mono text-sm font-semibold text-cobalt"
-              />
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">Type</span>
-              <select
-                aria-label={`${eventName} ${payload.canonicalFieldName} data type`}
-                value={canonicalPayloadDataType(payload.type) ?? normalizePayloadDataType(payload, { inferFromExample: true })}
-                disabled={!canEdit}
-                onChange={(event) => onChange(payloadIndex, { type: event.target.value })}
-                className="focus-ring h-9 w-full rounded-full border border-line bg-white px-2 font-mono text-[11px] font-semibold text-cyan disabled:opacity-60"
-              >
-                {payloadDataTypeOptions.map((type) => (
-                  <option key={type} value={type}>
-                    {type}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">Description</span>
-              <textarea
-                aria-label={`${eventName} ${payload.canonicalFieldName} description`}
-                value={payload.description}
-                readOnly={!canEdit}
-                onChange={(event) => onChange(payloadIndex, { description: event.target.value })}
-                className="focus-ring min-h-20 w-full rounded-md border border-line bg-white px-2 py-1 text-sm"
-              />
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">Example</span>
-              <textarea
-                aria-label={`${eventName} ${payload.canonicalFieldName} example`}
-                value={payload.example}
-                readOnly={!canEdit}
-                onChange={(event) => onChange(payloadIndex, { example: event.target.value })}
-                className="focus-ring min-h-20 w-full rounded-md border border-line bg-white px-2 py-1 font-mono text-sm text-emerald"
-              />
-            </label>
-            <div className="mt-5 flex gap-1.5">
-              <button
-                type="button"
-                title="Duplicate payload"
-                aria-label={`${eventName} duplicate ${payload.canonicalFieldName}`}
-                disabled={!canEdit}
-                onClick={() => onDuplicate(payloadIndex)}
-                className="focus-ring inline-flex h-9 w-9 items-center justify-center rounded-md border border-line bg-white text-slate-500 hover:bg-sage hover:text-ink disabled:opacity-50"
-              >
-                <Copy className="h-3.5 w-3.5" />
-              </button>
-              <button
-                type="button"
-                title="Remove payload"
-                aria-label={`${eventName} remove ${payload.canonicalFieldName}`}
-                disabled={!canEdit}
-                onClick={() => onDelete(payloadIndex)}
-                className="focus-ring inline-flex h-9 w-9 items-center justify-center rounded-md border border-rose/40 bg-rose/10 text-rose hover:bg-rose/20 disabled:opacity-50"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          </div>
+    <div>
+      <div className="overflow-x-auto rounded-xl border border-line/60">
+        <div className="grid min-w-[820px] grid-cols-[200px_110px_minmax(260px,1fr)_170px_78px] gap-0 border-b border-line/60 bg-[#0d1424] px-3 py-2.5 font-mono text-[9.5px] uppercase tracking-[0.1em] text-slate-500">
+          <div>Payload</div>
+          <div>Type</div>
+          <div>Description</div>
+          <div>Example</div>
+          <div />
         </div>
-      ))}
+        <div>
+          {payloadFields.map((payload, payloadIndex) => {
+            const rowTone = payloadIndex % 2 === 0 ? "bg-[#0a111e]" : "bg-[#0c1423]";
+            return (
+              <div
+                key={`payload-${payloadIndex}`}
+                className={`grid min-w-[820px] grid-cols-[200px_110px_minmax(260px,1fr)_170px_78px] items-center border-b border-line/40 px-3 py-2.5 last:border-b-0 hover:bg-[#101a2c] ${rowTone}`}
+              >
+                <input
+                  aria-label={`${eventName} payload name ${payloadIndex + 1}`}
+                  value={payload.canonicalFieldName}
+                  readOnly={!canEdit}
+                  onChange={(event) =>
+                    onChange(payloadIndex, {
+                      fieldName: event.target.value,
+                      canonicalFieldName: event.target.value,
+                    })
+                  }
+                  className="focus-ring mr-3 min-w-0 rounded-md border border-transparent bg-transparent px-2 py-1 font-mono text-[13px] font-semibold text-cobalt hover:border-line/60 focus:border-line/80"
+                />
+                <select
+                  aria-label={`${eventName} ${payload.canonicalFieldName} data type`}
+                  value={canonicalPayloadDataType(payload.type) ?? normalizePayloadDataType(payload, { inferFromExample: true })}
+                  disabled={!canEdit}
+                  onChange={(event) => onChange(payloadIndex, { type: event.target.value })}
+                  className="focus-ring mr-3 h-8 rounded-full border border-line/70 bg-[#121b2c] px-2 font-mono text-[11px] font-semibold text-slate-300 disabled:opacity-60"
+                >
+                  {payloadDataTypeOptions.map((type) => (
+                    <option key={type} value={type}>
+                      {type}
+                    </option>
+                  ))}
+                </select>
+                <textarea
+                  aria-label={`${eventName} ${payload.canonicalFieldName} description`}
+                  value={payload.description}
+                  readOnly={!canEdit}
+                  onChange={(event) => onChange(payloadIndex, { description: event.target.value })}
+                  className="focus-ring mr-3 min-h-10 resize-y rounded-md border border-transparent bg-transparent px-2 py-1 text-[12.5px] leading-snug text-slate-400 hover:border-line/60 focus:border-line/80"
+                />
+                <textarea
+                  aria-label={`${eventName} ${payload.canonicalFieldName} example`}
+                  value={payload.example}
+                  readOnly={!canEdit}
+                  onChange={(event) => onChange(payloadIndex, { example: event.target.value })}
+                  className="focus-ring mr-3 min-h-10 resize-y rounded-md border border-transparent bg-transparent px-2 py-1 font-mono text-xs leading-snug text-slate-300 hover:border-line/60 focus:border-line/80"
+                />
+                <div className="flex justify-end gap-1.5">
+                  <button
+                    type="button"
+                    title="Duplicate payload"
+                    aria-label={`${eventName} duplicate ${payload.canonicalFieldName}`}
+                    disabled={!canEdit}
+                    onClick={() => onDuplicate(payloadIndex)}
+                    className="focus-ring inline-flex h-8 w-8 items-center justify-center rounded-md border border-line/70 bg-[#121b2c] text-slate-500 hover:bg-sage hover:text-slate-300 disabled:opacity-50"
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    title="Remove payload"
+                    aria-label={`${eventName} remove ${payload.canonicalFieldName}`}
+                    disabled={!canEdit}
+                    onClick={() => onDelete(payloadIndex)}
+                    className="focus-ring inline-flex h-8 w-8 items-center justify-center rounded-md border border-rose/40 bg-rose/10 text-rose hover:bg-rose/20 disabled:opacity-50"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
       <button
         type="button"
         disabled={!canEdit}
         onClick={onAdd}
-        className="focus-ring inline-flex items-center gap-1 rounded-md border border-line bg-white px-3 py-2 text-xs font-semibold hover:bg-slate-50 disabled:opacity-50"
+        className="focus-ring mt-3 inline-flex items-center gap-1.5 rounded-[9px] border border-dashed border-line/80 bg-transparent px-3.5 py-2 text-xs font-semibold text-slate-400 hover:border-cobalt hover:text-cobalt disabled:opacity-50"
       >
         <Plus className="h-3.5 w-3.5" />
         Add Payload
@@ -1149,10 +1168,10 @@ function SpecReview({
 
   if (!spec) {
     return (
-      <section className="rounded-md border border-dashed border-line bg-white p-10 text-center shadow-sm">
+      <section className="rounded-2xl border border-dashed border-line/70 bg-[linear-gradient(180deg,#0e1626,#0c1421)] p-10 text-center shadow-soft">
         <Sparkles className="mx-auto h-8 w-8 text-cobalt" />
-        <h2 className="mt-4 text-xl font-bold text-ink">No spec generated yet</h2>
-        <p className="mt-2 text-sm text-slate-600">Fill the game intake and generate a draft analytics spec.</p>
+        <h2 className="mt-4 font-display text-xl font-bold text-slate-200">No spec generated yet</h2>
+        <p className="mt-2 text-sm text-slate-500">Fill the game intake and generate a draft analytics spec.</p>
       </section>
     );
   }
@@ -1162,18 +1181,20 @@ function SpecReview({
     filteredAdPayloadGroups.find((group) => group.key === selectedAdPayloadGroupKey) ?? filteredAdPayloadGroups[0] ?? null;
 
   return (
-    <section className="space-y-6">
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-        <Metric label="Generated Events" value={spec.generatedEvents.length} />
-        <Metric label="Feature Packs" value={spec.selectedFeaturePacks.length} />
-        <Metric label="Platform Ad Payloads" value={spec.platformAdPayloads.length} />
-        <Metric label="Review Status" value={reviewStatusForEvents(spec.generatedEvents)} />
-      </div>
-
-      <div className="flex flex-col justify-between gap-3 rounded-md border border-line bg-white p-4 shadow-sm md:flex-row md:items-center">
+    <section className="space-y-[26px]">
+      <div className="flex flex-wrap items-end justify-between gap-6">
         <div>
-          <h2 className="text-lg font-bold text-ink">{spec.intake.gameTitle}</h2>
-          <p className="text-sm text-slate-600">Generated {new Date(spec.generatedAt).toLocaleString()}</p>
+          <div className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.16em] text-cobalt">
+            <span className="h-1.5 w-1.5 rounded-full bg-cobalt shadow-[0_0_10px_#3d82ff]" />
+            Spec Generator · Editor
+          </div>
+          <h1 className="mt-3 font-display text-[34px] font-extrabold leading-none text-[#f4f6ff]">
+            {spec.intake.gameTitle || "Untitled Spec"}
+          </h1>
+          <p className="mt-2 text-sm text-slate-500">
+            Generated {new Date(spec.generatedAt).toLocaleString()} · {spec.generatedEvents.length} events
+            {spec.intake.genre ? ` · ${spec.intake.genre}` : ""}
+          </p>
           {saveStatus ? <p className="mt-1 text-xs font-semibold text-cobalt">{saveStatus}</p> : null}
         </div>
         <div className="flex flex-wrap gap-2">
@@ -1181,7 +1202,7 @@ function SpecReview({
             type="button"
             disabled={!canEdit}
             onClick={addCustomEvent}
-            className="focus-ring inline-flex items-center gap-2 rounded-md border border-line bg-white px-3 py-2 text-sm font-semibold hover:bg-slate-50 disabled:opacity-50"
+            className="focus-ring inline-flex h-11 items-center gap-2 rounded-[10px] border border-line/70 bg-[#121b2c] px-4 text-sm font-semibold text-slate-300 hover:bg-[#17223a] disabled:opacity-50"
           >
             <Plus className="h-4 w-4" />
             Add Event
@@ -1190,7 +1211,7 @@ function SpecReview({
             type="button"
             disabled={!canEdit}
             onClick={onSave}
-            className="focus-ring inline-flex items-center gap-2 rounded-md bg-cobalt px-3 py-2 text-sm font-semibold text-white hover:bg-cobalt/90 disabled:opacity-50"
+            className="focus-ring inline-flex h-11 items-center gap-2 rounded-[10px] bg-cobalt px-[18px] text-sm font-semibold text-white shadow-[0_8px_22px_-8px_#3d82ff] hover:bg-cobalt/90 disabled:opacity-50"
           >
             <Save className="h-4 w-4" />
             Save Spec
@@ -1198,22 +1219,26 @@ function SpecReview({
         </div>
       </div>
 
-      <div className="rounded-md border border-line bg-white p-4 shadow-sm">
-        <div className="mb-3 flex items-center gap-3">
-          <Search className="h-4 w-4 text-slate-500" />
-          <input
-            value={globalFilter}
-            onChange={(event) => setGlobalFilter(event.target.value)}
-            placeholder="Filter generated events..."
-            className="focus-ring w-full rounded-md border border-line px-3 py-2 text-sm"
-          />
-        </div>
-        <div className="grid gap-4 xl:grid-cols-[360px_1fr]">
-          <div className="max-h-[720px] overflow-auto rounded-md border border-line bg-mist">
-            <div className="sticky top-0 border-b border-line bg-sage px-3 py-2 text-xs font-semibold uppercase text-slate-600">
-              Events
+      <div className="grid grid-cols-1 gap-[14px] md:grid-cols-4">
+        <EditorMetric label="Generated Events" value={spec.generatedEvents.length} />
+        <EditorMetric label="Feature Packs" value={spec.selectedFeaturePacks.length} />
+        <EditorMetric label="Ad Payloads" value={spec.platformAdPayloads.length} />
+        <EditorMetric label="Review Status" value={reviewStatusForEvents(spec.generatedEvents)} />
+      </div>
+
+      <div className="grid items-start gap-[18px] xl:grid-cols-[minmax(280px,372px)_minmax(0,1fr)]">
+          <div className="min-w-0 overflow-hidden rounded-2xl border border-line/70 bg-[#0b1120]">
+            <div className="flex items-center gap-2 border-b border-line/60 bg-[#0d1424] px-4 py-3">
+              <Search className="h-4 w-4 text-slate-500" />
+              <input
+                value={globalFilter}
+                onChange={(event) => setGlobalFilter(event.target.value)}
+                placeholder="Filter events"
+                className="focus-ring min-w-0 flex-1 border-0 bg-transparent text-sm text-slate-300 outline-none placeholder:text-slate-500"
+              />
+              <span className="font-mono text-[10px] text-slate-600">{filteredEventIndexes.length}</span>
             </div>
-            <div className="divide-y divide-line">
+            <div className="max-h-[640px] overflow-auto">
               {filteredEventIndexes.map((eventIndex) => {
                 const eventRow = spec.generatedEvents[eventIndex];
                 const isSelected = eventIndex === selectedEventIndex;
@@ -1223,14 +1248,14 @@ function SpecReview({
                     key={`${eventRow.eventName}-${eventIndex}`}
                     type="button"
                     onClick={() => setSelectedEventIndex(eventIndex)}
-                    className={`focus-ring block w-full border-l-2 px-3 py-3 text-left text-sm ${tone.border} ${
-                      isSelected ? "bg-sage shadow-sm" : "hover:bg-sage"
+                    className={`focus-ring block w-full border-b border-line/40 border-l-[3px] px-4 py-3 text-left text-sm ${tone.border} ${
+                      isSelected ? "bg-[#141d30]" : "hover:bg-[#111a2c]"
                     }`}
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <div className={`truncate font-mono text-sm font-semibold ${tone.text}`}>{eventRow.eventName}</div>
-                        <div className="mt-1 truncate text-xs text-slate-600">{eventRow.featurePack}</div>
+                        <div className="mt-1 truncate text-xs text-slate-500">{eventRow.featurePack}</div>
                       </div>
                       <StatusChip status={eventRow.status} />
                     </div>
@@ -1247,12 +1272,14 @@ function SpecReview({
             </div>
           </div>
 
-            <div className="rounded-md border border-line bg-white p-4">
+          <div className="min-w-0 rounded-2xl border border-line/70 bg-[linear-gradient(180deg,#0e1626,#0c1421)] p-[22px]">
             {selectedEvent ? (
               <div className="space-y-5">
-                <div className="flex flex-col justify-between gap-3 border-b border-line pb-4 md:flex-row md:items-start">
+                <div className="flex flex-col justify-between gap-3 border-b border-line/60 pb-4 md:flex-row md:items-start">
                   <div>
-                    <div className="text-xs font-semibold uppercase text-slate-500">Event Details</div>
+                    <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">
+                      Event Details
+                    </div>
                     <h3 className={`mt-1 font-mono text-lg font-bold ${categoryTone(`${selectedEvent.category} ${selectedEvent.featurePack} ${selectedEvent.eventName}`).text}`}>
                       {selectedEvent.eventName}
                     </h3>
@@ -1260,7 +1287,7 @@ function SpecReview({
                       <ToneChip tone={categoryTone(`${selectedEvent.category} ${selectedEvent.featurePack} ${selectedEvent.eventName}`)}>
                         {selectedEvent.category}
                       </ToneChip>
-                      <span className="text-sm text-slate-600">{selectedEvent.featurePack}</span>
+                      <span className="text-sm text-slate-500">{selectedEvent.featurePack}</span>
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -1268,7 +1295,7 @@ function SpecReview({
                       type="button"
                       disabled={!canEdit}
                       onClick={() => duplicateEvent(selectedEventIndex)}
-                      className="focus-ring inline-flex items-center justify-center gap-2 rounded-md border border-line bg-white px-3 py-2 text-sm font-semibold hover:bg-sage disabled:opacity-50"
+                      className="focus-ring inline-flex items-center justify-center gap-2 rounded-[9px] border border-line/70 bg-[#121b2c] px-3 py-2 text-sm font-semibold text-slate-300 hover:bg-[#17223a] disabled:opacity-50"
                     >
                       <Copy className="h-4 w-4" />
                       Duplicate Event
@@ -1285,23 +1312,23 @@ function SpecReview({
                   </div>
                 </div>
 
-                <div className="grid gap-4 md:grid-cols-[1fr_220px_220px]">
+                <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(160px,220px)_minmax(160px,220px)]">
                   <label className="block">
-                    <span className="mb-2 block text-xs font-semibold uppercase text-slate-500">Event Name</span>
+                    <span className={editorLabelClass}>Event Name</span>
                     <input
                       value={selectedEvent.eventName}
                       readOnly={!canEdit}
                       onChange={(event) => updateEvent(selectedEventIndex, { eventName: event.target.value })}
-                      className="focus-ring h-11 w-full rounded-md border border-line px-3 text-sm font-semibold"
+                      className={`${editorInputClass} font-mono`}
                     />
                   </label>
                   <label className="block">
-                    <span className="mb-2 block text-xs font-semibold uppercase text-slate-500">Grouping</span>
+                    <span className={editorLabelClass}>Grouping</span>
                     <select
                       value={eventGroupIdForEvent(selectedEvent)}
                       disabled={!canEdit}
                       onChange={(event) => updateEvent(selectedEventIndex, eventGroupPatch(event.target.value as EventGroupId))}
-                      className="focus-ring h-11 w-full rounded-md border border-line bg-white px-3 text-sm font-semibold"
+                      className={editorInputClass}
                     >
                       {eventGroupOptions.map((group) => (
                         <option key={group.id} value={group.id}>
@@ -1311,12 +1338,12 @@ function SpecReview({
                     </select>
                   </label>
                   <label className="block">
-                    <span className="mb-2 block text-xs font-semibold uppercase text-slate-500">Status</span>
+                    <span className={editorLabelClass}>Status</span>
                     <select
                       value={selectedEvent.status}
                       disabled={!canEdit}
                       onChange={(event) => updateEvent(selectedEventIndex, { status: event.target.value })}
-                      className="focus-ring h-11 w-full rounded-md border border-line bg-white px-3 text-sm"
+                      className={editorInputClass}
                     >
                       <option>Draft</option>
                       <option>Reviewed</option>
@@ -1326,51 +1353,51 @@ function SpecReview({
                 </div>
 
                 <label className="block">
-                  <span className="mb-2 block text-xs font-semibold uppercase text-slate-500">Trigger Condition</span>
+                  <span className={editorLabelClass}>Trigger Condition</span>
                   <textarea
                     value={selectedEvent.trigger}
                     readOnly={!canEdit}
                     onChange={(event) => updateEvent(selectedEventIndex, { trigger: event.target.value })}
-                    className="focus-ring min-h-24 w-full rounded-md border border-line px-3 py-2 text-sm"
+                    className={`${editorTextareaClass} min-h-24`}
                   />
                 </label>
 
                 <div>
                   <div className="mb-3">
-                    <h4 className="font-bold text-ink">Argument Details</h4>
-                    <p className="text-sm text-slate-600">Edit the event argument key, value description, and example values.</p>
+                    <h4 className="font-bold text-slate-200">Argument Details</h4>
+                    <p className="text-sm text-slate-500">Edit the event argument key, value description, and example values.</p>
                   </div>
-                  <div className="grid gap-3 rounded-md border border-line bg-mist p-3 lg:grid-cols-[220px_1fr_260px]">
+                  <div className="grid gap-3 rounded-xl border border-line/60 bg-[#0a111e] p-3 lg:grid-cols-[minmax(160px,220px)_minmax(0,1fr)_minmax(180px,260px)]">
                     <label className="block">
-                      <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">Argument Type</span>
+                      <span className={editorLabelClass}>Argument Type</span>
                       <input
                         aria-label={`${selectedEvent.eventName} argument type`}
                         value={selectedEvent.argumentName}
                         readOnly={!canEdit}
                         onChange={(event) => updateEvent(selectedEventIndex, { argumentName: event.target.value })}
-                        className="focus-ring h-10 w-full rounded-md border border-line bg-white px-3 font-mono text-sm font-semibold text-cobalt"
+                        className={`${editorInputClass} font-mono`}
                         placeholder="reason"
                       />
                     </label>
                     <label className="block">
-                      <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">Argument Value Description</span>
+                      <span className={editorLabelClass}>Argument Value Description</span>
                       <textarea
                         aria-label={`${selectedEvent.eventName} argument value description`}
                         value={selectedEvent.argumentDescription}
                         readOnly={!canEdit}
                         onChange={(event) => updateEvent(selectedEventIndex, { argumentDescription: event.target.value })}
-                        className="focus-ring min-h-20 w-full rounded-md border border-line bg-white px-3 py-2 text-sm"
+                        className={`${editorTextareaClass} min-h-20`}
                         placeholder="<the reason for the game round to end>"
                       />
                     </label>
                     <label className="block">
-                      <span className="mb-1 block text-xs font-semibold uppercase text-slate-500">Argument Value Example</span>
+                      <span className={editorLabelClass}>Argument Value Example</span>
                       <textarea
                         aria-label={`${selectedEvent.eventName} argument value example`}
                         value={selectedEvent.argumentExamples}
                         readOnly={!canEdit}
                         onChange={(event) => updateEvent(selectedEventIndex, { argumentExamples: event.target.value })}
-                        className="focus-ring min-h-20 w-full rounded-md border border-line bg-white px-3 py-2 font-mono text-sm text-emerald"
+                        className={`${editorTextareaClass} min-h-20 font-mono`}
                         placeholder='"win", "lose"'
                       />
                     </label>
@@ -1380,8 +1407,8 @@ function SpecReview({
                 <div>
                   <div className="mb-3 flex items-center justify-between gap-3">
                     <div>
-                      <h4 className="font-bold text-ink">Payload Details</h4>
-                      <p className="text-sm text-slate-600">Edit field names, descriptions, and example values for this event.</p>
+                      <h4 className="font-bold text-slate-200">Payload Details</h4>
+                      <p className="text-sm text-slate-500">Edit field names, descriptions, and example values for this event.</p>
                     </div>
                   </div>
                   <PayloadDetailsEditor
@@ -1396,44 +1423,43 @@ function SpecReview({
                 </div>
               </div>
             ) : (
-              <div className="rounded-md border border-dashed border-line p-10 text-center text-sm text-slate-500">
+              <div className="rounded-xl border border-dashed border-line/70 p-10 text-center text-sm text-slate-500">
                 Select an event to review its details.
               </div>
             )}
           </div>
         </div>
-      </div>
 
       {spec.platformAdPayloads.length ? (
-        <div className="rounded-md border border-line bg-white p-4 shadow-sm">
+        <div className="rounded-2xl border border-line/70 bg-[linear-gradient(180deg,#0e1626,#0c1421)] p-[22px]">
           <div className="mb-3 flex flex-col justify-between gap-3 md:flex-row md:items-start">
             <div>
-              <h3 className="font-bold text-ink">Platform Ad Payload Enrichment</h3>
-              <p className="mt-1 text-sm text-slate-600">
+              <h3 className="font-bold text-slate-200">Platform Ad Payload Enrichment</h3>
+              <p className="mt-1 text-sm text-slate-500">
                 Edit one payload definition per ad type. Changes apply to every platform-triggered event in that ad type.
               </p>
             </div>
-            <span className="w-fit rounded bg-sage px-2 py-1 text-xs font-semibold uppercase text-slate-600">
+            <span className="w-fit rounded-md border border-line/70 bg-[#121b2c] px-2 py-1 font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">
               {adPayloadGroups.length} payload definitions
             </span>
           </div>
 
-          <div className="mb-3 flex items-center gap-3">
+          <div className="mb-3 flex items-center gap-3 rounded-xl border border-line/70 bg-[#0a111e] px-3 py-2">
             <Search className="h-4 w-4 text-slate-500" />
             <input
               value={adPayloadFilter}
               onChange={(event) => setAdPayloadFilter(event.target.value)}
               placeholder="Filter ad payloads..."
-              className="focus-ring w-full rounded-md border border-line px-3 py-2 text-sm"
+              className="focus-ring min-w-0 flex-1 border-0 bg-transparent text-sm text-slate-300 outline-none placeholder:text-slate-500"
             />
           </div>
 
-          <div className="grid gap-4 xl:grid-cols-[360px_1fr]">
-            <div className="max-h-[560px] overflow-auto rounded-md border border-line bg-mist">
-              <div className="sticky top-0 border-b border-line bg-sage px-3 py-2 text-xs font-semibold uppercase text-slate-600">
+          <div className="grid gap-4 xl:grid-cols-[minmax(280px,360px)_minmax(0,1fr)]">
+            <div className="min-w-0 max-h-[560px] overflow-auto rounded-xl border border-line/70 bg-[#0b1120]">
+              <div className="sticky top-0 border-b border-line/60 bg-[#0d1424] px-3 py-2 font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">
                 Ad Payload Definitions
               </div>
-              <div className="divide-y divide-line">
+              <div className="divide-y divide-line/40">
                 {filteredAdPayloadGroups.map((group) => {
                   const isSelected = group.key === selectedAdPayloadGroup?.key;
                   const tone = categoryTone(`${group.adFamily} ad payload`);
@@ -1443,18 +1469,18 @@ function SpecReview({
                       type="button"
                       onClick={() => setSelectedAdPayloadGroupKey(group.key)}
                       className={`focus-ring block w-full border-l-2 px-3 py-3 text-left text-sm ${tone.border} ${
-                        isSelected ? "bg-sage shadow-sm" : "hover:bg-sage"
+                        isSelected ? "bg-[#141d30]" : "hover:bg-[#111a2c]"
                       }`}
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
                           <div className={`truncate font-mono text-sm font-semibold ${tone.text}`}>{group.canonicalPayloadName}</div>
-                          <div className="mt-1 truncate text-xs text-slate-600">{group.adFamily} Ads</div>
+                          <div className="mt-1 truncate text-xs text-slate-500">{group.adFamily} Ads</div>
                         </div>
                         <ToneChip tone={tone}>{group.platformEventNames.length} events</ToneChip>
                       </div>
                       <div className="mt-2 line-clamp-2 text-xs text-slate-500">{group.description}</div>
-                      <div className="mt-2 truncate font-mono text-xs text-slate-700">{group.example}</div>
+                      <div className="mt-2 truncate font-mono text-xs text-slate-500">{group.example}</div>
                     </button>
                   );
                 })}
@@ -1464,16 +1490,18 @@ function SpecReview({
               </div>
             </div>
 
-            <div className="rounded-md border border-line bg-white p-4">
+            <div className="min-w-0 rounded-xl border border-line/70 bg-[#0a111e] p-4">
               {selectedAdPayloadGroup ? (
                 <div className="space-y-5">
-                  <div className="flex flex-col justify-between gap-3 border-b border-line pb-4 md:flex-row md:items-start">
+                  <div className="flex flex-col justify-between gap-3 border-b border-line/60 pb-4 md:flex-row md:items-start">
                     <div>
-                      <div className="text-xs font-semibold uppercase text-slate-500">Ad Payload Definition</div>
+                      <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">
+                        Ad Payload Definition
+                      </div>
                       <h4 className={`mt-1 font-mono text-lg font-bold ${categoryTone(`${selectedAdPayloadGroup.adFamily} ad payload`).text}`}>
                         {selectedAdPayloadGroup.canonicalPayloadName}
                       </h4>
-                      <p className="text-sm text-slate-600">
+                      <p className="text-sm text-slate-500">
                         Applies to all {selectedAdPayloadGroup.adFamily.toLowerCase()} platform ad events.
                       </p>
                     </div>
@@ -1483,20 +1511,24 @@ function SpecReview({
                   </div>
 
                   <div className="grid gap-3 md:grid-cols-[180px_1fr]">
-                    <div className="rounded-md border border-line bg-mist p-3">
-                      <div className="text-xs font-semibold uppercase text-slate-500">Ad Family</div>
-                      <div className="mt-1 break-words text-sm font-semibold text-ink">{selectedAdPayloadGroup.adFamily}</div>
+                    <div className="rounded-xl border border-line/60 bg-[#0d1424] p-3">
+                      <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">
+                        Ad Family
+                      </div>
+                      <div className="mt-1 break-words text-sm font-semibold text-slate-300">{selectedAdPayloadGroup.adFamily}</div>
                     </div>
-                    <div className="rounded-md border border-line bg-mist p-3">
-                      <div className="text-xs font-semibold uppercase text-slate-500">Affected Events</div>
-                      <div className="mt-1 break-words text-sm font-semibold text-ink">
+                    <div className="rounded-xl border border-line/60 bg-[#0d1424] p-3">
+                      <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">
+                        Affected Events
+                      </div>
+                      <div className="mt-1 break-words text-sm font-semibold text-slate-300">
                         {selectedAdPayloadGroup.platformEventNames.join(", ")}
                       </div>
                     </div>
                   </div>
 
                   <label className="block">
-                    <span className="mb-2 block text-xs font-semibold uppercase text-slate-500">Payload Name</span>
+                    <span className={editorLabelClass}>Payload Name</span>
                     <input
                       data-testid="ad-payload-name"
                       aria-label={`${selectedAdPayloadGroup.adFamily} ${selectedAdPayloadGroup.canonicalPayloadName} payload name`}
@@ -1510,12 +1542,12 @@ function SpecReview({
                         });
                         setSelectedAdPayloadGroupKey(adPayloadGroupKey(selectedAdPayloadGroup.adFamily, nextName));
                       }}
-                      className="focus-ring h-11 w-full rounded-md border border-line px-3 text-sm font-semibold"
+                      className={`${editorInputClass} font-mono`}
                     />
                   </label>
 
                   <label className="block">
-                    <span className="mb-2 block text-xs font-semibold uppercase text-slate-500">Requiredness</span>
+                    <span className={editorLabelClass}>Requiredness</span>
                     <input
                       data-testid="ad-payload-requiredness"
                       aria-label={`${selectedAdPayloadGroup.adFamily} ${selectedAdPayloadGroup.canonicalPayloadName} requiredness`}
@@ -1524,12 +1556,12 @@ function SpecReview({
                       onChange={(event) =>
                         updatePlatformAdPayloadGroup(selectedAdPayloadGroup, { requiredness: event.target.value })
                       }
-                      className="focus-ring h-11 w-full rounded-md border border-line px-3 text-sm"
+                      className={editorInputClass}
                     />
                   </label>
 
                   <label className="block">
-                    <span className="mb-2 block text-xs font-semibold uppercase text-slate-500">Description</span>
+                    <span className={editorLabelClass}>Description</span>
                     <textarea
                       data-testid="ad-payload-description"
                       aria-label={`${selectedAdPayloadGroup.adFamily} ${selectedAdPayloadGroup.canonicalPayloadName} platform description`}
@@ -1538,24 +1570,24 @@ function SpecReview({
                       onChange={(event) =>
                         updatePlatformAdPayloadGroup(selectedAdPayloadGroup, { description: event.target.value })
                       }
-                      className="focus-ring min-h-24 w-full rounded-md border border-line px-3 py-2 text-sm"
+                      className={`${editorTextareaClass} min-h-24`}
                     />
                   </label>
 
                   <label className="block">
-                    <span className="mb-2 block text-xs font-semibold uppercase text-slate-500">Example</span>
+                    <span className={editorLabelClass}>Example</span>
                     <textarea
                       data-testid="ad-payload-example"
                       aria-label={`${selectedAdPayloadGroup.adFamily} ${selectedAdPayloadGroup.canonicalPayloadName} platform example`}
                       value={selectedAdPayloadGroup.example}
                       readOnly={!canEdit}
                       onChange={(event) => updatePlatformAdPayloadGroup(selectedAdPayloadGroup, { example: event.target.value })}
-                      className="focus-ring min-h-20 w-full rounded-md border border-line px-3 py-2 font-mono text-sm"
+                      className={`${editorTextareaClass} min-h-20 font-mono`}
                     />
                   </label>
                 </div>
               ) : (
-                <div className="rounded-md border border-dashed border-line p-10 text-center text-sm text-slate-500">
+                <div className="rounded-xl border border-dashed border-line/70 p-10 text-center text-sm text-slate-500">
                   Select an ad payload to review its details.
                 </div>
               )}
@@ -1589,19 +1621,20 @@ function ImportDetailsDialog({
   if (!file) return null;
   const canSubmit = Boolean(gameTitle.trim()) && !isImporting;
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 px-4">
-      <form onSubmit={onSubmit} className="w-full max-w-md rounded-md border border-line bg-white p-5 shadow-soft">
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm">
+      <form onSubmit={onSubmit} className="w-full max-w-md rounded-2xl border border-line/70 bg-[#0d1424] p-5 shadow-soft">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h3 className="text-lg font-bold text-ink">Import Spec Details</h3>
-            <p className="mt-1 text-sm text-slate-600">{file.name}</p>
+            <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-cobalt">Saved Specs</div>
+            <h3 className="mt-2 font-display text-lg font-bold text-[#f2f5ff]">Import Spec Details</h3>
+            <p className="mt-1 text-sm text-slate-500">{file.name}</p>
           </div>
           <button
             type="button"
             aria-label="Cancel import"
             disabled={isImporting}
             onClick={onCancel}
-            className="focus-ring inline-flex h-9 w-9 items-center justify-center rounded-md border border-line bg-mist text-slate-500 hover:bg-sage disabled:opacity-50"
+            className="focus-ring inline-flex h-9 w-9 items-center justify-center rounded-md border border-line/70 bg-[#0a111e] text-slate-500 hover:bg-[#17223a] disabled:opacity-50"
           >
             <X className="h-4 w-4" />
           </button>
@@ -1609,22 +1642,22 @@ function ImportDetailsDialog({
 
         <div className="mt-5 space-y-4">
           <label className="block">
-            <span className="mb-2 block text-sm font-semibold text-ink">Game Name</span>
+            <span className={editorLabelClass}>Game Name</span>
             <input
               value={gameTitle}
               onChange={(event) => onGameTitleChange(event.target.value)}
-              className="focus-ring h-11 w-full rounded-md border border-line bg-white px-3 text-sm shadow-sm"
+              className={editorInputClass}
               required
               autoFocus
             />
           </label>
           <label className="block">
-            <span className="mb-2 block text-sm font-semibold text-ink">Genre</span>
+            <span className={editorLabelClass}>Genre</span>
             <input
               value={genre}
               onChange={(event) => onGenreChange(event.target.value)}
               placeholder="Optional"
-              className="focus-ring h-11 w-full rounded-md border border-line bg-white px-3 text-sm shadow-sm"
+              className={editorInputClass}
             />
           </label>
         </div>
@@ -1634,7 +1667,7 @@ function ImportDetailsDialog({
             type="button"
             disabled={isImporting}
             onClick={onCancel}
-            className="focus-ring inline-flex h-10 items-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-semibold hover:bg-slate-50 disabled:opacity-50"
+            className="focus-ring inline-flex h-10 items-center gap-2 rounded-[9px] border border-line/70 bg-[#121b2c] px-3 text-sm font-semibold text-text-muted hover:bg-[#17223a] disabled:opacity-50"
           >
             <X className="h-4 w-4" />
             Cancel
@@ -1706,7 +1739,7 @@ function SavedSpecsBrowser({
   function ImportControl() {
     if (!canImport) return null;
     return (
-      <label className="focus-ring inline-flex h-10 cursor-pointer items-center gap-2 rounded-md border border-line bg-white px-3 text-sm font-semibold hover:bg-slate-50">
+      <label className="focus-ring inline-flex h-11 cursor-pointer items-center gap-2 rounded-[10px] border border-line/70 bg-[#121b2c] px-4 text-sm font-semibold text-text-muted hover:bg-[#17223a]">
         <Upload className="h-4 w-4" />
         {isImporting ? "Importing..." : "Import Spec"}
         <input
@@ -1726,7 +1759,7 @@ function SavedSpecsBrowser({
 
   if (!savedSpecs.length) {
     return (
-      <section className="rounded-md border border-dashed border-line bg-white p-10 text-center shadow-sm">
+      <section className="space-y-6">
         <ImportDetailsDialog
           file={pendingImportFile}
           gameTitle={importGameTitle}
@@ -1737,19 +1770,29 @@ function SavedSpecsBrowser({
           onCancel={closeImportDetails}
           onSubmit={submitImportDetails}
         />
-        <FileText className="mx-auto h-8 w-8 text-cobalt" />
-        <h2 className="mt-4 text-xl font-bold text-ink">No saved specs yet</h2>
-        <p className="mt-2 text-sm text-slate-600">Generate a draft or import an existing analytics spec.</p>
-        <div className="mt-5 flex justify-center">
-          <ImportControl />
+        <div>
+          <div className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.16em] text-cobalt">
+            <span className="h-1.5 w-1.5 rounded-full bg-cobalt shadow-[0_0_10px_#3d82ff]" />
+            Spec Generator · Saved Specs
+          </div>
+          <h1 className="mt-3 font-display text-[34px] font-extrabold leading-none text-[#f4f6ff]">Saved Specs</h1>
+          <p className="mt-2 text-[13.5px] text-slate-500">Saved Game Specs are ready to view, edit if you own them, or import from XLSX / CSV.</p>
         </div>
-        {importStatus ? <p className="mt-3 text-sm font-semibold text-cobalt">{importStatus}</p> : null}
+        <div className="rounded-2xl border border-dashed border-line/70 bg-[#0b1120] px-6 py-14 text-center shadow-soft">
+          <FileText className="mx-auto h-8 w-8 text-cobalt" />
+          <h2 className="mt-4 font-display text-xl font-bold text-[#f2f5ff]">No saved specs yet</h2>
+          <p className="mt-2 text-sm text-slate-500">Generate a draft or import an existing analytics spec.</p>
+          <div className="mt-5 flex justify-center">
+            <ImportControl />
+          </div>
+          {importStatus ? <p className="mt-3 text-sm font-semibold text-cobalt">{importStatus}</p> : null}
+        </div>
       </section>
     );
   }
 
   return (
-    <section className="space-y-4">
+    <section className="space-y-6">
       <ImportDetailsDialog
         file={pendingImportFile}
         gameTitle={importGameTitle}
@@ -1760,94 +1803,100 @@ function SavedSpecsBrowser({
         onCancel={closeImportDetails}
         onSubmit={submitImportDetails}
       />
-      <div className="flex flex-col justify-between gap-2 md:flex-row md:items-end">
+      <div className="flex flex-col justify-between gap-5 md:flex-row md:items-end">
         <div>
-          <h2 className="text-xl font-bold text-ink">Saved Game Specs</h2>
-          <p className="text-sm text-slate-600">Open saved specs with access based on your role.</p>
+          <div className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.16em] text-cobalt">
+            <span className="h-1.5 w-1.5 rounded-full bg-cobalt shadow-[0_0_10px_#3d82ff]" />
+            Spec Generator · Saved Specs
+          </div>
+          <h1 className="mt-3 font-display text-[34px] font-extrabold leading-none text-[#f4f6ff]">Saved Specs</h1>
+          <p className="mt-2 text-[13.5px] text-slate-500">
+            Saved Game Specs · {savedSpecs.length} {savedSpecs.length === 1 ? "spec" : "specs"} · open to view, edit if you own them, or import from XLSX / CSV.
+          </p>
         </div>
-        <div className="flex flex-wrap items-end gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <ImportControl />
-          <Metric label="Saved Specs" value={savedSpecs.length} />
+          <div className="rounded-[10px] border border-line/70 bg-[#0d1424] px-3 py-2 text-right">
+            <div className="font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-slate-500">Saved Specs</div>
+            <div className="mt-0.5 font-display text-xl font-extrabold text-cobalt">{savedSpecs.length}</div>
+          </div>
         </div>
       </div>
-      {importStatus ? <p className="rounded-md border border-line bg-white px-3 py-2 text-sm font-semibold text-cobalt">{importStatus}</p> : null}
+      {importStatus ? <p className="rounded-[10px] border border-cobalt/20 bg-cobalt/10 px-4 py-3 text-sm font-semibold text-cobalt">{importStatus}</p> : null}
 
-      <div className="overflow-hidden rounded-md border border-line bg-white shadow-sm">
-        <table className="w-full min-w-[1040px] text-left text-sm">
-          <thead className="bg-sage text-xs uppercase text-slate-600">
-            <tr>
-              <th className="px-3 py-2">Game</th>
-              <th className="px-3 py-2">Owner</th>
-              <th className="px-3 py-2">Genre</th>
-              <th className="px-3 py-2">Status</th>
-              <th className="px-3 py-2">Events</th>
-              <th className="px-3 py-2">Payloads</th>
-              <th className="px-3 py-2">Updated</th>
-              <th className="px-3 py-2">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-line">
-            {savedSpecs.map((savedSpec) => (
-              <tr key={savedSpec.id}>
-                <td className="px-3 py-3">
-                  <div className="font-semibold text-ink">{savedSpec.gameTitle}</div>
-                  <div className="text-xs text-slate-500">Generated {new Date(savedSpec.generatedAt).toLocaleString()}</div>
-                </td>
-                <td className="px-3 py-3">
-                  <div className="font-semibold text-ink">{savedSpec.ownerName || "Legacy"}</div>
-                  <div className="text-xs text-slate-500">{savedSpec.ownerEmail || "Unassigned"}</div>
-                </td>
-                <td className="px-3 py-3">{savedSpec.genre || "Unspecified"}</td>
-                <td className="px-3 py-3">
-                  <StatusChip status={savedSpec.status} />
-                </td>
-                <td className="px-3 py-3">{savedSpec.eventCount}</td>
-                <td className="px-3 py-3">{savedSpec.payloadCount}</td>
-                <td className="px-3 py-3">{new Date(savedSpec.updatedAt).toLocaleString()}</td>
-                <td className="px-3 py-3">
-                  <div className="flex flex-wrap gap-1.5">
-                    <button
-                      type="button"
-                      title="Open in Spec Viewer"
-                      aria-label={`Open ${savedSpec.gameTitle} in Spec Viewer`}
-                      onClick={() => onOpen(savedSpec.id)}
-                      className="focus-ring inline-flex h-9 items-center gap-1 rounded-md bg-cobalt px-2.5 text-xs font-semibold text-white hover:bg-cobalt/90"
-                    >
-                      <Eye className="h-3.5 w-3.5" />
-                      <span className="hidden xl:inline">Open</span>
-                    </button>
-                    {savedSpec.canEdit ? (
-                      <button
-                        type="button"
-                        title="Edit in Editor"
-                        aria-label={`Edit ${savedSpec.gameTitle} in Editor`}
-                        onClick={() => onEdit(savedSpec.id)}
-                        className="focus-ring inline-flex h-9 items-center gap-1 rounded-md border border-line bg-white px-2.5 text-xs font-semibold hover:bg-sage"
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                        <span className="hidden xl:inline">Edit</span>
-                      </button>
-                    ) : null}
-                    {savedSpec.canDelete ? (
-                      <button
-                        type="button"
-                        title="Delete saved spec"
-                        aria-label={`Delete ${savedSpec.gameTitle}`}
-                        onClick={() => {
-                          if (window.confirm(`Delete ${savedSpec.gameTitle}?`)) void onDelete(savedSpec.id);
-                        }}
-                        className="focus-ring inline-flex h-9 items-center gap-1 rounded-md border border-rose/40 bg-rose/10 px-2.5 text-xs font-semibold text-rose hover:bg-rose/20"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                        <span className="hidden xl:inline">Delete</span>
-                      </button>
-                    ) : null}
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {savedSpecs.map((savedSpec) => {
+          const initials = savedSpec.gameTitle
+            .split(/[\s_-]+/)
+            .filter(Boolean)
+            .slice(0, 2)
+            .map((part) => part[0]?.toUpperCase())
+            .join("");
+          const owner = savedSpec.ownerName || savedSpec.ownerEmail || "Legacy";
+          return (
+            <article key={savedSpec.id} className="flex min-h-[272px] flex-col rounded-2xl border border-line/70 bg-[linear-gradient(180deg,#0e1626,#0c1421)] p-5 shadow-soft transition-colors hover:border-line">
+              <div className="flex items-start justify-between gap-3">
+                <div className={`flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-[11px] border font-display text-sm font-extrabold ${statusTone(savedSpec.status).chip}`}>
+                  {initials || "SP"}
+                </div>
+                <StatusChip status={savedSpec.status} />
+              </div>
+              <h2 className="mt-4 truncate font-display text-[17px] font-bold text-[#f2f5ff]">{savedSpec.gameTitle}</h2>
+              <p className="mt-1 truncate text-[12.5px] text-slate-500">{savedSpec.genre || "Unspecified"}</p>
+              <div className="mt-4 flex items-end gap-[18px] border-t border-line/40 pt-4">
+                <div>
+                  <div className="font-display text-lg font-extrabold text-[#eaeefc]">{savedSpec.eventCount}</div>
+                  <div className="mt-0.5 font-mono text-[9px] font-semibold uppercase tracking-[0.08em] text-slate-500">Events</div>
+                </div>
+                <div>
+                  <div className="font-display text-lg font-extrabold text-[#eaeefc]">{savedSpec.payloadCount}</div>
+                  <div className="mt-0.5 font-mono text-[9px] font-semibold uppercase tracking-[0.08em] text-slate-500">Payloads</div>
+                </div>
+                <div className="ml-auto min-w-0 text-right">
+                  <div className="truncate text-[11.5px] text-slate-500">{new Date(savedSpec.updatedAt).toLocaleDateString()}</div>
+                  <div className="mt-1 truncate font-mono text-[9px] uppercase tracking-[0.06em] text-slate-600" title={owner}>{owner}</div>
+                </div>
+              </div>
+              <div className="mt-4 flex gap-2">
+                <button
+                  type="button"
+                  title="Open in Spec Viewer"
+                  aria-label="Open"
+                  onClick={() => onOpen(savedSpec.id)}
+                  className="focus-ring inline-flex h-9 flex-1 items-center justify-center gap-2 rounded-[9px] border border-line/70 bg-[#101a2c] px-3 text-xs font-semibold text-text-muted hover:bg-[#16223a]"
+                >
+                  <Eye className="h-3.5 w-3.5" />
+                  Open
+                </button>
+                {savedSpec.canEdit ? (
+                  <button
+                    type="button"
+                    title="Edit in Editor"
+                    aria-label={`Edit ${savedSpec.gameTitle} in Editor`}
+                    onClick={() => onEdit(savedSpec.id)}
+                    className="focus-ring inline-flex h-9 flex-1 items-center justify-center gap-2 rounded-[9px] bg-cobalt px-3 text-xs font-semibold text-white hover:bg-cobalt/90"
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                    Edit
+                  </button>
+                ) : null}
+                {savedSpec.canDelete ? (
+                  <button
+                    type="button"
+                    title="Delete saved spec"
+                    aria-label="Delete"
+                    onClick={() => {
+                      if (window.confirm(`Delete ${savedSpec.gameTitle}?`)) void onDelete(savedSpec.id);
+                    }}
+                    className="focus-ring inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[9px] border border-rose/40 bg-rose/10 text-rose hover:bg-rose/20"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                ) : null}
+              </div>
+            </article>
+          );
+        })}
       </div>
     </section>
   );
@@ -2156,83 +2205,82 @@ function rowsForSpec(spec: GeneratedSpec): SpecViewerRow[] {
   });
 }
 
-function EventSpecCard({ event }: { event: GeneratedEvent }) {
+function ViewerEventRow({ event }: { event: GeneratedEvent }) {
   const tone = categoryTone(`${event.category} ${event.featurePack} ${event.eventName}`);
   return (
-    <article className={`overflow-hidden rounded-md border border-line border-l-2 bg-white shadow-sm ${tone.border}`}>
-      <div className="border-b border-line bg-mist/50 px-4 py-4">
-        <div className="flex flex-col justify-between gap-3 md:flex-row md:items-start">
-          <div className="flex min-w-0 gap-3">
-            <div className={`mt-1 h-11 w-1.5 shrink-0 rounded-full ${tone.bar}`} />
-            <div className="min-w-0">
-              <div className="font-mono text-[11px] font-semibold uppercase tracking-wide text-slate-500">Event</div>
-              <h4 className={`mt-1 truncate font-mono text-2xl font-bold leading-tight ${tone.text}`}>{event.eventName}</h4>
-              <p className="mt-1 text-sm font-semibold text-slate-600">{event.featurePack}</p>
-            </div>
-          </div>
-          <div className="flex shrink-0 flex-wrap items-center gap-2">
-            <ToneChip tone={tone}>{event.payloadFields.length} payloads</ToneChip>
-            <StatusChip status={event.status} />
-          </div>
+    <article className="overflow-hidden rounded-[12px] border border-line/70 bg-[#0b1120] shadow-[0_8px_18px_rgba(0,0,0,0.12)] transition-colors hover:border-line hover:bg-[#0e1626]">
+      <div className={`h-0.5 ${tone.bar}`} />
+      <div className="grid min-w-[760px] grid-cols-[1.4fr_150px_2fr_90px] border-b border-line/40 bg-[#0a1120] px-5 py-2.5 font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">
+        <div>Event</div><div>Category</div><div>Trigger</div><div className="text-right">Payloads</div>
+      </div>
+      <div className="grid min-w-[760px] grid-cols-[1.4fr_150px_2fr_90px] items-center px-5 py-4">
+        <div className="min-w-0 pr-4">
+          <h3 className={`truncate font-mono text-[15px] font-semibold ${tone.text}`}>{event.eventName}</h3>
+          <p className="mt-1 truncate text-[13px] text-slate-500">{event.featurePack}</p>
         </div>
-        <p className="mt-3 text-sm text-slate-700">{event.trigger || "No trigger description yet."}</p>
+        <div>
+          <span className={`inline-flex rounded-[7px] border px-2.5 py-1 font-mono text-[11px] font-semibold ${tone.chip}`}>{event.category || "Other"}</span>
+        </div>
+        <p className="pr-4 text-[14px] leading-relaxed text-slate-400">{event.trigger || "No trigger description yet."}</p>
+        <div className="text-right font-mono text-[15px] font-semibold text-slate-300">{event.payloadFields.length}</div>
       </div>
 
-      {(event.argumentName || event.argumentDescription || event.argumentExamples) ? (
-        <div className="grid gap-3 border-b border-line bg-mist/50 px-4 py-3 md:grid-cols-3">
-          <div>
-            <div className="text-xs font-semibold uppercase text-slate-500">Argument</div>
-            <div className={`mt-1 font-mono text-sm font-semibold ${tone.text}`}>{event.argumentName || "-"}</div>
-          </div>
-          <div>
-            <div className="text-xs font-semibold uppercase text-slate-500">Description</div>
-            <div className="mt-1 text-sm text-slate-700">{event.argumentDescription || "-"}</div>
-          </div>
-          <div>
-            <div className="text-xs font-semibold uppercase text-slate-500">Examples</div>
-            <div className="mt-1 font-mono text-xs text-slate-700">{event.argumentExamples || "-"}</div>
+      {(event.argumentName || event.argumentDescription || event.argumentExamples || event.payloadFields.length) ? (
+        <div className="border-t border-line/30 bg-[#090f1b] px-5 py-4">
+          {(event.argumentName || event.argumentDescription || event.argumentExamples) ? (
+            <section aria-label="Event context" className="mb-4 rounded-[10px] border border-line/50 bg-[#0d1626] p-4">
+              <div className="mb-3 font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Event Context</div>
+              <div className="grid gap-4 md:grid-cols-[1.1fr_1.1fr_1fr]">
+                <div>
+                  <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">Argument</div>
+                  <div className={`mt-1.5 font-mono text-[14px] font-semibold ${tone.text}`}>{event.argumentName || "-"}</div>
+                </div>
+                <div>
+                  <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">Description</div>
+                  <div className="mt-1.5 text-[13.5px] leading-relaxed text-slate-300">{event.argumentDescription || "-"}</div>
+                </div>
+                <div>
+                  <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">Examples</div>
+                  <div className="mt-1.5 font-mono text-[13px] leading-relaxed text-slate-300">{event.argumentExamples || "-"}</div>
+                </div>
+              </div>
+            </section>
+          ) : null}
+          <div className="overflow-x-auto">
+            <div className="mb-2 font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Payload Definition</div>
+            <table className="w-full min-w-[760px] text-left text-[13px]">
+              <thead className="font-mono text-[11px] uppercase tracking-[0.1em] text-slate-500">
+                <tr>
+                  <th className="pb-2.5 pr-3 font-semibold">Payload</th>
+                  <th className="pb-2.5 px-3 font-semibold">Description</th>
+                  <th className="pb-2.5 px-3 font-semibold">Example</th>
+                  <th className="pb-2.5 pl-3 font-semibold">Type</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line/30">
+                {event.payloadFields.map((payload, payloadIndex) => (
+                  <tr key={`${event.eventName}-${payload.canonicalFieldName}-${payloadIndex}`}>
+                    <td className={`py-3 pr-3 align-top font-mono text-[14px] font-semibold ${tone.text}`}>{payload.canonicalFieldName}</td>
+                    <td className="px-3 py-3 align-top text-[14px] leading-relaxed text-slate-300">{payload.description}</td>
+                    <td className="px-3 py-3 align-top font-mono text-[13px] text-emerald">{payload.example}</td>
+                    <td className="py-3 pl-3 align-top"><DataTypePill type={payload.type} /></td>
+                  </tr>
+                ))}
+                {!event.payloadFields.length ? (
+                  <tr>
+                    <td colSpan={4} className="py-3 text-center text-sm text-slate-500">No payloads specified for this event.</td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
           </div>
         </div>
       ) : null}
-
-      <div className="overflow-x-auto">
-        <div className={`flex items-center justify-between border-b border-line px-3 py-2 ${tone.table}`}>
-          <div className="font-mono text-xs font-semibold uppercase tracking-wide">Payload Fields</div>
-          <div className="font-mono text-[11px] font-semibold">{event.payloadFields.length} rows</div>
-        </div>
-        <table className="w-full min-w-[880px] text-left text-[15px]">
-          <thead className={`text-xs uppercase ${tone.table}`}>
-            <tr>
-              <th className="px-3 py-2">Payload</th>
-              <th className="px-3 py-2">Description</th>
-              <th className="px-3 py-2">Example</th>
-              <th className="px-3 py-2">Type</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-line">
-            {event.payloadFields.map((payload, payloadIndex) => (
-              <tr key={`${event.eventName}-${payload.canonicalFieldName}-${payloadIndex}`}>
-                <td className={`px-3 py-3 align-top font-mono text-base font-bold ${tone.text}`}>{payload.canonicalFieldName}</td>
-                <td className="px-3 py-3 align-top text-slate-700">{payload.description}</td>
-                <td className="px-3 py-3 align-top font-mono text-sm text-emerald">{payload.example}</td>
-                <td className="px-3 py-3 align-top"><DataTypePill type={payload.type} /></td>
-              </tr>
-            ))}
-            {!event.payloadFields.length ? (
-              <tr>
-                <td colSpan={4} className="px-3 py-6 text-center text-sm text-slate-500">
-                  No payloads specified for this event.
-                </td>
-              </tr>
-            ) : null}
-          </tbody>
-        </table>
-      </div>
     </article>
   );
 }
 
-function PlatformAdEventCard({
+function ViewerPlatformAdRow({
   eventName,
   adFamily,
   payloads,
@@ -2243,38 +2291,32 @@ function PlatformAdEventCard({
 }) {
   const tone = categoryTone(`${adFamily} ad event`);
   return (
-    <article className={`overflow-hidden rounded-md border border-line border-l-2 bg-white shadow-sm ${tone.border}`}>
-      <div className="flex flex-col justify-between gap-3 border-b border-line bg-mist/50 px-4 py-4 md:flex-row md:items-start">
-        <div className="flex min-w-0 gap-3">
-          <div className={`mt-1 h-11 w-1.5 shrink-0 rounded-full ${tone.bar}`} />
-          <div className="min-w-0">
-            <div className="font-mono text-[11px] font-semibold uppercase tracking-wide text-slate-500">Payload Group</div>
-            <h4 className={`mt-1 truncate font-mono text-2xl font-bold leading-tight ${tone.text}`}>{eventName}</h4>
-            <p className="mt-1 text-sm font-semibold text-slate-600">{adFamily} platform ad event</p>
-          </div>
-        </div>
-        <ToneChip tone={tone}>{payloads.length} payloads</ToneChip>
+    <article className="overflow-hidden rounded-[12px] border border-line/70 bg-[#0b1120] shadow-[0_8px_18px_rgba(0,0,0,0.12)] transition-colors hover:border-line hover:bg-[#0e1626]">
+      <div className={`h-0.5 ${tone.bar}`} />
+      <div className="grid min-w-[760px] grid-cols-[1.4fr_150px_2fr_90px] border-b border-line/40 bg-[#0a1120] px-5 py-2.5 font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">
+        <div>Event</div><div>Category</div><div>Trigger</div><div className="text-right">Payloads</div>
       </div>
-
-      <div className="overflow-x-auto">
-        <div className={`flex items-center justify-between border-b border-line px-3 py-2 ${tone.table}`}>
-          <div className="font-mono text-xs font-semibold uppercase tracking-wide">Payload Fields</div>
-          <div className="font-mono text-[11px] font-semibold">{payloads.length} rows</div>
+      <div className="grid min-w-[760px] grid-cols-[1.4fr_150px_2fr_90px] items-center px-5 py-4">
+        <div className="min-w-0 pr-4">
+          <h3 className={`truncate font-mono text-[15px] font-semibold ${tone.text}`}>{eventName}</h3>
+          <p className="mt-1 truncate text-[13px] text-slate-500">Platform Ad Payload Enrichment</p>
         </div>
-        <table className="w-full min-w-[760px] text-left text-[15px]">
-          <thead className={`text-xs uppercase ${tone.table}`}>
-            <tr>
-              <th className="px-3 py-2">Payload</th>
-              <th className="px-3 py-2">Description</th>
-              <th className="px-3 py-2">Example</th>
-            </tr>
+        <div><span className={`inline-flex rounded-[7px] border px-2.5 py-1 font-mono text-[11px] font-semibold ${tone.chip}`}>IAA</span></div>
+        <p className="pr-4 text-[14px] leading-relaxed text-slate-400">{adFamily} platform ad event payloads.</p>
+        <div className="text-right font-mono text-[15px] font-semibold text-slate-300">{payloads.length}</div>
+      </div>
+      <div className="overflow-x-auto border-t border-line/30 bg-[#090f1b] px-5 py-4">
+        <div className="mb-2 font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Payload Definition</div>
+        <table className="w-full min-w-[760px] text-left text-[13px]">
+          <thead className="font-mono text-[11px] uppercase tracking-[0.1em] text-slate-500">
+            <tr><th className="pb-2.5 pr-3 font-semibold">Payload</th><th className="pb-2.5 px-3 font-semibold">Description</th><th className="pb-2.5 pl-3 font-semibold">Example</th></tr>
           </thead>
-          <tbody className="divide-y divide-line">
+          <tbody className="divide-y divide-line/30">
             {payloads.map((payload, payloadIndex) => (
               <tr key={`${payload.platformEventName}-${payload.canonicalPayloadName}-${payloadIndex}`}>
-                <td className={`px-3 py-3 align-top font-mono text-base font-bold ${tone.text}`}>{payload.canonicalPayloadName}</td>
-                <td className="px-3 py-3 align-top text-slate-700">{payload.description}</td>
-                <td className="px-3 py-3 align-top font-mono text-sm text-emerald">{payload.example}</td>
+                <td className={`py-3 pr-3 align-top font-mono text-[14px] font-semibold ${tone.text}`}>{payload.canonicalPayloadName}</td>
+                <td className="px-3 py-3 align-top text-[14px] leading-relaxed text-slate-300">{payload.description}</td>
+                <td className="py-3 pl-3 align-top font-mono text-[13px] text-emerald">{payload.example}</td>
               </tr>
             ))}
           </tbody>
@@ -2330,28 +2372,28 @@ function SpecViewer({
 
   if (isLoading) {
     return (
-      <section className="rounded-md border border-line bg-white p-10 text-center shadow-sm">
+      <section className="rounded-2xl border border-line/70 bg-[#0b1120] p-10 text-center shadow-soft">
         <Table2 className="mx-auto h-8 w-8 text-cobalt" />
-        <h2 className="mt-4 text-xl font-bold text-ink">Loading saved specs</h2>
+        <h2 className="mt-4 font-display text-xl font-bold text-[#f2f5ff]">Loading saved specs</h2>
       </section>
     );
   }
 
   if (!savedSpecs.length) {
     return (
-      <section className="rounded-md border border-dashed border-line bg-white p-10 text-center shadow-sm">
+      <section className="rounded-2xl border border-dashed border-line/70 bg-[#0b1120] p-10 text-center shadow-soft">
         <Table2 className="mx-auto h-8 w-8 text-cobalt" />
-        <h2 className="mt-4 text-xl font-bold text-ink">No saved specs to view</h2>
-        <p className="mt-2 text-sm text-slate-600">Generate and save a game spec first, then it will appear here.</p>
+        <h2 className="mt-4 font-display text-xl font-bold text-[#f2f5ff]">No saved specs to view</h2>
+        <p className="mt-2 text-sm text-slate-500">Generate and save a game spec first, then it will appear here.</p>
       </section>
     );
   }
 
   if (!activeSpec) {
     return (
-      <section className="rounded-md border border-line bg-white p-10 text-center shadow-sm">
+      <section className="rounded-2xl border border-line/70 bg-[#0b1120] p-10 text-center shadow-soft">
         <Table2 className="mx-auto h-8 w-8 text-cobalt" />
-        <h2 className="mt-4 text-xl font-bold text-ink">Select a game spec</h2>
+        <h2 className="mt-4 font-display text-xl font-bold text-[#f2f5ff]">Select a game spec</h2>
       </section>
     );
   }
@@ -2360,166 +2402,123 @@ function SpecViewer({
   const canEditSpec = canEditActiveSpec(activeSpec.id);
 
   return (
-    <section className="space-y-4">
-      <div className="rounded-md border border-line bg-white shadow-sm">
-        <div className="flex flex-col gap-3 border-b border-line px-4 py-4 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <div className="flex items-center gap-2 text-sm font-semibold text-cobalt">
-              <Table2 className="h-4 w-4" />
-              Spec Viewer
-            </div>
-            <h2 className="mt-1 text-xl font-bold text-ink">{activeSpec.intake.gameTitle}</h2>
-            <p className="text-sm text-slate-600">
-              {activeSpec.intake.genre || "Unspecified genre"} · {activeSpec.generatedEvents.length} events ·{" "}
-              {rowsForSpec(activeSpec).length} payload rows
-            </p>
+    <section>
+      <div className="mb-6 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <div className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.16em] text-cobalt">
+            <span className="h-1.5 w-1.5 rounded-full bg-cobalt shadow-[0_0_10px_#3d82ff]" />
+            Spec Generator · Viewer
           </div>
-          <div className="flex flex-wrap gap-2">
+          <h1 className="mt-3 font-display text-[34px] font-extrabold leading-none text-[#f4f6ff]">{activeSpec.intake.gameTitle}</h1>
+          <p className="mt-2 text-[13.5px] text-slate-500">
+            Read-only view · shareable with viewers · {activeSpec.intake.genre || "Unspecified genre"}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2.5">
+          <button
+            type="button"
+            onClick={() => onCopyShareLink(activeSpec.id)}
+            className="focus-ring inline-flex h-11 items-center gap-2 rounded-[10px] border border-line/70 bg-[#121b2c] px-4 text-sm font-semibold text-text-muted hover:bg-[#17223a]"
+          >
+            <Link2 className="h-4 w-4" />
+            Copy Share Link
+          </button>
+          {canEditSpec ? (
             <button
               type="button"
-              onClick={() => onCopyShareLink(activeSpec.id)}
-              className="focus-ring inline-flex items-center gap-2 rounded-md border border-line bg-white px-3 py-2 text-sm font-semibold hover:bg-sage"
+              onClick={() => onOpenEdit(activeSpec.id)}
+              className="focus-ring inline-flex h-11 items-center gap-2 rounded-[10px] bg-cobalt px-[18px] text-sm font-semibold text-white shadow-[0_8px_22px_-8px_#3d82ff] hover:bg-cobalt/90"
             >
-              <Link2 className="h-4 w-4" />
-              Copy Link
+              <Pencil className="h-4 w-4" />
+              Open in Editor
             </button>
-            {canEditSpec ? (
-              <button
-                type="button"
-                onClick={() => onOpenEdit(activeSpec.id)}
-                className="focus-ring inline-flex items-center gap-2 rounded-md border border-line bg-white px-3 py-2 text-sm font-semibold hover:bg-slate-50"
-              >
-                <Pencil className="h-4 w-4" />
-                Edit in Editor
-              </button>
-            ) : null}
-          </div>
+          ) : null}
         </div>
-        {shareStatus ? <div className="border-b border-line px-4 py-2 text-xs font-semibold text-cobalt">{shareStatus}</div> : null}
+      </div>
 
-        {savedSpecs.length > 1 ? (
-          <div className="flex gap-1 overflow-x-auto border-b border-line bg-mist px-3 pt-3">
-            {savedSpecs.map((savedSpec) => (
-              <button
-                key={savedSpec.id}
-                type="button"
-                onClick={() => setActiveSpecId(savedSpec.id)}
-                className={`focus-ring shrink-0 rounded-t-md border border-b-0 px-4 py-2 text-sm font-semibold ${
-                  activeSpec.id === savedSpec.id
-                    ? "border-line bg-sage text-ink"
-                    : "border-transparent bg-transparent text-slate-600 hover:bg-white/70"
-                }`}
-              >
-                {savedSpec.gameTitle}
-              </button>
-            ))}
+      <div className="overflow-hidden rounded-2xl border border-line/70 bg-[#0b1120] shadow-soft">
+        <div className="flex flex-col gap-3 border-b border-line/50 bg-[#0d1424] px-5 py-3.5 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex min-w-0 items-center gap-3">
+            <StatusChip status={activeSummary?.status ?? reviewStatusForEvents(activeSpec.generatedEvents)} />
+            <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-slate-500">
+              {activeSpec.generatedEvents.length} events · {rowsForSpec(activeSpec).length} payload rows
+            </span>
           </div>
-        ) : null}
-
-        <div className="grid grid-cols-1 gap-3 px-4 py-4 md:grid-cols-4">
-          <Metric label="Status" value={activeSummary?.status ?? reviewStatusForEvents(activeSpec.generatedEvents)} />
-          <Metric label="Events" value={activeSpec.generatedEvents.length} />
-          <Metric label="Payload Rows" value={rowsForSpec(activeSpec).length} />
-          <Metric label="Updated" value={activeSummary ? new Date(activeSummary.updatedAt).toLocaleDateString() : "-"} />
-        </div>
-
-        <div className="border-t border-line px-4 py-4">
-          <div className="flex gap-2 overflow-x-auto pb-1" role="tablist" aria-label="Spec groups">
-            {groups.map((group) => {
-              const eventCount = group.events.length + platformEventCount(group.platformAdPayloads);
-              const payloadCount = payloadCountForEvents(group.events) + group.platformAdPayloads.length;
-              const isActive = group.id === activeGroup?.id;
-              const tone = categoryTone(group.label);
-              return (
-                <button
-                  key={group.id}
-                  type="button"
-                  aria-label={`View ${group.label} spec group`}
-                  aria-selected={isActive}
-                  onClick={() => {
-                    setActiveGroupId(group.id);
-                    setQuery("");
-                  }}
-                  className={`focus-ring shrink-0 rounded-md border px-4 py-3 text-left text-sm ${
-                    isActive ? `border-cobalt bg-cobalt text-white shadow-sm` : `border-line bg-white text-slate-700 hover:bg-mist`
-                  }`}
+          <div className="flex flex-wrap items-center gap-2">
+            {savedSpecs.length > 1 ? (
+              <label className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.08em] text-slate-500">
+                Viewing
+                <select
+                  value={activeSpec.id}
+                  onChange={(event) => setActiveSpecId(event.target.value)}
+                  aria-label="Select saved spec"
+                  className="focus-ring h-8 max-w-52 rounded-[7px] border border-line/70 bg-[#0a111e] px-2 font-sans text-xs font-semibold normal-case tracking-normal text-slate-300"
                 >
-                  <div className={`mb-2 h-1 w-10 rounded ${isActive ? "bg-white/80" : tone.bar}`} />
-                  <div className={`font-mono text-base font-bold leading-tight ${isActive ? "text-white" : tone.text}`}>{group.label}</div>
-                  <div className={`mt-1 font-mono text-xs ${isActive ? "text-white/80" : "text-slate-500"}`}>
-                    {eventCount} events · {payloadCount} payloads
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {activeGroup ? (
-          <div className="border-t border-line bg-mist/50 px-4 py-4">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-              <div>
-                <div className="text-xs font-semibold uppercase text-slate-500">Current Group</div>
-                <div className="mt-1 flex items-center gap-3">
-                  <div className={`h-8 w-1.5 rounded-full ${categoryTone(activeGroup.label).bar}`} />
-                  <h3 className={`font-mono text-2xl font-bold leading-tight ${categoryTone(activeGroup.label).text}`}>
-                    {activeGroup.label}
-                  </h3>
-                </div>
-                <p className="mt-1 text-sm text-slate-600">{activeGroup.description}</p>
-              </div>
-              <div className="grid grid-cols-2 gap-2 sm:min-w-72">
-                <div className="rounded-md border border-line bg-white px-3 py-2">
-                  <div className="text-xs font-semibold uppercase text-slate-500">Events</div>
-                  <div className="mt-1 text-lg font-bold text-ink">
-                    {activeGroup.events.length + platformEventCount(activeGroup.platformAdPayloads)}
-                  </div>
-                </div>
-                <div className="rounded-md border border-line bg-white px-3 py-2">
-                  <div className="text-xs font-semibold uppercase text-slate-500">Payloads</div>
-                  <div className="mt-1 text-lg font-bold text-ink">
-                    {payloadCountForEvents(activeGroup.events) + activeGroup.platformAdPayloads.length}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-4 flex items-center gap-3 rounded-md border border-line bg-white px-3 py-2 shadow-sm">
-              <Search className="h-4 w-4 text-slate-500" />
+                  {savedSpecs.map((savedSpec) => <option key={savedSpec.id} value={savedSpec.id}>{savedSpec.gameTitle}</option>)}
+                </select>
+              </label>
+            ) : null}
+            <div className="flex h-8 items-center gap-2 rounded-[7px] border border-line/70 bg-[#0a111e] px-2.5">
+              <Search className="h-3.5 w-3.5 text-slate-500" />
               <input
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder={`Search ${activeGroup.label.toLowerCase()} specs...`}
-                className="focus-ring w-full border-0 bg-transparent text-sm outline-none"
+                placeholder="Search this spec"
+                className="focus-ring w-40 border-0 bg-transparent text-xs text-slate-300 outline-none placeholder:text-slate-500"
               />
             </div>
+          </div>
+        </div>
+        {shareStatus ? <div className="border-b border-cobalt/20 bg-cobalt/10 px-5 py-2 text-xs font-semibold text-cobalt">{shareStatus}</div> : null}
 
-            <div className="mt-4 space-y-4">
-              {filteredGroupEvents.map((event) => (
-                <EventSpecCard key={event.eventName} event={event} />
-              ))}
+        <div className="flex gap-1 overflow-x-auto border-b border-line/50 bg-[#0a1120] px-4 py-2" role="tablist" aria-label="Spec groups">
+          {groups.map((group) => {
+            const eventCount = group.events.length + platformEventCount(group.platformAdPayloads);
+            const isActive = group.id === activeGroup?.id;
+            const tone = categoryTone(group.label);
+            return (
+              <button
+                key={group.id}
+                type="button"
+                aria-label={`View ${group.id === "gameplay" ? "Gameplay" : group.label} spec group`}
+                aria-selected={isActive}
+                onClick={() => { setActiveGroupId(group.id); setQuery(""); }}
+                className={`focus-ring inline-flex shrink-0 items-center gap-2 rounded-[7px] px-3 py-1.5 text-xs font-semibold transition-colors ${
+                  isActive ? "bg-[#17223a] text-[#eef1fb]" : "text-slate-500 hover:bg-[#101a2c] hover:text-slate-300"
+                }`}
+              >
+                <span className={`h-1.5 w-1.5 rounded-full ${isActive ? tone.bar : "bg-slate-600"}`} />
+                {group.label}
+                <span className="font-mono text-[10px] opacity-70">{eventCount}</span>
+              </button>
+            );
+          })}
+        </div>
 
-              {filteredPlatformAdPayloadGroups.map((platformEvent) => (
-                <PlatformAdEventCard
-                  key={platformEvent.eventName}
-                  eventName={platformEvent.eventName}
-                  adFamily={platformEvent.adFamily}
-                  payloads={platformEvent.payloads}
-                />
-              ))}
-
-              {!filteredGroupEvents.length && !filteredPlatformAdPayloadGroups.length ? (
-                <div className="rounded-md border border-dashed border-line bg-white px-4 py-10 text-center text-sm text-slate-500">
-                  No specs match the current search in {activeGroup.label}.
-                </div>
-              ) : null}
+        {activeGroup ? (
+          <div>
+            <div className="flex flex-col gap-2 border-b border-line/40 px-5 py-3 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <h2 className={`font-display text-sm font-bold ${categoryTone(activeGroup.label).text}`}>{activeGroup.label}</h2>
+                <p className="mt-1 text-xs text-slate-500">{activeGroup.description}</p>
+              </div>
+              <div className="font-mono text-[10px] uppercase tracking-[0.1em] text-slate-500">
+                {activeGroup.events.length + platformEventCount(activeGroup.platformAdPayloads)} events · {payloadCountForEvents(activeGroup.events) + activeGroup.platformAdPayloads.length} payloads
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <div className="min-w-[760px] space-y-3 p-3">
+                {filteredGroupEvents.map((event) => <ViewerEventRow key={event.eventName} event={event} />)}
+                {filteredPlatformAdPayloadGroups.map((platformEvent) => (
+                  <ViewerPlatformAdRow key={platformEvent.eventName} eventName={platformEvent.eventName} adFamily={platformEvent.adFamily} payloads={platformEvent.payloads} />
+                ))}
+                {!filteredGroupEvents.length && !filteredPlatformAdPayloadGroups.length ? (
+                  <div className="px-5 py-10 text-center text-sm text-slate-500">No specs match the current search in {activeGroup.label}.</div>
+                ) : null}
+              </div>
             </div>
           </div>
-        ) : (
-          <div className="border-t border-line px-4 py-10 text-center text-sm text-slate-500">
-            No grouped specs are available for this game.
-          </div>
-        )}
+        ) : <div className="px-5 py-10 text-center text-sm text-slate-500">No grouped specs are available for this game.</div>}
       </div>
     </section>
   );
@@ -2845,6 +2844,7 @@ export default function MvpApp({ library }: { library: LibrarySnapshot }) {
       onNavChange={setActiveTab}
       collapsed={sidebarCollapsed}
       onToggleCollapsed={() => setSidebarCollapsed((value) => !value)}
+      contentClassName={activeTab === "review" ? "max-w-none" : "max-w-[1320px]"}
       user={{
         authenticated: auth.authenticated,
         name: auth.user?.name,
