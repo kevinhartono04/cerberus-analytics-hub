@@ -1188,6 +1188,16 @@ function SpecReview({
     setSpec({ ...spec, platformAdPayloads });
   }
 
+  function deletePlatformAdPayloadGroup(group: AdPayloadGroup) {
+    if (!spec) return;
+    const targetRows = new Set(group.rowIndexes);
+    setSpec({
+      ...spec,
+      platformAdPayloads: spec.platformAdPayloads.filter((_payload, index) => !targetRows.has(index)),
+    });
+    setSelectedAdPayloadGroupKey("");
+  }
+
   if (!spec) {
     return (
       <section className="rounded-2xl border border-dashed border-line/70 bg-[linear-gradient(180deg,#0e1626,#0c1421)] p-10 text-center shadow-soft">
@@ -1527,9 +1537,21 @@ function SpecReview({
                         Applies to all {selectedAdPayloadGroup.adFamily.toLowerCase()} platform ad events.
                       </p>
                     </div>
-                    <ToneChip tone={categoryTone(`${selectedAdPayloadGroup.adFamily} ad payload`)}>
-                      {selectedAdPayloadGroup.requiredness}
-                    </ToneChip>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <ToneChip tone={categoryTone(`${selectedAdPayloadGroup.adFamily} ad payload`)}>
+                        {selectedAdPayloadGroup.requiredness}
+                      </ToneChip>
+                      <button
+                        type="button"
+                        title="Remove ad payload"
+                        aria-label={`Remove ${selectedAdPayloadGroup.canonicalPayloadName} from ${selectedAdPayloadGroup.adFamily} ad events`}
+                        disabled={!canEdit}
+                        onClick={() => deletePlatformAdPayloadGroup(selectedAdPayloadGroup)}
+                        className="focus-ring inline-flex h-8 w-8 items-center justify-center rounded-md border border-rose/40 bg-rose/10 text-rose hover:bg-rose/20 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
                   </div>
 
                   <div className="grid gap-3 md:grid-cols-[180px_1fr]">
