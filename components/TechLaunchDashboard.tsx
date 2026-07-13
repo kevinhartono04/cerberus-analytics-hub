@@ -15,8 +15,10 @@ import {
   XCircle,
 } from "lucide-react";
 import { FormEvent, ReactNode, useEffect, useId, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import CerberusShell from "@/components/CerberusShell";
+import { readDashboardSession, writeDashboardSession } from "@/lib/dashboard-session";
 
 const appOptions = [
   "blockkingdom",
@@ -118,7 +120,18 @@ type AppVersionsResponse = {
   };
 };
 
+type TechLaunchSessionSnapshot = {
+  filters: Filters;
+  data: ReadinessResponse | null;
+  statusText: string;
+};
+
+const techLaunchSessionKey = "cerberus.tech-launch.snapshot.v1";
+
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+const techLabelClass = "mb-2 block font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500";
+const techInputClass =
+  "focus-ring h-[42px] w-full rounded-[9px] border border-line/70 bg-[#0a111e] px-3 text-sm font-semibold text-slate-300 shadow-none placeholder:font-normal placeholder:text-slate-500";
 
 function isoDate(date: Date) {
   const year = date.getFullYear();
@@ -270,11 +283,25 @@ function verdictClasses(verdict: Verdict) {
   return "border-line bg-sage text-slate-500";
 }
 
+function verdictOverviewClasses(verdict: Verdict) {
+  if (verdict === "green") return "border-emerald/35 bg-[radial-gradient(420px_200px_at_15%_0%,rgba(78,222,163,0.12),transparent_70%),linear-gradient(180deg,#101a2d,#0d1626)] text-emerald";
+  if (verdict === "yellow") return "border-amber/35 bg-[radial-gradient(420px_200px_at_15%_0%,rgba(255,185,95,0.12),transparent_70%),linear-gradient(180deg,#101a2d,#0d1626)] text-amber";
+  if (verdict === "red") return "border-rose/35 bg-[radial-gradient(420px_200px_at_15%_0%,rgba(255,122,144,0.12),transparent_70%),linear-gradient(180deg,#101a2d,#0d1626)] text-rose";
+  return "border-line/70 bg-[linear-gradient(180deg,#101a2d,#0d1626)] text-[#b3c5ff]";
+}
+
 function verdictBarTone(verdict: Verdict): "cobalt" | "emerald" | "amber" | "rose" {
   if (verdict === "green") return "emerald";
   if (verdict === "yellow") return "amber";
   if (verdict === "red") return "rose";
   return "cobalt";
+}
+
+function verdictColor(verdict: Verdict) {
+  if (verdict === "green") return "#4edea3";
+  if (verdict === "yellow") return "#ffb95f";
+  if (verdict === "red") return "#ff7a90";
+  return "#9ca3b8";
 }
 
 function verdictIcon(verdict: Verdict) {
@@ -289,7 +316,7 @@ function Bar({ value, tone = "cobalt" }: { value: number | null; tone?: "cobalt"
   const color =
     tone === "emerald" ? "bg-emerald" : tone === "amber" ? "bg-amber" : tone === "rose" ? "bg-rose" : "bg-cobalt";
   return (
-    <div className="h-2 w-full overflow-hidden rounded bg-sage">
+    <div className="h-1.5 w-full overflow-hidden rounded bg-[#12192a]">
       <div className={`h-full rounded ${color}`} style={{ width: `${width}%` }} />
     </div>
   );
@@ -309,6 +336,13 @@ function MetricComparison({ row }: { row: MetricRow }) {
       <Bar value={clipped} tone={verdictBarTone(row.verdict)} />
     </div>
   );
+}
+
+function benchmarkComparisonPct(row: MetricRow) {
+  const observed = row.higherIsBetter ? row.p50Value : row.p80Value;
+  if (observed === null || row.benchmark === null || row.benchmark === 0) return "n/a";
+  const ratio = row.higherIsBetter ? observed / row.benchmark : row.benchmark / observed;
+  return `${Math.round(ratio * 100)}%`;
 }
 
 function SummaryCard({
@@ -336,7 +370,15 @@ function SummaryCard({
   );
 }
 
-function ColumnHeader({ label, description }: { label: string; description: string }) {
+function ColumnHeader({
+  label,
+  description,
+  tooltipAlign = "left",
+}: {
+  label: string;
+  description: string;
+  tooltipAlign?: "left" | "right";
+}) {
   const descriptionId = useId();
 
   return (
@@ -344,12 +386,15 @@ function ColumnHeader({ label, description }: { label: string; description: stri
       className="group relative inline-flex cursor-help items-center"
       tabIndex={0}
       aria-describedby={descriptionId}
+      style={{ color: "#77819a" }}
     >
       <span className="border-b border-dotted border-slate-500/70">{label}</span>
       <span
         id={descriptionId}
         role="tooltip"
-        className="pointer-events-none absolute left-0 top-full z-30 mt-2 w-56 rounded-md border border-line bg-surface-highest px-3 py-2 text-left text-xs font-medium normal-case leading-snug text-ink opacity-0 shadow-soft transition-opacity group-hover:opacity-100 group-focus:opacity-100"
+        className={`pointer-events-none absolute top-full z-30 mt-2 w-56 rounded-md border border-line bg-surface-highest px-3 py-2 text-left text-xs font-medium normal-case leading-snug text-ink opacity-0 shadow-soft transition-opacity group-hover:opacity-100 group-focus:opacity-100 ${
+          tooltipAlign === "right" ? "right-0" : "left-0"
+        }`}
       >
         {description}
       </span>
@@ -377,7 +422,7 @@ function FilterDropdown<T extends string>({
 
   return (
     <label className="block">
-      <span className="mb-2 block text-sm font-semibold text-ink">{label}</span>
+      <span className={techLabelClass}>{label}</span>
       <div
         className="relative"
         onBlur={(event) => {
@@ -387,14 +432,14 @@ function FilterDropdown<T extends string>({
         <button
           type="button"
           onClick={() => setIsOpen((open) => !open)}
-          className="focus-ring flex h-11 w-full items-center justify-between gap-3 rounded-md border border-line bg-white px-3 text-left text-sm shadow-sm"
+          className="focus-ring flex h-[42px] w-full items-center justify-between gap-3 rounded-[9px] border border-line/70 bg-[#0a111e] px-3 text-left text-sm font-semibold text-slate-300"
           aria-expanded={isOpen}
         >
-          <span className="truncate text-ink">{selectedLabel}</span>
+          <span className="truncate">{selectedLabel}</span>
           <ChevronDown className={`h-4 w-4 shrink-0 text-slate-500 transition-transform ${isOpen ? "rotate-180" : ""}`} />
         </button>
         {isOpen ? (
-          <div className="absolute left-0 top-full z-50 mt-2 max-h-72 w-full overflow-y-auto rounded-md border border-line bg-surface-highest p-1 shadow-soft">
+          <div className="absolute left-0 top-full z-50 mt-2 max-h-72 w-full overflow-y-auto rounded-[9px] border border-line/70 bg-[#0d1424] p-1 shadow-soft">
             {options.map((option) => (
               <button
                 key={option.value}
@@ -404,8 +449,8 @@ function FilterDropdown<T extends string>({
                   onChange(option.value);
                   setIsOpen(false);
                 }}
-                className={`focus-ring block w-full rounded-md px-3 py-2 text-left text-sm font-semibold transition-colors hover:bg-sage ${
-                  option.value === value ? "bg-cobalt/15 text-ink" : "text-slate-600"
+                className={`focus-ring block w-full rounded-[7px] px-3 py-2 text-left text-sm font-semibold transition-colors hover:bg-[#17223a] ${
+                  option.value === value ? "bg-emerald/10 text-emerald" : "text-slate-400"
                 }`}
               >
                 {option.label}
@@ -431,6 +476,8 @@ function DateRangePicker({
   const [draftStart, setDraftStart] = useState(startDate);
   const [draftEnd, setDraftEnd] = useState(endDate);
   const [visibleMonth, setVisibleMonth] = useState(() => startOfMonth(parseIsoDate(startDate)));
+  const [popoverPosition, setPopoverPosition] = useState<{ top: number; left: number; width: number } | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const presets = [
     { label: "Today", range: () => presetRange(1) },
     { label: "Yesterday", range: () => {
@@ -463,6 +510,13 @@ function DateRangePicker({
     setDraftStart(startDate);
     setDraftEnd(endDate);
     setVisibleMonth(startOfMonth(parseIsoDate(startDate)));
+    const rect = triggerRef.current?.getBoundingClientRect();
+    if (rect) {
+      const viewportPadding = 16;
+      const width = Math.min(window.innerWidth - viewportPadding * 2, 760);
+      const left = Math.max(viewportPadding, Math.min(rect.left, window.innerWidth - width - viewportPadding));
+      setPopoverPosition({ top: rect.bottom + 8, left, width });
+    }
     setIsOpen(true);
   }
 
@@ -544,29 +598,40 @@ function DateRangePicker({
 
   return (
     <div className="relative">
-      <span className="mb-2 block text-sm font-semibold text-ink">Date Range</span>
+      <span className={techLabelClass}>Date Range</span>
       <button
+        ref={triggerRef}
         type="button"
-        onClick={() => (isOpen ? setIsOpen(false) : openPicker())}
-        className="focus-ring flex h-11 w-full items-center justify-between gap-3 rounded-md border border-line bg-white px-3 text-left text-sm shadow-sm"
+        onClick={() => {
+          if (isOpen) {
+            setIsOpen(false);
+            return;
+          }
+          openPicker();
+        }}
+        className="focus-ring flex h-[42px] w-full items-center justify-between gap-3 rounded-[9px] border border-line/70 bg-[#0a111e] px-3 text-left text-sm text-slate-300"
       >
-        <span className="min-w-0 truncate text-sm text-ink">
+        <span className="min-w-0 truncate text-sm">
           {startDate} to {endDate}
         </span>
         <CalendarDays className="h-4 w-4 shrink-0 text-white" />
       </button>
 
-      {isOpen ? (
-        <div className="absolute left-0 top-full z-50 mt-2 w-[min(92vw,760px)] overflow-hidden rounded-lg border border-line bg-white shadow-soft">
+      {isOpen && popoverPosition && typeof document !== "undefined"
+        ? createPortal(
+        <div
+          className="fixed z-[100] overflow-hidden rounded-xl border border-line/70 bg-[#0d1424] shadow-soft"
+          style={{ top: popoverPosition.top, left: popoverPosition.left, width: popoverPosition.width }}
+        >
           <div className="grid max-h-[520px] grid-cols-1 md:grid-cols-[160px_1fr]">
-            <div className="border-b border-line bg-sage p-3 md:border-b-0 md:border-r">
+            <div className="border-b border-line/60 bg-[#0a111e] p-3 md:border-b-0 md:border-r">
               <div className="flex max-h-64 flex-col gap-1 overflow-y-auto pr-1">
                 {presets.map((preset) => (
                   <button
                     key={preset.label}
                     type="button"
                     onClick={() => applyPreset(preset.range())}
-                    className="focus-ring rounded-md px-3 py-2 text-left text-sm font-semibold text-slate-600 hover:bg-white hover:text-ink"
+                    className="focus-ring rounded-[7px] px-3 py-2 text-left text-sm font-semibold text-slate-400 hover:bg-[#17223a] hover:text-slate-200"
                   >
                     {preset.label}
                   </button>
@@ -576,14 +641,14 @@ function DateRangePicker({
             <div className="p-4">
               <div className="mb-4 flex flex-wrap items-center gap-3 text-xs font-bold uppercase text-slate-500">
                 <span>Start</span>
-                <span className="rounded-md border border-line bg-sage px-3 py-2 font-mono text-ink">{draftStart || "Select date"}</span>
+                <span className="rounded-[7px] border border-line/70 bg-[#0a111e] px-3 py-2 font-mono text-slate-300">{draftStart || "Select date"}</span>
                 <span>End</span>
-                <span className="rounded-md border border-line bg-sage px-3 py-2 font-mono text-ink">{draftEnd || "Select date"}</span>
+                <span className="rounded-[7px] border border-line/70 bg-[#0a111e] px-3 py-2 font-mono text-slate-300">{draftEnd || "Select date"}</span>
                 <div className="ml-auto flex gap-2">
                   <button
                     type="button"
                     onClick={() => setVisibleMonth((current) => addMonths(current, -1))}
-                    className="focus-ring flex h-9 w-9 items-center justify-center rounded-md border border-line bg-sage text-slate-600 hover:bg-white hover:text-ink"
+                    className="focus-ring flex h-9 w-9 items-center justify-center rounded-[7px] border border-line/70 bg-[#101a2c] text-slate-400 hover:bg-[#17223a] hover:text-slate-200"
                     aria-label="Previous month"
                   >
                     <ChevronLeft className="h-4 w-4" />
@@ -591,7 +656,7 @@ function DateRangePicker({
                   <button
                     type="button"
                     onClick={() => setVisibleMonth((current) => addMonths(current, 1))}
-                    className="focus-ring flex h-9 w-9 items-center justify-center rounded-md border border-line bg-sage text-slate-600 hover:bg-white hover:text-ink"
+                    className="focus-ring flex h-9 w-9 items-center justify-center rounded-[7px] border border-line/70 bg-[#101a2c] text-slate-400 hover:bg-[#17223a] hover:text-slate-200"
                     aria-label="Next month"
                   >
                     <ChevronRight className="h-4 w-4" />
@@ -606,7 +671,7 @@ function DateRangePicker({
                 <button
                   type="button"
                   onClick={() => setIsOpen(false)}
-                  className="focus-ring h-10 rounded-md border border-line bg-white px-4 text-sm font-semibold text-slate-600 hover:bg-sage hover:text-ink"
+                  className="focus-ring h-10 rounded-[8px] border border-line/70 bg-[#121b2c] px-4 text-sm font-semibold text-slate-300 hover:bg-[#17223a]"
                 >
                   Cancel
                 </button>
@@ -621,13 +686,16 @@ function DateRangePicker({
               </div>
             </div>
           </div>
-        </div>
-      ) : null}
+        </div>,
+        document.body,
+      )
+        : null}
     </div>
   );
 }
 
 export default function TechLaunchDashboard() {
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [filters, setFilters] = useState<Filters>(() => defaultFilters());
   const [data, setData] = useState<ReadinessResponse | null>(null);
   const [error, setError] = useState("");
@@ -639,6 +707,7 @@ export default function TechLaunchDashboard() {
   const [versionCacheStatus, setVersionCacheStatus] = useState("");
   const [isVersionMenuOpen, setIsVersionMenuOpen] = useState(false);
   const [pendingUrlRun, setPendingUrlRun] = useState(false);
+  const [isSessionStateReady, setIsSessionStateReady] = useState(false);
   const requestIdRef = useRef(0);
   const versionRequestIdRef = useRef(0);
   const hasReadUrlRef = useRef(false);
@@ -718,7 +787,7 @@ export default function TechLaunchDashboard() {
       await pollReadiness(result.metadata.jobKey, result.filters, result.pollAfterMs, requestId);
     } catch (err) {
       if (requestIdRef.current === requestId) {
-        setError(err instanceof Error ? err.message : "Could not load Tech Launch readiness");
+        setError(err instanceof Error ? err.message : "Could not load Launch Readiness data");
         setStatusText("");
       }
     } finally {
@@ -729,12 +798,24 @@ export default function TechLaunchDashboard() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const urlFilters = filtersFromSearchParams(new URLSearchParams(window.location.search));
+    const sessionSnapshot = readDashboardSession<TechLaunchSessionSnapshot>(techLaunchSessionKey);
     hasReadUrlRef.current = true;
     skipNextUrlSyncRef.current = true;
-    if (!urlFilters) return;
-    setFilters(urlFilters);
-    if (new URLSearchParams(window.location.search).get("run") === "1") setPendingUrlRun(true);
+    if (urlFilters) {
+      setFilters(urlFilters);
+      if (new URLSearchParams(window.location.search).get("run") === "1") setPendingUrlRun(true);
+    } else if (sessionSnapshot) {
+      setFilters(sessionSnapshot.filters);
+      setData(sessionSnapshot.data);
+      setStatusText(sessionSnapshot.statusText);
+    }
+    setIsSessionStateReady(true);
   }, []);
+
+  useEffect(() => {
+    if (!isSessionStateReady) return;
+    writeDashboardSession<TechLaunchSessionSnapshot>(techLaunchSessionKey, { filters, data, statusText });
+  }, [data, filters, isSessionStateReady, statusText]);
 
   useEffect(() => {
     if (!hasReadUrlRef.current) return;
@@ -804,27 +885,24 @@ export default function TechLaunchDashboard() {
   }
 
   return (
-    <CerberusShell currentProduct="tech-launch">
-        <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.16em] text-emerald">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald shadow-[0_0_10px_#4edea3]" />
-              <Gauge className="h-4 w-4" />
-              Tech Launch · Readiness
-            </div>
-            <h1 className="mt-3 font-display text-3xl font-extrabold leading-tight text-[#f4f6ff]">Readiness Dashboard</h1>
-            <p className="mt-2 max-w-3xl text-sm text-slate-600">
-              Live Snowflake telemetry via Count API, cached by filter set for fast repeat loads.
-            </p>
+    <CerberusShell
+      currentProduct="tech-launch"
+      collapsed={sidebarCollapsed}
+      onToggleCollapsed={() => setSidebarCollapsed((value) => !value)}
+    >
+        <div className="mb-6">
+          <div className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.16em] text-emerald">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald shadow-[0_0_10px_#4edea3]" />
+            Launch Readiness · Readiness
           </div>
+          <h1 className="mt-3 font-display text-[34px] font-extrabold leading-none text-[#f4f6ff]">Readiness Dashboard</h1>
+          <p className="mt-2 max-w-2xl text-[13.5px] text-slate-500">
+            Live Snowflake telemetry via the Count API, cached by filter set for fast repeat loads.
+          </p>
         </div>
 
-        <form onSubmit={submit} className="mb-5 rounded-lg border border-line bg-white p-4 shadow-sm">
-          <div className="mb-4 flex items-center gap-2 font-bold text-ink">
-            <SlidersHorizontal className="h-4 w-4" />
-            Filters
-          </div>
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1.1fr_0.8fr_1fr_1.7fr_auto_auto]">
+        <form onSubmit={submit} className="mb-[22px] rounded-[14px] border border-line/70 bg-[#0b1120] p-4 shadow-soft">
+          <div className="grid items-start gap-[14px] md:grid-cols-2 xl:grid-cols-[minmax(150px,1fr)_130px_160px_230px_auto_auto]">
             <FilterDropdown
               label="App"
               value={filters.appName as Filters["appName"]}
@@ -841,7 +919,7 @@ export default function TechLaunchDashboard() {
               onChange={(platform) => updateFilters({ platform })}
             />
             <label className="block">
-              <span className="mb-2 block text-sm font-semibold text-ink">App Version</span>
+              <span className={techLabelClass}>App Version</span>
               <div
                 className="relative"
                 onBlur={(event) => {
@@ -856,7 +934,7 @@ export default function TechLaunchDashboard() {
                   }}
                   onFocus={() => setIsVersionMenuOpen(true)}
                   placeholder={isLoadingVersions ? "Type version or wait for suggestions" : "Type or select version"}
-                  className="focus-ring h-11 w-full rounded-md border border-line bg-white px-3 pr-20 text-sm shadow-sm"
+                  className={`${techInputClass} font-mono pr-20`}
                   role="combobox"
                   aria-expanded={isVersionMenuOpen}
                   aria-controls="tech-launch-app-version-options"
@@ -868,7 +946,7 @@ export default function TechLaunchDashboard() {
                       updateFilters({ appVersion: "" });
                       setIsVersionMenuOpen(true);
                     }}
-                    className="focus-ring absolute right-9 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-slate-500 hover:bg-sage hover:text-ink"
+                    className="focus-ring absolute right-9 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-[6px] text-slate-500 hover:bg-[#17223a] hover:text-slate-200"
                     aria-label="Clear app version"
                   >
                     <XCircle className="h-4 w-4" />
@@ -877,7 +955,7 @@ export default function TechLaunchDashboard() {
                 <button
                   type="button"
                   onClick={() => setIsVersionMenuOpen((open) => !open)}
-                  className="focus-ring absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-slate-500 hover:bg-sage hover:text-ink"
+                  className="focus-ring absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-[6px] text-slate-500 hover:bg-[#17223a] hover:text-slate-200"
                   aria-label="Toggle app version suggestions"
                   aria-expanded={isVersionMenuOpen}
                 >
@@ -887,7 +965,7 @@ export default function TechLaunchDashboard() {
                   <div
                     id="tech-launch-app-version-options"
                     role="listbox"
-                    className="absolute left-0 top-full z-50 mt-2 max-h-72 w-full overflow-y-auto rounded-md border border-line bg-surface-highest p-1 shadow-soft"
+                    className="absolute left-0 top-full z-50 mt-2 max-h-72 w-full overflow-y-auto rounded-[9px] border border-line/70 bg-[#0d1424] p-1 shadow-soft"
                   >
                     {isLoadingVersions ? (
                       <div className="flex items-center gap-2 px-3 py-3 text-sm font-semibold text-slate-500">
@@ -906,11 +984,11 @@ export default function TechLaunchDashboard() {
                             updateFilters({ appVersion: option.appVersion });
                             setIsVersionMenuOpen(false);
                           }}
-                          className={`focus-ring block w-full rounded-md px-3 py-2 text-left transition-colors hover:bg-sage ${
-                            filters.appVersion === option.appVersion ? "bg-cobalt/15 text-ink" : "text-slate-600"
+                          className={`focus-ring block w-full rounded-[7px] px-3 py-2 text-left transition-colors hover:bg-[#17223a] ${
+                            filters.appVersion === option.appVersion ? "bg-emerald/10 text-emerald" : "text-slate-400"
                           }`}
                         >
-                          <span className="block text-sm font-bold text-ink">{option.appVersion}</span>
+                          <span className="block text-sm font-bold text-slate-200">{option.appVersion}</span>
                           <span className="mt-1 block text-xs">
                             {new Intl.NumberFormat(undefined, { notation: "compact" }).format(option.sampleCount)} samples
                           </span>
@@ -924,16 +1002,19 @@ export default function TechLaunchDashboard() {
                   </div>
                 ) : null}
               </div>
-              <p className={`mt-2 min-h-5 text-xs ${versionError || hasMissingSelectedVersion ? "text-amber" : "text-slate-500"}`}>
+              <p
+                title={versionError || hasMissingSelectedVersion ? "Version may not be available for the selected range" : versionCacheStatus}
+                className={`mt-1 h-3 truncate font-mono text-[10px] leading-3 ${versionError || hasMissingSelectedVersion ? "text-amber" : "text-slate-500"}`}
+              >
                 {versionError
-                  ? "Version suggestions could not load. You can still run a known version."
+                  ? "Suggestions unavailable"
                   : hasMissingSelectedVersion
-                    ? "Version not found in selected range. Query may return no rows."
+                    ? "Not found in range"
                     : isLoadingVersions
-                      ? "Loading suggestions. You can type a known version now."
+                      ? "Loading suggestions"
                       : selectedVersion
-                        ? `${new Intl.NumberFormat().format(selectedVersion.sampleCount)} samples · ${selectedVersion.firstSeen} to ${selectedVersion.lastSeen}`
-                        : versionCacheStatus || "Type a version or choose from suggestions."}
+                        ? `${new Intl.NumberFormat(undefined, { notation: "compact" }).format(selectedVersion.sampleCount)} samples`
+                        : versionCacheStatus ? "Suggestions ready" : "Type or select a version"}
               </p>
             </label>
             <DateRangePicker
@@ -944,7 +1025,7 @@ export default function TechLaunchDashboard() {
             <button
               type="submit"
               disabled={!canRunReadiness}
-              className="focus-ring mt-7 inline-flex h-11 items-center justify-center gap-2 rounded-md bg-cobalt px-4 text-sm font-semibold text-white hover:bg-cobalt/90 disabled:opacity-60"
+              className="focus-ring mt-[27px] inline-flex h-[42px] items-center justify-center gap-2 rounded-[9px] bg-cobalt px-[18px] text-sm font-semibold text-white shadow-[0_8px_22px_-8px_#3d82ff] hover:bg-cobalt/90 disabled:opacity-60"
             >
               {isLoading ? <LoadingSpinner /> : <Activity className="h-4 w-4" />}
               {isLoading ? "Running" : "Run"}
@@ -953,7 +1034,7 @@ export default function TechLaunchDashboard() {
               type="button"
               disabled={!canRunReadiness}
               onClick={() => void loadReadiness(true)}
-              className="focus-ring mt-7 inline-flex h-11 items-center justify-center gap-2 rounded-md border border-line bg-white px-4 text-sm font-semibold hover:bg-slate-50 disabled:opacity-60"
+              className="focus-ring mt-[27px] inline-flex h-[42px] items-center justify-center gap-2 rounded-[9px] border border-line/70 bg-[#121b2c] px-4 text-sm font-semibold text-text-muted hover:bg-[#17223a] disabled:opacity-60"
             >
               {isLoading ? <LoadingSpinner /> : <RefreshCw className="h-4 w-4" />}
               Refresh
@@ -961,60 +1042,77 @@ export default function TechLaunchDashboard() {
           </div>
         </form>
 
-        {error ? <div className="mb-5 rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</div> : null}
+        {error ? <div className="mb-5 rounded-[10px] border border-rose/30 bg-rose/10 px-4 py-3 text-sm font-semibold text-rose">{error}</div> : null}
 
         {data ? (
           <>
-            <section className="mb-5 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-              <SummaryCard
-                label="Overall"
-                value={verdictLabel(data.summary.overallVerdict)}
-                detail={`${data.summary.metricCount} readiness metrics scored`}
-                icon={verdictIcon(data.summary.overallVerdict)}
-              />
-              <SummaryCard
-                label="Go"
-                value={String(data.summary.greenCount)}
-                detail={`${data.summary.yellowCount} cautious, ${data.summary.redCount} hold`}
-                icon={<CheckCircle2 className="h-5 w-5" />}
-              />
-              <SummaryCard
-                label="Samples"
-                value={new Intl.NumberFormat().format(data.summary.totalSamples)}
-                detail={`${data.summary.insufficientCount} metric(s) below sample threshold`}
-                icon={<Database className="h-5 w-5" />}
-              />
-              <SummaryCard
-                label="Weakest"
-                value={data.summary.weakestMetric ?? "None"}
-                detail="Lowest % within benchmark for the worst verdict"
-                icon={<AlertTriangle className="h-5 w-5" />}
-              />
-              <SummaryCard
-                label="Cache"
-                value={isLoading ? "Running" : data.cache.hit ? "Hit" : "Fresh"}
-                detail={`Expires ${new Date(data.cache.expiresAt).toLocaleString()}`}
-                icon={<RefreshCw className="h-5 w-5" />}
-              />
+            <section className="mb-4 grid gap-4 xl:grid-cols-[1.45fr_0.62fr_0.62fr_0.62fr]">
+              <div className={`overflow-hidden rounded-2xl border p-6 ${verdictOverviewClasses(data.summary.overallVerdict)}`}>
+                <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Overall Verdict</div>
+                <div className="mt-4 flex items-center gap-4">
+                  <div className={`flex h-[52px] w-[52px] items-center justify-center rounded-[14px] border ${verdictClasses(data.summary.overallVerdict)}`}>
+                    {verdictIcon(data.summary.overallVerdict)}
+                  </div>
+                  <div>
+                    <div className="font-display text-[25px] font-extrabold leading-none">{verdictLabel(data.summary.overallVerdict)}</div>
+                    <div className="mt-1.5 text-[12.5px] text-slate-500">{data.summary.metricCount} readiness metrics scored</div>
+                  </div>
+                </div>
+                <div className="mt-5 grid grid-cols-3 gap-2">
+                  <div className="rounded-[10px] border border-emerald/30 bg-emerald/10 py-2 text-center">
+                    <div className="font-display text-xl font-extrabold text-emerald">{data.summary.greenCount}</div>
+                    <div className="mt-0.5 font-mono text-[9px] font-semibold uppercase tracking-[0.08em] text-slate-500">Go</div>
+                  </div>
+                  <div className="rounded-[10px] border border-amber/30 bg-amber/10 py-2 text-center">
+                    <div className="font-display text-xl font-extrabold text-amber">{data.summary.yellowCount}</div>
+                    <div className="mt-0.5 font-mono text-[9px] font-semibold uppercase tracking-[0.08em] text-slate-500">Cautious</div>
+                  </div>
+                  <div className="rounded-[10px] border border-rose/30 bg-rose/10 py-2 text-center">
+                    <div className="font-display text-xl font-extrabold text-rose">{data.summary.redCount}</div>
+                    <div className="mt-0.5 font-mono text-[9px] font-semibold uppercase tracking-[0.08em] text-slate-500">Hold</div>
+                  </div>
+                </div>
+              </div>
+              <div className="rounded-2xl border border-line/70 bg-[linear-gradient(180deg,#101a2d,#0d1626)] p-5 shadow-soft">
+                <div className="flex items-center justify-between gap-3 font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">
+                  Samples <Database className="h-4 w-4 text-cobalt" />
+                </div>
+                <div className="mt-4 font-display text-[30px] font-extrabold leading-none text-[#f4f6ff]">{new Intl.NumberFormat().format(data.summary.totalSamples)}</div>
+                <div className="mt-2 text-xs leading-relaxed text-slate-500">{data.summary.insufficientCount} metric(s) below sample threshold</div>
+              </div>
+              <div className="rounded-2xl border border-line/70 bg-[linear-gradient(180deg,#101a2d,#0d1626)] p-5 shadow-soft">
+                <div className="flex items-center justify-between gap-3 font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">
+                  Weakest <AlertTriangle className="h-4 w-4 text-rose" />
+                </div>
+                <div className="mt-4 text-[19px] font-extrabold leading-tight text-rose">{data.summary.weakestMetric ?? "None"}</div>
+                <div className="mt-2 text-xs leading-relaxed text-slate-500">Lowest % within benchmark</div>
+              </div>
+              <div className="rounded-2xl border border-line/70 bg-[linear-gradient(180deg,#101a2d,#0d1626)] p-5 shadow-soft">
+                <div className="flex items-center justify-between gap-3 font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">
+                  Cache <RefreshCw className="h-4 w-4 text-emerald" />
+                </div>
+                <div className="mt-4 font-display text-[30px] font-extrabold leading-none text-emerald">{isLoading ? "Running" : data.cache.hit ? "Hit" : "Fresh"}</div>
+                <div className="mt-2 text-xs leading-relaxed text-slate-500">Expires {new Date(data.cache.expiresAt).toLocaleTimeString()}</div>
+              </div>
             </section>
 
-            <section className="relative overflow-hidden rounded-lg border border-line bg-white shadow-sm" aria-busy={isLoading}>
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3">
+            <section className="relative overflow-hidden rounded-2xl border border-line/70 bg-[#0b1120] shadow-soft" aria-busy={isLoading}>
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line/60 bg-[#0d1424] px-[18px] py-[15px]">
                 <div>
-                  <h2 className="font-bold text-ink">Readiness Metrics</h2>
-                  <p className="mt-1 text-sm text-slate-600">
+                  <h2 className="font-display text-base font-bold text-[#eef1fb]">Readiness Metrics</h2>
+                  <p className="mt-1 text-xs text-slate-500">
                     Last run {new Date(data.metadata.executedAt).toLocaleString()}
                     {data.metadata.durationMs ? ` · Count duration ${Math.round(data.metadata.durationMs)}ms` : ""}
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   {isLoading ? (
-                    <div className="inline-flex h-9 items-center gap-2 rounded-md border border-cobalt/40 bg-cobalt/15 px-3 text-sm font-semibold text-cobalt">
+                    <div className="inline-flex h-9 items-center gap-2 rounded-[8px] border border-cobalt/40 bg-cobalt/15 px-3 text-sm font-semibold text-cobalt">
                       <LoadingSpinner />
                       {statusText || "Running Count query..."}
                     </div>
                   ) : null}
-                  <div className="rounded-md border border-line bg-sage px-3 py-2 font-mono text-xs text-slate-500">
+                  <div className="rounded-[8px] border border-line/70 bg-[#0a111e] px-3 py-2 font-mono text-[11px] text-slate-500">
                     {data.filters.appName} · {data.filters.platform} · {data.filters.appVersion}
                   </div>
                 </div>
@@ -1022,8 +1120,8 @@ export default function TechLaunchDashboard() {
 
               <div className="relative overflow-x-auto">
                 <div className={`transition-opacity ${isLoading ? "opacity-35" : "opacity-100"}`}>
-                <table className="min-w-full text-left text-sm">
-                  <thead className="bg-sage text-[11px] font-semibold uppercase text-slate-500">
+                <table className="min-w-[1180px] w-full text-left text-sm">
+                  <thead className="bg-[#0a1120] font-mono text-[11px] font-semibold uppercase tracking-[0.04em] text-slate-500">
                     <tr>
                       <th className="px-4 py-3">
                         <ColumnHeader label="Metric" description="Telemetry metric being evaluated for launch readiness." />
@@ -1046,16 +1144,20 @@ export default function TechLaunchDashboard() {
                       <th className="px-4 py-3">
                         <ColumnHeader label="Samples" description="Number of telemetry samples included for this metric." />
                       </th>
-                      <th className="px-4 py-3">
-                        <ColumnHeader label="Benchmark View" description="How far the observed value is from the benchmark." />
+                      <th className="px-4 py-3 text-right">
+                        <ColumnHeader
+                          label="% vs Benchmark"
+                          description="How far the observed value is from the benchmark."
+                          tooltipAlign="right"
+                        />
                       </th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-line">
+                  <tbody className="divide-y divide-line/40">
                     {sortedRows.map((row) => (
-                      <tr key={row.name}>
+                      <tr key={row.name} className="hover:bg-[#0e1626]">
                         <td className="px-4 py-4">
-                          <div className="font-semibold text-ink">{row.metricTitle}</div>
+                          <div className="text-sm font-semibold text-[#eaeefc]">{row.metricTitle}</div>
                           <div className="mt-1 font-mono text-xs text-slate-500">{row.name}</div>
                         </td>
                         <td className="px-4 py-4">
@@ -1065,26 +1167,26 @@ export default function TechLaunchDashboard() {
                           </span>
                         </td>
                         <td className="px-4 py-4">
-                          <div className="min-w-28">
-                            <div className="mb-2 font-mono text-xs">{pct(row.pctOfSampleWithTolerance)}</div>
+                          <div className="min-w-44">
+                            <div className={`mb-2 font-mono text-xs ${row.verdict === "green" ? "text-emerald" : row.verdict === "yellow" ? "text-amber" : row.verdict === "red" ? "text-rose" : "text-slate-500"}`}>{pct(row.pctOfSampleWithTolerance)}</div>
                             <Bar
                               value={row.pctOfSampleWithTolerance}
                               tone={verdictBarTone(row.verdict)}
                             />
                           </div>
                         </td>
-                        <td className="px-4 py-4 font-mono">{compactNumber(row.benchmark)}</td>
-                        <td className="px-4 py-4 font-mono">{compactNumber(row.p50Value)}</td>
-                        <td className="px-4 py-4 font-mono">{compactNumber(row.p80Value)}</td>
+                        <td className="px-4 py-4 font-mono text-sm text-slate-300">{compactNumber(row.benchmark)}</td>
+                        <td className="px-4 py-4 font-mono text-sm text-slate-300">{compactNumber(row.p50Value)}</td>
+                        <td className="px-4 py-4 font-mono text-sm text-slate-300">{compactNumber(row.p80Value)}</td>
                         <td className="px-4 py-4">
                           <span
-                            className={`font-mono ${row.numSample < 50 ? "text-amber" : "text-slate-600"}`}
+                            className={`font-mono text-sm ${row.numSample < 50 ? "text-amber" : "text-slate-400"}`}
                           >
                             {new Intl.NumberFormat().format(row.numSample)}
                           </span>
                         </td>
-                        <td className="px-4 py-4">
-                          <MetricComparison row={row} />
+                        <td className="px-4 py-4 text-right font-mono text-sm" style={{ color: verdictColor(row.verdict) }}>
+                          {benchmarkComparisonPct(row)}
                         </td>
                       </tr>
                     ))}
@@ -1093,8 +1195,8 @@ export default function TechLaunchDashboard() {
                 </div>
 
                 {isLoading ? (
-                  <div className="pointer-events-none absolute inset-0 flex min-h-56 items-center justify-center bg-mist/45 backdrop-blur-[1px]">
-                    <div className="inline-flex items-center gap-3 rounded-md border border-line bg-white px-4 py-3 text-sm font-semibold text-ink shadow-soft">
+                  <div className="pointer-events-none absolute inset-0 flex min-h-56 items-center justify-center bg-[#050b18]/70 backdrop-blur-[1px]">
+                    <div className="inline-flex items-center gap-3 rounded-[9px] border border-line/70 bg-[#0d1424] px-4 py-3 text-sm font-semibold text-slate-200 shadow-soft">
                       <LoadingSpinner className="h-5 w-5 text-cobalt" />
                       <span>{statusText || "Running Count query..."}</span>
                     </div>
@@ -1103,20 +1205,20 @@ export default function TechLaunchDashboard() {
               </div>
 
               {!sortedRows.length ? (
-                <div className="border-t border-line px-4 py-10 text-center text-sm text-slate-500">
+                <div className="border-t border-line/60 px-4 py-10 text-center text-sm text-slate-500">
                   No readiness metrics returned for this filter set.
                 </div>
               ) : null}
             </section>
 
-            <p className="mt-4 text-sm text-slate-500">* 15% tolerance is applied.</p>
+            <p className="mt-3 px-[18px] text-[11.5px] text-slate-500">* A 15% tolerance is applied to the benchmark share.</p>
           </>
         ) : (
-          <div className="rounded-lg border border-dashed border-line bg-white px-4 py-14 text-center text-sm text-slate-500" aria-busy={isLoading}>
+          <div className="rounded-2xl border border-dashed border-line/70 bg-[#0b1120] px-4 py-14 text-center text-sm text-slate-500" aria-busy={isLoading}>
             {isLoading ? (
               <div className="flex flex-col items-center gap-3">
                 <LoadingSpinner className="h-6 w-6 text-cobalt" />
-                <span>{statusText || "Loading Tech Launch readiness..."}</span>
+                <span>{statusText || "Loading Launch Readiness data..."}</span>
               </div>
             ) : (
               "Run the dashboard to load readiness metrics."

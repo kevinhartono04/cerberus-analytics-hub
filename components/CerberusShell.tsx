@@ -11,7 +11,7 @@ import {
   Wand2,
   type LucideIcon,
 } from "lucide-react";
-import { ReactNode } from "react";
+import { ReactNode, useEffect, useState } from "react";
 
 export type HubProductId = "spec-generator" | "tech-launch" | "spec-check";
 
@@ -24,9 +24,9 @@ type ProductItem = {
 };
 
 const products: ProductItem[] = [
-  { id: "spec-generator", label: "Spec Generator", href: "/", icon: Wand2, accent: "#3d82ff" },
-  { id: "tech-launch", label: "Tech Launch", href: "/tech-launch", icon: Gauge, accent: "#4edea3" },
-  { id: "spec-check", label: "Spec Check", href: "/spec-check", icon: ClipboardCheck, accent: "#48d9ff" },
+  { id: "spec-generator", label: "Event Design", href: "/", icon: Wand2, accent: "#3d82ff" },
+  { id: "tech-launch", label: "Launch Readiness", href: "/tech-launch", icon: Gauge, accent: "#4edea3" },
+  { id: "spec-check", label: "Analytics QA", href: "/spec-check", icon: ClipboardCheck, accent: "#48d9ff" },
 ];
 
 export type ShellNavItem<T extends string> = {
@@ -41,6 +41,19 @@ type ShellUser = {
   email?: string | null;
   roleLabel?: string;
 };
+
+type ShellMeResponse = {
+  authenticated: boolean;
+  user: {
+    name?: string | null;
+    email?: string | null;
+    role?: string;
+  } | null;
+};
+
+function formatRoleLabel(role?: string) {
+  return role ? `${role.slice(0, 1).toUpperCase()}${role.slice(1)}` : undefined;
+}
 
 function ProductLink({ product, active, collapsed }: { product: ProductItem; active: boolean; collapsed: boolean }) {
   const Icon = product.icon;
@@ -65,7 +78,21 @@ function ProductLink({ product, active, collapsed }: { product: ProductItem; act
   );
 }
 
-function UserPanel({ user, collapsed }: { user?: ShellUser; collapsed: boolean }) {
+function UserPanel({ user, collapsed, isLoading = false }: { user?: ShellUser; collapsed: boolean; isLoading?: boolean }) {
+  if (isLoading) {
+    return (
+      <div
+        aria-label="Loading account"
+        className={`flex h-10 w-full items-center gap-3 rounded-md border border-line bg-[#0a111e] px-3 ${
+          collapsed ? "justify-center" : "justify-start max-md:justify-center"
+        }`}
+      >
+        <div className="h-5 w-5 shrink-0 animate-pulse rounded-md bg-sage" />
+        {collapsed ? null : <div className="h-3 w-24 animate-pulse rounded bg-sage max-md:hidden" />}
+      </div>
+    );
+  }
+
   if (!user?.authenticated) {
     return (
       <a
@@ -145,6 +172,49 @@ export default function CerberusShell<T extends string>({
   contentClassName?: string;
   children: ReactNode;
 }) {
+  const hasExplicitUser = user !== undefined;
+  const [sessionUser, setSessionUser] = useState<ShellUser | undefined>(user);
+
+  useEffect(() => {
+    if (hasExplicitUser) {
+      setSessionUser(user);
+      return;
+    }
+
+    let cancelled = false;
+
+    void fetch("/api/me")
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Could not load account");
+        return (await response.json()) as ShellMeResponse;
+      })
+      .then((response) => {
+        if (cancelled) return;
+
+        if (!response.authenticated || !response.user) {
+          setSessionUser({ authenticated: false });
+          return;
+        }
+
+        setSessionUser({
+          authenticated: true,
+          name: response.user.name,
+          email: response.user.email,
+          roleLabel: formatRoleLabel(response.user.role),
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setSessionUser({ authenticated: false });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [hasExplicitUser, user?.authenticated, user?.email, user?.name, user?.roleLabel]);
+
+  const sidebarUser = hasExplicitUser ? user : sessionUser;
+  const isLoadingUser = !hasExplicitUser && sessionUser === undefined;
+
   return (
     <main className="theme-dark min-h-screen bg-mist">
       <div className="flex min-h-screen bg-[radial-gradient(1200px_600px_at_12%_-8%,rgba(61,130,255,0.16),transparent_60%),radial-gradient(900px_500px_at_100%_0%,rgba(31,196,138,0.06),transparent_55%),linear-gradient(180deg,#070b16_0%,#04060d_100%)]">
@@ -218,7 +288,7 @@ export default function CerberusShell<T extends string>({
           </nav>
 
           <div className="border-t border-line/50 p-3">
-            <UserPanel user={user} collapsed={collapsed} />
+            <UserPanel user={sidebarUser} collapsed={collapsed} isLoading={isLoadingUser} />
           </div>
 
           {onToggleCollapsed ? (

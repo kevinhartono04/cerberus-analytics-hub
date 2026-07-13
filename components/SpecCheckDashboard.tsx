@@ -13,12 +13,13 @@ import {
   MessageSquareText,
   RefreshCw,
   SearchCheck,
-  SlidersHorizontal,
   XCircle,
 } from "lucide-react";
 import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import CerberusShell from "@/components/CerberusShell";
+import { readDashboardSession, writeDashboardSession } from "@/lib/dashboard-session";
 
 const appOptions = [
   "blockkingdom",
@@ -167,6 +168,14 @@ type AppVersionsResponse = {
   cache: { hit: boolean; key: string; expiresAt: string };
 };
 
+type SpecCheckSessionSnapshot = {
+  filters: Filters;
+  data: CompletedResponse | null;
+  statusText: string;
+};
+
+const specCheckSessionKey = "cerberus.spec-check.snapshot.v1";
+
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 
 function isoDate(date: Date) {
@@ -312,7 +321,7 @@ function verdictClasses(verdict: Verdict) {
   if (verdict === "pass") return "border-emerald/40 bg-emerald/15 text-emerald";
   if (verdict === "warnings") return "border-amber/40 bg-amber/15 text-amber";
   if (verdict === "fail") return "border-rose/40 bg-rose/15 text-rose";
-  return "border-line bg-sage text-slate-500";
+  return "border-line/80 bg-[#17223a] text-[#a3abc2]";
 }
 
 function verdictIcon(verdict: Verdict) {
@@ -332,7 +341,7 @@ function SeverityChip({ severity }: { severity: Severity }) {
       ? "border-rose/40 bg-rose/15 text-rose"
       : severity === "warning"
         ? "border-amber/40 bg-amber/15 text-amber"
-        : "border-line bg-sage text-slate-500";
+        : "border-line/80 bg-[#17223a] text-[#a3abc2]";
   const icon =
     severity === "error" ? (
       <XCircle className="h-3.5 w-3.5" />
@@ -353,7 +362,7 @@ function eventStatusClasses(status: EventReport["status"]) {
   if (status === "matched") return "border-emerald/40 bg-emerald/15 text-emerald";
   if (status === "typo") return "border-rose/40 bg-rose/15 text-rose";
   if (status === "missing") return "border-rose/40 bg-rose/15 text-rose";
-  return "border-line bg-sage text-slate-500";
+  return "border-line/80 bg-[#17223a] text-[#a3abc2]";
 }
 
 function payloadStatusClasses(status: PayloadReport["status"]) {
@@ -367,7 +376,7 @@ function summaryToneClasses(tone: SummaryTone) {
   if (tone === "amber") return "bg-amber/15 text-amber";
   if (tone === "rose") return "bg-rose/15 text-rose";
   if (tone === "cobalt") return "bg-cobalt/15 text-cobalt";
-  return "bg-sage text-cobalt";
+  return "bg-[#17223a] text-cobalt";
 }
 
 function summaryToneForVerdict(verdict: Verdict): SummaryTone {
@@ -375,6 +384,67 @@ function summaryToneForVerdict(verdict: Verdict): SummaryTone {
   if (verdict === "warnings") return "amber";
   if (verdict === "fail") return "rose";
   return "neutral";
+}
+
+function summaryValueClass(tone: SummaryTone) {
+  if (tone === "emerald") return "text-emerald";
+  if (tone === "amber") return "text-amber";
+  if (tone === "rose") return "text-rose";
+  if (tone === "cobalt") return "text-cobalt";
+  return "text-[#f4f6ff]";
+}
+
+function overviewVerdictClasses(verdict: Verdict) {
+  if (verdict === "pass") return "border-emerald/35 bg-[radial-gradient(420px_200px_at_15%_0%,rgba(78,222,163,0.12),transparent_70%),linear-gradient(180deg,#101a2d,#0d1626)] text-emerald";
+  if (verdict === "warnings") return "border-amber/35 bg-[radial-gradient(420px_200px_at_15%_0%,rgba(255,185,95,0.12),transparent_70%),linear-gradient(180deg,#101a2d,#0d1626)] text-amber";
+  if (verdict === "fail") return "border-rose/35 bg-[radial-gradient(420px_200px_at_15%_0%,rgba(255,122,144,0.12),transparent_70%),linear-gradient(180deg,#101a2d,#0d1626)] text-rose";
+  return "border-line/70 bg-[linear-gradient(180deg,#101a2d,#0d1626)] text-[#b3c5ff]";
+}
+
+function SpecCheckOverviewCard({
+  summary,
+  specName,
+  appName,
+  appVersion,
+}: {
+  summary: Report["summary"];
+  specName: string;
+  appName: string;
+  appVersion: string;
+}) {
+  const verdict = summary.verdict;
+  const matchedCount = summary.matchedEventCount + summary.typoEventCount;
+
+  return (
+    <div className={`rounded-[14px] border p-5 shadow-soft ${overviewVerdictClasses(verdict)}`}>
+      <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em]" style={{ color: "#8b93ad" }}>
+        Overall Verdict
+      </div>
+      <div className="mt-4 flex items-center gap-3.5">
+        <div className={`flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-[14px] border ${verdictClasses(verdict)}`}>
+          {verdictIcon(verdict)}
+        </div>
+        <div className="min-w-0">
+          <div className="font-display text-[25px] font-extrabold leading-none">{verdictLabel(verdict)}</div>
+          <div className="mt-1.5 truncate text-[12.5px] text-[#8b93ad]">{specName} vs {appName} {appVersion}</div>
+        </div>
+      </div>
+      <div className="mt-5 grid grid-cols-3 gap-2">
+        <div className="rounded-[10px] border border-rose/30 bg-rose/10 py-2 text-center">
+          <div className="font-display text-xl font-extrabold text-rose">{summary.errorCount}</div>
+          <div className="mt-0.5 font-mono text-[9px] font-semibold uppercase tracking-[0.08em]" style={{ color: "#9b7890" }}>Errors</div>
+        </div>
+        <div className="rounded-[10px] border border-amber/30 bg-amber/10 py-2 text-center">
+          <div className="font-display text-xl font-extrabold text-amber">{summary.warningCount}</div>
+          <div className="mt-0.5 font-mono text-[9px] font-semibold uppercase tracking-[0.08em]" style={{ color: "#a28a68" }}>Warnings</div>
+        </div>
+        <div className="rounded-[10px] border border-emerald/30 bg-emerald/10 py-2 text-center">
+          <div className="font-display text-xl font-extrabold text-emerald">{matchedCount}/{summary.specEventCount}</div>
+          <div className="mt-0.5 font-mono text-[9px] font-semibold uppercase tracking-[0.08em]" style={{ color: "#668f81" }}>Matched</div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function SummaryCard({
@@ -391,15 +461,15 @@ function SummaryCard({
   tone?: SummaryTone;
 }) {
   return (
-    <div className="rounded-lg border border-line bg-white p-4 shadow-sm">
+    <div className="rounded-[14px] border border-line/70 bg-[linear-gradient(180deg,#101a2d_0%,#0d1626_100%)] p-5 shadow-soft">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <div className="text-xs font-semibold uppercase text-slate-500">{label}</div>
-          <div className="metric-value mt-2 text-3xl font-bold text-ink">{value}</div>
+          <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.12em]" style={{ color: "#8b93ad" }}>{label}</div>
+          <div className={`metric-value mt-4 text-[30px] font-extrabold leading-none ${summaryValueClass(tone)}`}>{value}</div>
         </div>
         <div className={`flex h-10 w-10 items-center justify-center rounded-md ${summaryToneClasses(tone)}`}>{icon}</div>
       </div>
-      <div className="mt-3 text-sm text-slate-600">{detail}</div>
+      <div className="mt-2 text-xs leading-relaxed text-[#8b93ad]">{detail}</div>
     </div>
   );
 }
@@ -428,7 +498,7 @@ function FilterDropdown<T extends string>({
 
   return (
     <label className="block">
-      <span className="mb-2 block text-sm font-semibold text-ink">{label}</span>
+      <span className="mb-2 block font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-[#8b93ad]">{label}</span>
       <div
         className="relative"
         onBlur={(event) => {
@@ -439,16 +509,16 @@ function FilterDropdown<T extends string>({
           type="button"
           disabled={disabled}
           onClick={() => setIsOpen((open) => !open)}
-          className="focus-ring flex h-11 w-full items-center justify-between gap-3 rounded-md border border-line bg-white px-3 text-left text-sm shadow-sm disabled:opacity-60"
+          className="focus-ring flex h-11 w-full items-center justify-between gap-3 rounded-[9px] border border-line/80 bg-[#0a111e] px-3 text-left text-[13px] font-semibold text-[#eaeefc] shadow-sm disabled:opacity-60"
           aria-expanded={isOpen}
         >
-          <span className={`truncate ${selected ? "text-ink" : "text-slate-500"}`}>
+          <span className={`truncate ${selected ? "text-[#eaeefc]" : "text-[#77819a]"}`}>
             {selected?.label ?? placeholder ?? String(value)}
           </span>
-          <ChevronDown className={`h-4 w-4 shrink-0 text-slate-500 transition-transform ${isOpen ? "rotate-180" : ""}`} />
+          <ChevronDown className={`h-4 w-4 shrink-0 text-[#77819a] transition-transform ${isOpen ? "rotate-180" : ""}`} />
         </button>
         {isOpen ? (
-          <div className="absolute left-0 top-full z-50 mt-2 max-h-72 w-full overflow-y-auto rounded-md border border-line bg-surface-highest p-1 shadow-soft">
+          <div className="absolute left-0 top-full z-50 mt-2 max-h-72 w-full overflow-y-auto rounded-[9px] border border-line/80 bg-[#101a2d] p-1 shadow-soft">
             {options.length ? (
               options.map((option) => (
                 <button
@@ -459,16 +529,16 @@ function FilterDropdown<T extends string>({
                     onChange(option.value);
                     setIsOpen(false);
                   }}
-                  className={`focus-ring block w-full rounded-md px-3 py-2 text-left text-sm font-semibold transition-colors hover:bg-sage ${
-                    option.value === value ? "bg-cobalt/15 text-ink" : "text-slate-600"
+                  className={`focus-ring block w-full rounded-md px-3 py-2 text-left text-sm font-semibold transition-colors hover:bg-[#17223a] ${
+                    option.value === value ? "bg-cobalt/15 text-[#f2f5ff]" : "text-[#cbd2e8]"
                   }`}
                 >
                   <span className="block truncate">{option.label}</span>
-                  {option.detail ? <span className="mt-0.5 block truncate text-xs font-normal text-slate-500">{option.detail}</span> : null}
+                  {option.detail ? <span className="mt-0.5 block truncate text-xs font-normal text-[#77819a]">{option.detail}</span> : null}
                 </button>
               ))
             ) : (
-              <div className="px-3 py-3 text-sm text-slate-500">{placeholder ?? "No options available."}</div>
+              <div className="px-3 py-3 text-sm text-[#8b93ad]">{placeholder ?? "No options available."}</div>
             )}
           </div>
         ) : null}
@@ -490,6 +560,8 @@ function DateRangePicker({
   const [draftStart, setDraftStart] = useState(startDate);
   const [draftEnd, setDraftEnd] = useState(endDate);
   const [visibleMonth, setVisibleMonth] = useState(() => startOfMonth(parseIsoDate(startDate)));
+  const [popoverPosition, setPopoverPosition] = useState<{ top: number; left: number; width: number } | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const presets = [
     { label: "Today", range: () => presetRange(1) },
     {
@@ -523,6 +595,13 @@ function DateRangePicker({
     setDraftStart(startDate);
     setDraftEnd(endDate);
     setVisibleMonth(startOfMonth(parseIsoDate(startDate)));
+    const rect = triggerRef.current?.getBoundingClientRect();
+    if (rect) {
+      const viewportPadding = 16;
+      const width = Math.min(window.innerWidth - viewportPadding * 2, 760);
+      const left = Math.max(viewportPadding, Math.min(rect.left, window.innerWidth - width - viewportPadding));
+      setPopoverPosition({ top: rect.bottom + 8, left, width });
+    }
     setIsOpen(true);
   }
 
@@ -565,8 +644,8 @@ function DateRangePicker({
 
     return (
       <div className="min-w-[260px] flex-1">
-        <div className="mb-4 text-center text-sm font-bold text-ink">{monthTitle(month)}</div>
-        <div className="mb-2 grid grid-cols-7 gap-1 text-center text-xs font-bold text-slate-500">
+        <div className="mb-4 text-center text-sm font-bold text-[#eef1fb]">{monthTitle(month)}</div>
+        <div className="mb-2 grid grid-cols-7 gap-1 text-center text-xs font-bold text-[#77819a]">
           {["S", "M", "T", "W", "T", "F", "S"].map((day, index) => (
             <div key={`${day}-${index}`} className="py-1">
               {day}
@@ -592,8 +671,8 @@ function DateRangePicker({
                   isStart || isEnd
                     ? "bg-cobalt text-white"
                     : isInRange
-                      ? "bg-cobalt/20 text-ink"
-                      : "bg-sage text-slate-600 hover:bg-cobalt/15 hover:text-ink"
+                      ? "bg-cobalt/20 text-[#eef1fb]"
+                      : "bg-[#17223a] text-[#a3abc2] hover:bg-cobalt/15 hover:text-[#f2f5ff]"
                 } ${isToday && !isStart && !isEnd ? "ring-1 ring-cobalt/60" : ""}`}
               >
                 {day.getDate()}
@@ -607,29 +686,34 @@ function DateRangePicker({
 
   return (
     <div className="relative">
-      <span className="mb-2 block text-sm font-semibold text-ink">Date Range</span>
+      <span className="mb-2 block font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-[#8b93ad]">Date Range</span>
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => (isOpen ? setIsOpen(false) : openPicker())}
-        className="focus-ring flex h-11 w-full items-center justify-between gap-3 rounded-md border border-line bg-white px-3 text-left text-sm shadow-sm"
+        className="focus-ring flex h-11 w-full items-center justify-between gap-3 rounded-[9px] border border-line/80 bg-[#0a111e] px-3 text-left text-sm shadow-sm"
       >
-        <span className="min-w-0 truncate text-sm text-ink">
+        <span className="min-w-0 truncate text-sm font-semibold text-[#eaeefc]">
           {startDate} to {endDate}
         </span>
-        <CalendarDays className="h-4 w-4 shrink-0 text-white" />
+        <CalendarDays className="h-4 w-4 shrink-0 text-[#8b93ad]" />
       </button>
 
-      {isOpen ? (
-        <div className="absolute left-0 top-full z-50 mt-2 w-[min(92vw,760px)] overflow-hidden rounded-lg border border-line bg-white shadow-soft">
+      {isOpen && popoverPosition && typeof document !== "undefined"
+        ? createPortal(
+        <div
+          className="fixed z-[100] overflow-hidden rounded-[12px] border border-line/80 bg-[#0d1424] shadow-soft"
+          style={{ top: popoverPosition.top, left: popoverPosition.left, width: popoverPosition.width }}
+        >
           <div className="grid max-h-[520px] grid-cols-1 md:grid-cols-[160px_1fr]">
-            <div className="border-b border-line bg-sage p-3 md:border-b-0 md:border-r">
+            <div className="border-b border-line/70 bg-[#0a111e] p-3 md:border-b-0 md:border-r">
               <div className="flex max-h-64 flex-col gap-1 overflow-y-auto pr-1">
                 {presets.map((preset) => (
                   <button
                     key={preset.label}
                     type="button"
                     onClick={() => applyPreset(preset.range())}
-                    className="focus-ring rounded-md px-3 py-2 text-left text-sm font-semibold text-slate-600 hover:bg-white hover:text-ink"
+                    className="focus-ring rounded-md px-3 py-2 text-left text-sm font-semibold text-[#a3abc2] hover:bg-[#17223a] hover:text-[#f2f5ff]"
                   >
                     {preset.label}
                   </button>
@@ -637,16 +721,16 @@ function DateRangePicker({
               </div>
             </div>
             <div className="p-4">
-              <div className="mb-4 flex flex-wrap items-center gap-3 text-xs font-bold uppercase text-slate-500">
+              <div className="mb-4 flex flex-wrap items-center gap-3 font-mono text-[10px] font-bold uppercase tracking-[0.08em] text-[#77819a]">
                 <span>Start</span>
-                <span className="rounded-md border border-line bg-sage px-3 py-2 font-mono text-ink">{draftStart || "Select date"}</span>
+                <span className="rounded-md border border-line/80 bg-[#0a111e] px-3 py-2 font-mono text-[#eaeefc]">{draftStart || "Select date"}</span>
                 <span>End</span>
-                <span className="rounded-md border border-line bg-sage px-3 py-2 font-mono text-ink">{draftEnd || "Select date"}</span>
+                <span className="rounded-md border border-line/80 bg-[#0a111e] px-3 py-2 font-mono text-[#eaeefc]">{draftEnd || "Select date"}</span>
                 <div className="ml-auto flex gap-2">
                   <button
                     type="button"
                     onClick={() => setVisibleMonth((current) => addMonths(current, -1))}
-                    className="focus-ring flex h-9 w-9 items-center justify-center rounded-md border border-line bg-sage text-slate-600 hover:bg-white hover:text-ink"
+                    className="focus-ring flex h-9 w-9 items-center justify-center rounded-md border border-line/80 bg-[#0a111e] text-[#a3abc2] hover:bg-[#17223a] hover:text-[#f2f5ff]"
                     aria-label="Previous month"
                   >
                     <ChevronLeft className="h-4 w-4" />
@@ -654,7 +738,7 @@ function DateRangePicker({
                   <button
                     type="button"
                     onClick={() => setVisibleMonth((current) => addMonths(current, 1))}
-                    className="focus-ring flex h-9 w-9 items-center justify-center rounded-md border border-line bg-sage text-slate-600 hover:bg-white hover:text-ink"
+                    className="focus-ring flex h-9 w-9 items-center justify-center rounded-md border border-line/80 bg-[#0a111e] text-[#a3abc2] hover:bg-[#17223a] hover:text-[#f2f5ff]"
                     aria-label="Next month"
                   >
                     <ChevronRight className="h-4 w-4" />
@@ -669,7 +753,7 @@ function DateRangePicker({
                 <button
                   type="button"
                   onClick={() => setIsOpen(false)}
-                  className="focus-ring h-10 rounded-md border border-line bg-white px-4 text-sm font-semibold text-slate-600 hover:bg-sage hover:text-ink"
+                  className="focus-ring h-10 rounded-md border border-line/80 bg-[#101a2d] px-4 text-sm font-semibold text-[#cbd2e8] hover:bg-[#17223a] hover:text-[#f2f5ff]"
                 >
                   Cancel
                 </button>
@@ -684,8 +768,10 @@ function DateRangePicker({
               </div>
             </div>
           </div>
-        </div>
-      ) : null}
+        </div>,
+          document.body,
+        )
+        : null}
     </div>
   );
 }
@@ -730,6 +816,12 @@ function findingTypeLabel(type: FindingType) {
   return labels[type];
 }
 
+function eventDetailRailClasses(status: EventReport["status"]) {
+  if (status === "matched") return "border-emerald/70 bg-emerald/[0.035]";
+  if (status === "typo" || status === "missing") return "border-rose/70 bg-rose/[0.035]";
+  return "border-cyan/70 bg-cyan/[0.035]";
+}
+
 function DetailTooltip({ detail }: { detail: string }) {
   return (
     <span className="group relative inline-flex">
@@ -742,9 +834,9 @@ function DetailTooltip({ detail }: { detail: string }) {
       </button>
       <span
         role="tooltip"
-        className="pointer-events-none absolute right-0 top-full z-50 mt-2 hidden w-80 rounded-md border border-cobalt/30 bg-surface-highest px-3 py-2 text-left text-xs font-medium leading-relaxed text-ink shadow-soft ring-1 ring-cobalt/10 group-hover:block group-focus-within:block"
+        className="pointer-events-none absolute right-0 top-full z-50 mt-2 hidden w-80 rounded-md border border-cobalt/30 bg-[#101a2d] px-3 py-2 text-left text-xs font-medium leading-relaxed text-[#eaeefc] shadow-soft ring-1 ring-cobalt/10 group-hover:block group-focus-within:block"
       >
-        <span className="absolute -top-1.5 right-3 h-3 w-3 rotate-45 border-l border-t border-cobalt/30 bg-surface-highest" />
+        <span className="absolute -top-1.5 right-3 h-3 w-3 rotate-45 border-l border-t border-cobalt/30 bg-[#101a2d]" />
         {detail}
       </span>
     </span>
@@ -772,32 +864,35 @@ function FindingsSection({
   const infoCount = findings.filter((finding) => finding.severity === "info").length;
 
   return (
-    <article className={`rounded-lg border border-line bg-white shadow-sm ${expanded ? "md:col-span-2" : ""}`}>
+    <article className={`overflow-hidden rounded-[14px] border border-line/70 bg-[#0b1120] shadow-soft ${expanded ? "md:col-span-2" : ""}`}>
       <button
         type="button"
         onClick={onToggle}
-        className="focus-ring flex w-full cursor-pointer items-center justify-between gap-3 rounded-lg px-4 py-3 text-left"
+        className="focus-ring flex w-full cursor-pointer items-center justify-between gap-3 bg-[#0d1424] px-4 py-3.5 text-left hover:bg-[#101a2d]"
         aria-expanded={expanded}
       >
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <span className="font-bold text-ink">{title}</span>
-            <span className="text-sm font-semibold text-slate-500">{findings.length} findings</span>
+            <span className="font-display text-[15px] font-bold text-[#eef1fb]">{title}</span>
+            <span className="font-mono text-[11px] font-semibold text-[#77819a]">{findings.length} findings</span>
           </div>
-          <p className="mt-1 text-sm text-slate-500">{description}</p>
+          <p className="mt-1 text-[12.5px] leading-relaxed text-[#8b93ad]">{description}</p>
         </div>
         <div className="flex items-center gap-2 text-xs font-semibold">
           {errorCount ? <span className="rounded-md border border-rose/40 bg-rose/15 px-2 py-0.5 text-rose">{errorCount} errors</span> : null}
           {warningCount ? <span className="rounded-md border border-amber/40 bg-amber/15 px-2 py-0.5 text-amber">{warningCount} warnings</span> : null}
-          {infoCount && !errorCount && !warningCount ? <span className="rounded-md border border-line bg-sage px-2 py-0.5 text-slate-500">{infoCount} info</span> : null}
+          {infoCount && !errorCount && !warningCount ? <span className="rounded-md border border-line/80 bg-[#17223a] px-2 py-0.5 text-[#a3abc2]">{infoCount} info</span> : null}
           {!findings.length ? <span className="rounded-md border border-emerald/40 bg-emerald/15 px-2 py-0.5 text-emerald">clean</span> : null}
-          <ChevronDown className={`h-4 w-4 text-slate-500 transition-transform ${expanded ? "rotate-180" : ""}`} />
+          <ChevronDown className={`h-4 w-4 text-[#77819a] transition-transform ${expanded ? "rotate-180" : ""}`} />
         </div>
       </button>
       {expanded && findings.length ? (
         <div className="overflow-x-auto border-t border-line">
           <table className="min-w-full text-left text-sm">
-            <thead className="bg-sage text-[11px] font-semibold uppercase text-slate-500">
+            <thead
+              className="bg-[#0a111e] font-mono text-[10px] font-semibold uppercase tracking-[0.08em]"
+              style={{ color: "#697692" }}
+            >
               <tr>
                 <th className="px-4 py-2.5">Severity</th>
                 <th className="px-4 py-2.5">Check</th>
@@ -807,28 +902,33 @@ function FindingsSection({
                 <th className="px-4 py-2.5 text-right">Details</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-line">
+            <tbody className="divide-y divide-line/60 text-[#cbd2e8]">
               {sorted.map((finding, index) => (
                 <tr
                   key={`${finding.type}-${finding.eventName}-${finding.payloadName ?? ""}-${finding.observedValue ?? ""}-${index}`}
-                  className="hover:bg-sage/40"
+                  className="hover:bg-[#101a2d]"
                 >
                   <td className="px-4 py-3">
                     <SeverityChip severity={finding.severity} />
                   </td>
-                  <td className="px-4 py-3 text-xs font-semibold uppercase text-slate-500">{findingTypeLabel(finding.type)}</td>
-                  <td className="px-4 py-3 font-mono text-sm text-ink">{finding.eventName}</td>
-                  <td className="px-4 py-3 font-mono text-sm text-ink">{finding.payloadName ?? "—"}</td>
+                  <td
+                    className="px-4 py-3 font-mono text-[11px] font-semibold uppercase tracking-[0.02em]"
+                    style={{ color: "#76a5ff" }}
+                  >
+                    {findingTypeLabel(finding.type)}
+                  </td>
+                  <td className="px-4 py-3 font-mono text-sm text-[#eaeefc]">{finding.eventName}</td>
+                  <td className="px-4 py-3 font-mono text-sm text-[#eaeefc]">{finding.payloadName ?? "—"}</td>
                   <td className="px-4 py-3 font-mono text-sm">
                     {finding.specValue || finding.observedValue ? (
                       <span>
                         <span className="text-emerald">{finding.specValue ?? "—"}</span>
-                        <span className="mx-1.5 text-slate-500">→</span>
+                        <span className="mx-1.5 text-[#77819a]">→</span>
                         <span className="text-rose">{finding.observedValue ?? "—"}</span>
-                        {typeof finding.count === "number" ? <span className="ml-1.5 text-slate-500">({finding.count}x)</span> : null}
+                        {typeof finding.count === "number" ? <span className="ml-1.5 text-[#77819a]">({finding.count}x)</span> : null}
                       </span>
                     ) : (
-                      <span className="text-slate-500">—</span>
+                      <span className="text-[#77819a]">—</span>
                     )}
                   </td>
                   <td className="px-4 py-3 text-right">
@@ -840,7 +940,7 @@ function FindingsSection({
           </table>
         </div>
       ) : expanded ? (
-        <div className="border-t border-line px-4 py-4 text-sm text-slate-500">No findings in this category.</div>
+        <div className="border-t border-line/70 px-4 py-4 text-sm text-[#8b93ad]">No findings in this category.</div>
       ) : null}
     </article>
   );
@@ -859,12 +959,12 @@ function EventDrilldown({ event }: { event: EventReport }) {
   const warningCount = event.findings.filter((finding) => finding.severity === "warning").length;
 
   return (
-    <details className="group border-b border-line last:border-b-0">
-      <summary className="focus-ring flex cursor-pointer list-none flex-wrap items-center gap-3 px-4 py-3 hover:bg-sage/50">
+    <details className="group border-b border-line/60 last:border-b-0">
+      <summary className="focus-ring flex cursor-pointer list-none flex-wrap items-center gap-3 px-4 py-3.5 hover:bg-[#101a2d]">
         <span className={`inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-semibold uppercase ${eventStatusClasses(event.status)}`}>
           {event.status}
         </span>
-        <span className="font-mono text-sm font-semibold text-ink">{name}</span>
+        <span className="font-mono text-sm font-semibold text-[#eaeefc]">{name}</span>
         {event.status === "typo" && event.liveEventName ? (
           <span className="font-mono text-xs text-rose">live: {event.liveEventName}</span>
         ) : null}
@@ -872,9 +972,9 @@ function EventDrilldown({ event }: { event: EventReport }) {
           <span className="rounded-md border border-cyan/40 bg-cyan/10 px-2 py-0.5 text-xs font-semibold text-cyan">platform ad</span>
         ) : null}
         {event.source === "live-only" ? (
-          <span className="rounded-md border border-line bg-sage px-2 py-0.5 text-xs font-semibold text-slate-500">not in spec</span>
+          <span className="rounded-md border border-line/80 bg-[#17223a] px-2 py-0.5 text-xs font-semibold text-[#a3abc2]">not in spec</span>
         ) : null}
-        <span className="ml-auto flex items-center gap-2 text-xs text-slate-500">
+          <span className="ml-auto flex items-center gap-2 text-xs text-[#77819a]">
           {typeof event.eventCount === "number" ? <span className="font-mono">{new Intl.NumberFormat().format(event.eventCount)} events</span> : null}
           {event.firstSeen ? <span className="hidden font-mono md:inline">{event.firstSeen.slice(0, 10)} → {event.lastSeen?.slice(0, 10)}</span> : null}
           {errorCount ? <span className="font-semibold text-rose">{errorCount}E</span> : null}
@@ -882,10 +982,13 @@ function EventDrilldown({ event }: { event: EventReport }) {
           <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />
         </span>
       </summary>
-      <div className="overflow-x-auto border-t border-line bg-sage/30 px-4 py-3">
+      <div className={`ml-3 border-l-2 ${eventDetailRailClasses(event.status)} overflow-x-auto border-t border-line/60 px-4 py-3`}>
         {event.payloads.length ? (
           <table className="min-w-full text-left text-sm">
-            <thead className="text-[11px] font-semibold uppercase text-slate-500">
+            <thead
+              className="font-mono text-[10px] font-semibold uppercase tracking-[0.08em]"
+              style={{ color: "#697692" }}
+            >
               <tr>
                 <th className="py-2 pr-4">Status</th>
                 <th className="py-2 pr-4">Spec Payload</th>
@@ -896,31 +999,34 @@ function EventDrilldown({ event }: { event: EventReport }) {
                 <th className="py-2 pr-4">Findings</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-line/60">
+            <tbody className="divide-y divide-line/50">
               {event.payloads.map((payload, index) => (
-                <tr key={`${payload.specName ?? payload.liveName}-${index}`}>
+                <tr
+                  key={`${payload.specName ?? payload.liveName}-${index}`}
+                  className={index % 2 ? "bg-[#101827]/70" : "bg-[#0c1422]/40"}
+                >
                   <td className="py-2.5 pr-4">
                     <span className={`inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-semibold uppercase ${payloadStatusClasses(payload.status)}`}>
                       {payload.status}
                     </span>
                   </td>
-                  <td className="py-2.5 pr-4 font-mono text-xs text-ink">{payload.specName ?? "—"}</td>
-                  <td className="py-2.5 pr-4 font-mono text-xs text-ink">{payload.liveName ?? "—"}</td>
-                  <td className="py-2.5 pr-4 font-mono text-xs text-slate-600">{payload.specType || "—"}</td>
-                  <td className="py-2.5 pr-4 font-mono text-xs text-slate-600">{payload.observedType ?? "—"}</td>
-                  <td className="py-2.5 pr-4 text-xs text-slate-600">{payload.requiredness || "—"}</td>
+                  <td className="py-2.5 pr-4 font-mono text-xs text-[#eaeefc]">{payload.specName ?? "—"}</td>
+                  <td className="py-2.5 pr-4 font-mono text-xs text-[#eaeefc]">{payload.liveName ?? "—"}</td>
+                  <td className="py-2.5 pr-4 font-mono text-xs text-[#a3abc2]">{payload.specType || "—"}</td>
+                  <td className="py-2.5 pr-4 font-mono text-xs text-[#a3abc2]">{payload.observedType ?? "—"}</td>
+                  <td className="py-2.5 pr-4 text-xs text-[#a3abc2]">{payload.requiredness || "—"}</td>
                   <td className="py-2.5 pr-4">
                     {payload.findings.length ? (
                       <ul className="space-y-1">
                         {payload.findings.map((finding, findingIndex) => (
-                          <li key={findingIndex} className="flex items-start gap-2 text-[11px] leading-relaxed text-slate-500">
+                          <li key={findingIndex} className="flex items-start gap-2 text-[11px] leading-relaxed text-[#8b93ad]">
                             <SeverityChip severity={finding.severity} />
                             <span className="pt-0.5">{finding.detail}</span>
                           </li>
                         ))}
                       </ul>
                     ) : (
-                      <span className="text-xs text-slate-500">—</span>
+                      <span className="text-xs text-[#77819a]">—</span>
                     )}
                   </td>
                 </tr>
@@ -928,7 +1034,7 @@ function EventDrilldown({ event }: { event: EventReport }) {
             </tbody>
           </table>
         ) : (
-          <div className="py-2 text-sm text-slate-500">No payload fields observed or specified for this event.</div>
+          <div className="py-2 text-sm text-[#8b93ad]">No payload fields observed or specified for this event.</div>
         )}
       </div>
     </details>
@@ -936,6 +1042,7 @@ function EventDrilldown({ event }: { event: EventReport }) {
 }
 
 export default function SpecCheckDashboard() {
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [filters, setFilters] = useState<Filters>(() => defaultFilters());
   const [specs, setSpecs] = useState<SavedSpecSummary[]>([]);
   const [specsError, setSpecsError] = useState("");
@@ -950,6 +1057,7 @@ export default function SpecCheckDashboard() {
   const [isVersionMenuOpen, setIsVersionMenuOpen] = useState(false);
   const [pendingUrlRun, setPendingUrlRun] = useState(false);
   const [expandedFindingSection, setExpandedFindingSection] = useState<string | null>(null);
+  const [isSessionStateReady, setIsSessionStateReady] = useState(false);
   const requestIdRef = useRef(0);
   const versionRequestIdRef = useRef(0);
   const hasReadUrlRef = useRef(false);
@@ -1023,7 +1131,7 @@ export default function SpecCheckDashboard() {
       await pollSpecCheck(result.metadata.jobKey, filterSnapshot, result.pollAfterMs, requestId, forceRefresh);
     } catch (err) {
       if (requestIdRef.current === requestId) {
-        setError(err instanceof Error ? err.message : "Could not run the spec check");
+        setError(err instanceof Error ? err.message : "Could not run Analytics QA");
         setStatusText("");
       }
     } finally {
@@ -1060,12 +1168,24 @@ export default function SpecCheckDashboard() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const urlFilters = filtersFromSearchParams(new URLSearchParams(window.location.search));
+    const sessionSnapshot = readDashboardSession<SpecCheckSessionSnapshot>(specCheckSessionKey);
     hasReadUrlRef.current = true;
     skipNextUrlSyncRef.current = true;
-    if (!urlFilters) return;
-    setFilters(urlFilters);
-    if (new URLSearchParams(window.location.search).get("run") === "1") setPendingUrlRun(true);
+    if (urlFilters) {
+      setFilters(urlFilters);
+      if (new URLSearchParams(window.location.search).get("run") === "1") setPendingUrlRun(true);
+    } else if (sessionSnapshot) {
+      setFilters(sessionSnapshot.filters);
+      setData(sessionSnapshot.data);
+      setStatusText(sessionSnapshot.statusText);
+    }
+    setIsSessionStateReady(true);
   }, []);
+
+  useEffect(() => {
+    if (!isSessionStateReady) return;
+    writeDashboardSession<SpecCheckSessionSnapshot>(specCheckSessionKey, { filters, data, statusText });
+  }, [data, filters, isSessionStateReady, statusText]);
 
   useEffect(() => {
     if (!hasReadUrlRef.current) return;
@@ -1156,27 +1276,27 @@ export default function SpecCheckDashboard() {
   }
 
   return (
-    <CerberusShell currentProduct="spec-check">
+    <CerberusShell
+      currentProduct="spec-check"
+      collapsed={sidebarCollapsed}
+      onToggleCollapsed={() => setSidebarCollapsed((value) => !value)}
+    >
         <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.16em] text-cyan">
               <span className="h-1.5 w-1.5 rounded-full bg-cyan shadow-[0_0_10px_#48d9ff]" />
               <ClipboardCheck className="h-4 w-4" />
-              Spec Check · Live vs Spec
+              Analytics QA · Live vs Spec
             </div>
             <h1 className="mt-3 font-display text-3xl font-extrabold leading-tight text-[#f4f6ff]">Implementation Check</h1>
-            <p className="mt-2 max-w-3xl text-sm text-slate-600">
+            <p className="mt-2 max-w-3xl text-[13.5px] text-[#8b93ad]">
               Pulls live events from Snowflake via the Count API and checks them against a saved spec for typos,
               completeness, data types, and enum values.
             </p>
           </div>
         </div>
 
-        <form onSubmit={submit} className="mb-5 rounded-lg border border-line bg-white p-4 shadow-sm">
-          <div className="mb-4 flex items-center gap-2 font-bold text-ink">
-            <SlidersHorizontal className="h-4 w-4" />
-            Filters
-          </div>
+        <form onSubmit={submit} className="mb-5 rounded-[14px] border border-line/70 bg-[#0b1120] p-4 shadow-soft">
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1.6fr_1fr_0.8fr_1fr_1.5fr_auto_auto]">
             <FilterDropdown
               label="Saved Spec"
@@ -1203,7 +1323,7 @@ export default function SpecCheckDashboard() {
               onChange={(platform) => updateFilters({ platform })}
             />
             <label className="block">
-              <span className="mb-2 block text-sm font-semibold text-ink">App Version</span>
+              <span className="mb-2 block font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-[#8b93ad]">App Version</span>
               <div
                 className="relative"
                 onBlur={(event) => {
@@ -1218,7 +1338,7 @@ export default function SpecCheckDashboard() {
                   }}
                   onFocus={() => setIsVersionMenuOpen(true)}
                   placeholder={isLoadingVersions ? "Type version or wait" : "Type or select version"}
-                  className="focus-ring h-11 w-full rounded-md border border-line bg-white px-3 pr-10 text-sm shadow-sm"
+                  className="focus-ring h-11 w-full rounded-[9px] border border-line/80 bg-[#0a111e] px-3 pr-10 font-mono text-[13px] font-semibold text-[#eaeefc] shadow-sm placeholder:text-[#77819a]"
                   role="combobox"
                   aria-expanded={isVersionMenuOpen}
                   aria-controls="spec-check-app-version-options"
@@ -1226,7 +1346,7 @@ export default function SpecCheckDashboard() {
                 <button
                   type="button"
                   onClick={() => setIsVersionMenuOpen((open) => !open)}
-                  className="focus-ring absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-slate-500 hover:bg-sage hover:text-ink"
+                  className="focus-ring absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-md text-[#77819a] hover:bg-[#17223a] hover:text-[#eaeefc]"
                   aria-label="Toggle app version suggestions"
                   aria-expanded={isVersionMenuOpen}
                 >
@@ -1236,10 +1356,10 @@ export default function SpecCheckDashboard() {
                   <div
                     id="spec-check-app-version-options"
                     role="listbox"
-                    className="absolute left-0 top-full z-50 mt-2 max-h-72 w-full overflow-y-auto rounded-md border border-line bg-surface-highest p-1 shadow-soft"
+                    className="absolute left-0 top-full z-50 mt-2 max-h-72 w-full overflow-y-auto rounded-[9px] border border-line/80 bg-[#101a2d] p-1 shadow-soft"
                   >
                     {isLoadingVersions ? (
-                      <div className="flex items-center gap-2 px-3 py-3 text-sm font-semibold text-slate-500">
+                      <div className="flex items-center gap-2 px-3 py-3 text-sm font-semibold text-[#a3abc2]">
                         <LoadingSpinner />
                         Loading suggestions...
                       </div>
@@ -1255,23 +1375,23 @@ export default function SpecCheckDashboard() {
                             updateFilters({ appVersion: option.appVersion });
                             setIsVersionMenuOpen(false);
                           }}
-                          className={`focus-ring block w-full rounded-md px-3 py-2 text-left transition-colors hover:bg-sage ${
-                            filters.appVersion === option.appVersion ? "bg-cobalt/15 text-ink" : "text-slate-600"
+                          className={`focus-ring block w-full rounded-md px-3 py-2 text-left transition-colors hover:bg-[#17223a] ${
+                            filters.appVersion === option.appVersion ? "bg-cobalt/15 text-[#f2f5ff]" : "text-[#cbd2e8]"
                           }`}
                         >
-                          <span className="block text-sm font-bold text-ink">{option.appVersion}</span>
-                          <span className="mt-1 block text-xs">
+                          <span className="block font-mono text-sm font-bold text-[#eaeefc]">{option.appVersion}</span>
+                          <span className="mt-1 block text-xs text-[#77819a]">
                             {new Intl.NumberFormat(undefined, { notation: "compact" }).format(option.sampleCount)} events
                           </span>
                         </button>
                       ))
                     ) : (
-                      <div className="px-3 py-3 text-sm text-slate-500">No matching suggestions. You can still run a typed version.</div>
+                      <div className="px-3 py-3 text-sm text-[#8b93ad]">No matching suggestions. You can still run a typed version.</div>
                     )}
                   </div>
                 ) : null}
               </div>
-              <p className={`mt-2 min-h-5 text-xs ${versionError ? "text-amber" : "text-slate-500"}`}>
+              <p className={`mt-2 min-h-5 text-[11px] ${versionError ? "text-amber" : "text-[#77819a]"}`}>
                 {versionError || "Type a version or choose from suggestions."}
               </p>
             </label>
@@ -1283,7 +1403,7 @@ export default function SpecCheckDashboard() {
             <button
               type="submit"
               disabled={!canRun}
-              className="focus-ring mt-7 inline-flex h-11 items-center justify-center gap-2 rounded-md bg-cobalt px-4 text-sm font-semibold text-white hover:bg-cobalt/90 disabled:opacity-60"
+              className="focus-ring mt-7 inline-flex h-11 items-center justify-center gap-2 rounded-[9px] bg-cobalt px-4 text-sm font-semibold text-white shadow-[0_8px_22px_-8px_#1f6fff] hover:bg-cobalt/90 disabled:opacity-60"
             >
               {isLoading ? <LoadingSpinner /> : <SearchCheck className="h-4 w-4" />}
               {isLoading ? "Checking" : "Run Check"}
@@ -1292,7 +1412,7 @@ export default function SpecCheckDashboard() {
               type="button"
               disabled={!canRun}
               onClick={() => void runCheck(true)}
-              className="focus-ring mt-7 inline-flex h-11 items-center justify-center gap-2 rounded-md border border-line bg-white px-4 text-sm font-semibold hover:bg-slate-50 disabled:opacity-60"
+              className="focus-ring mt-7 inline-flex h-11 items-center justify-center gap-2 rounded-[9px] border border-line/80 bg-[#101a2d] px-4 text-sm font-semibold text-[#cbd2e8] hover:bg-[#17223a] hover:text-[#f2f5ff] disabled:opacity-60"
             >
               {isLoading ? <LoadingSpinner /> : <RefreshCw className="h-4 w-4" />}
               Refresh
@@ -1301,7 +1421,7 @@ export default function SpecCheckDashboard() {
           {specsError ? <p className="mt-3 text-sm text-amber">{specsError}</p> : null}
         </form>
 
-        {error ? <div className="mb-5 rounded-md bg-red-50 p-3 text-sm text-red-700">{error}</div> : null}
+        {error ? <div className="mb-5 rounded-md border border-rose/40 bg-rose/10 p-3 text-sm text-rose">{error}</div> : null}
 
         {data ? (
           <>
@@ -1315,34 +1435,26 @@ export default function SpecCheckDashboard() {
               </div>
             ) : null}
 
-            <section className="mb-5 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-              <SummaryCard
-                label="Verdict"
-                value={verdictLabel(data.report.summary.verdict)}
-                detail={`${data.spec.gameTitle} vs ${data.filters.appName} ${data.filters.appVersion}`}
-                icon={verdictIcon(data.report.summary.verdict)}
-                tone={summaryToneForVerdict(data.report.summary.verdict)}
+            <section className="mb-5 grid gap-4 md:grid-cols-2 xl:grid-cols-[1.45fr_0.62fr_0.62fr_0.62fr]">
+              <SpecCheckOverviewCard
+                summary={data.report.summary}
+                specName={data.spec.gameTitle}
+                appName={data.filters.appName}
+                appVersion={data.filters.appVersion}
               />
               <SummaryCard
-                label="Errors"
-                value={String(data.report.summary.errorCount)}
-                detail="Typos, missing payloads, type breaks"
-                icon={<XCircle className="h-5 w-5" />}
-                tone="rose"
+                label="Live Events"
+                value={new Intl.NumberFormat().format(data.report.summary.liveEventCount)}
+                detail={`${new Intl.NumberFormat().format(data.metadata.numRows ?? 0)} live rows inspected`}
+                icon={<Database className="h-5 w-5" />}
+                tone="cobalt"
               />
               <SummaryCard
-                label="Warnings"
-                value={String(data.report.summary.warningCount)}
-                detail="Optional gaps, unexpected or uncovered values"
+                label="Findings"
+                value={String(data.report.findings.length)}
+                detail={`${data.report.summary.errorCount} errors · ${data.report.summary.warningCount} warnings`}
                 icon={<AlertTriangle className="h-5 w-5" />}
-                tone="amber"
-              />
-              <SummaryCard
-                label="Events Matched"
-                value={`${data.report.summary.matchedEventCount + data.report.summary.typoEventCount}/${data.report.summary.specEventCount}`}
-                detail={`${data.report.summary.missingEventCount} missing · ${data.report.summary.typoEventCount} typo'd · ${data.report.summary.untrackedEventCount} untracked`}
-                icon={<CheckCircle2 className="h-5 w-5" />}
-                tone="emerald"
+                tone={data.report.summary.errorCount ? "rose" : data.report.summary.warningCount ? "amber" : "emerald"}
               />
               <SummaryCard
                 label="Cache"
@@ -1354,18 +1466,18 @@ export default function SpecCheckDashboard() {
 
             <div className="relative">
               {isLoading ? (
-                <div className="sticky top-4 z-40 mb-5 flex items-center justify-between gap-3 rounded-lg border border-cobalt/30 bg-white/95 px-4 py-3 text-sm font-semibold text-ink shadow-soft backdrop-blur">
+                <div className="sticky top-4 z-40 mb-5 flex items-center justify-between gap-3 rounded-lg border border-cobalt/30 bg-[#101a2d]/95 px-4 py-3 text-sm font-semibold text-[#eaeefc] shadow-soft backdrop-blur">
                   <span className="flex items-center gap-2">
                     <LoadingSpinner className="h-4 w-4 text-cobalt" />
-                    {statusText || "Running spec check..."}
+                    {statusText || "Running Analytics QA..."}
                   </span>
-                  <span className="hidden text-xs font-semibold uppercase text-slate-500 sm:inline">Existing results remain visible</span>
+                  <span className="hidden font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-[#77819a] sm:inline">Existing results remain visible</span>
                 </div>
               ) : null}
 
               <div className={`transition-opacity ${isLoading ? "opacity-40" : "opacity-100"}`}>
                 {data.report.summary.verdict === "no data" ? (
-                  <div className="rounded-lg border border-dashed border-line bg-white px-4 py-14 text-center text-sm text-slate-500">
+                  <div className="rounded-[14px] border border-dashed border-line/80 bg-[#0b1120] px-4 py-14 text-center text-sm text-[#8b93ad]">
                     No live events found for {data.filters.appName} {data.filters.appVersion} in this date range. Check the
                     app, platform, and version — the app may not send events to the Ludios events table yet.
                   </div>
@@ -1386,17 +1498,17 @@ export default function SpecCheckDashboard() {
                       ))}
                     </section>
 
-                    <section className="relative overflow-hidden rounded-lg border border-line bg-white shadow-sm" aria-busy={isLoading}>
-                      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3">
+                    <section className="relative overflow-hidden rounded-[14px] border border-line/70 bg-[#0b1120] shadow-soft" aria-busy={isLoading}>
+                      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line/70 bg-[#0d1424] px-4 py-3.5">
                         <div>
-                          <h2 className="font-bold text-ink">Event Drill-down</h2>
-                          <p className="mt-1 text-sm text-slate-600">
+                          <h2 className="font-display text-[15px] font-bold text-[#eef1fb]">Event Drill-down</h2>
+                          <p className="mt-1 text-[12.5px] text-[#8b93ad]">
                             Last run {new Date(data.metadata.executedAt).toLocaleString()}
                             {data.metadata.durationMs ? ` · Count duration ${Math.round(data.metadata.durationMs)}ms` : ""}
                             {` · ${data.report.summary.liveEventCount} live events`}
                           </p>
                         </div>
-                        <div className="rounded-md border border-line bg-sage px-3 py-2 font-mono text-xs text-slate-500">
+                        <div className="rounded-md border border-line/80 bg-[#0a111e] px-3 py-2 font-mono text-[11px] text-[#a3abc2]">
                           {data.filters.appName} · {data.filters.platform} · {data.filters.appVersion}
                         </div>
                       </div>
@@ -1413,13 +1525,13 @@ export default function SpecCheckDashboard() {
           </>
         ) : (
           <div
-            className="rounded-lg border border-dashed border-line bg-white px-4 py-14 text-center text-sm text-slate-500"
+            className="rounded-[14px] border border-dashed border-line/80 bg-[#0b1120] px-4 py-14 text-center text-sm text-[#8b93ad]"
             aria-busy={isLoading}
           >
             {isLoading ? (
               <div className="flex flex-col items-center gap-3">
                 <LoadingSpinner className="h-6 w-6 text-cobalt" />
-                <span>{statusText || "Running spec check..."}</span>
+                <span>{statusText || "Running Analytics QA..."}</span>
               </div>
             ) : (
               <div className="flex flex-col items-center gap-2">
@@ -1428,7 +1540,7 @@ export default function SpecCheckDashboard() {
                     ? `Checking "${selectedSpec.gameTitle}" — pick the app, version, and date range, then run.`
                     : "Select a saved spec, app, and version, then run the check."}
                 </span>
-                <span className="text-xs text-slate-600">
+                <span className="max-w-2xl text-[11.5px] leading-relaxed text-[#77819a]">
                   The check flags event and payload typos, missing or untracked items, data-type mismatches, and enum
                   value drift for item, source, item_type, and placement.
                 </span>

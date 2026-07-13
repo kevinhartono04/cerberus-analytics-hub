@@ -3,6 +3,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
   BookOpen,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Copy,
@@ -918,7 +919,7 @@ function LibraryBrowser({ library }: { library: LibrarySnapshot }) {
       <div>
         <div className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.16em] text-cobalt">
           <span className="h-1.5 w-1.5 rounded-full bg-cobalt shadow-[0_0_10px_#3d82ff]" />
-          Spec Generator · Library
+          Event Design · Library
         </div>
         <h1 className="mt-3 font-display text-[34px] font-extrabold leading-none text-[#f4f6ff]">Reference Library</h1>
         <p className="mt-2 max-w-3xl text-[13.5px] text-slate-500">
@@ -1207,7 +1208,7 @@ function SpecReview({
         <div>
           <div className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.16em] text-cobalt">
             <span className="h-1.5 w-1.5 rounded-full bg-cobalt shadow-[0_0_10px_#3d82ff]" />
-            Spec Generator · Editor
+            Event Design · Editor
           </div>
           <h1 className="mt-3 font-display text-[34px] font-extrabold leading-none text-[#f4f6ff]">
             {spec.intake.gameTitle || "Untitled Spec"}
@@ -1794,7 +1795,7 @@ function SavedSpecsBrowser({
         <div>
           <div className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.16em] text-cobalt">
             <span className="h-1.5 w-1.5 rounded-full bg-cobalt shadow-[0_0_10px_#3d82ff]" />
-            Spec Generator · Saved Specs
+            Event Design · Saved Specs
           </div>
           <h1 className="mt-3 font-display text-[34px] font-extrabold leading-none text-[#f4f6ff]">Saved Specs</h1>
           <p className="mt-2 text-[13.5px] text-slate-500">Saved Game Specs are ready to view, edit if you own them, or import from XLSX / CSV.</p>
@@ -1828,7 +1829,7 @@ function SavedSpecsBrowser({
         <div>
           <div className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.16em] text-cobalt">
             <span className="h-1.5 w-1.5 rounded-full bg-cobalt shadow-[0_0_10px_#3d82ff]" />
-            Spec Generator · Saved Specs
+            Event Design · Saved Specs
           </div>
           <h1 className="mt-3 font-display text-[34px] font-extrabold leading-none text-[#f4f6ff]">Saved Specs</h1>
           <p className="mt-2 text-[13.5px] text-slate-500">
@@ -1968,7 +1969,7 @@ function UserRoleAdmin({ currentUser }: { currentUser: AppUser | null }) {
       <div>
         <div className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.16em] text-cobalt">
           <span className="h-1.5 w-1.5 rounded-full bg-cobalt shadow-[0_0_10px_#3d82ff]" />
-          Spec Generator · Users
+          Event Design · Users
         </div>
         <h1 className="mt-3 font-display text-[34px] font-extrabold leading-none text-[#f4f6ff]">User Access</h1>
         <p className="mt-2 text-[13.5px] text-slate-500">Admins manage roles. Access is gated to approved organization accounts.</p>
@@ -2382,6 +2383,7 @@ function SpecViewer({
 }) {
   const [query, setQuery] = useState("");
   const [activeGroupId, setActiveGroupId] = useState<SpecViewerGroupId>("gameplay");
+  const [isSpecMenuOpen, setIsSpecMenuOpen] = useState(false);
   const activeSpec = specs.find((item) => item.id === activeSpecId) ?? specs[0] ?? null;
   const groups = useMemo(() => (activeSpec ? specViewerGroupsFor(activeSpec) : []), [activeSpec]);
   const activeGroup = groups.find((group) => group.id === activeGroupId) ?? groups[0] ?? null;
@@ -2440,9 +2442,67 @@ function SpecViewer({
         <div>
           <div className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.16em] text-cobalt">
             <span className="h-1.5 w-1.5 rounded-full bg-cobalt shadow-[0_0_10px_#3d82ff]" />
-            Spec Generator · Viewer
+            Event Design · Viewer
           </div>
-          <h1 className="mt-3 font-display text-[34px] font-extrabold leading-none text-[#f4f6ff]">{activeSpec.intake.gameTitle}</h1>
+          {savedSpecs.length > 1 ? (
+            <div
+              className="relative mt-2 inline-flex max-w-full"
+              onBlur={(event) => {
+                if (!event.currentTarget.contains(event.relatedTarget)) setIsSpecMenuOpen(false);
+              }}
+            >
+              <h1 className="max-w-full">
+                <button
+                  type="button"
+                  onClick={() => setIsSpecMenuOpen((open) => !open)}
+                  aria-haspopup="listbox"
+                  aria-expanded={isSpecMenuOpen}
+                  aria-controls="saved-spec-options"
+                  className="focus-ring group flex max-w-full items-center rounded-[10px] border border-transparent py-1 pl-2 pr-9 text-left font-display text-[34px] font-extrabold leading-none text-[#f4f6ff] transition-colors hover:border-cobalt/40 hover:bg-cobalt/10 focus:border-cobalt/60 focus:bg-cobalt/10"
+                >
+                  <span className="truncate">{activeSpec.intake.gameTitle}</span>
+                  <ChevronDown className={`pointer-events-none absolute right-3 h-5 w-5 shrink-0 text-cobalt transition-transform ${isSpecMenuOpen ? "rotate-180" : ""}`} />
+                </button>
+              </h1>
+              {isSpecMenuOpen ? (
+                <div
+                  id="saved-spec-options"
+                  role="listbox"
+                  aria-label="Saved game specs"
+                  className="absolute left-0 top-full z-50 mt-2 w-[min(92vw,390px)] overflow-hidden rounded-[12px] border border-line/80 bg-[#101a2d] p-1.5 shadow-soft"
+                >
+                  <div className="px-2.5 py-2 font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Saved Game Specs</div>
+                  {savedSpecs.map((savedSpec) => {
+                    const isActive = savedSpec.id === activeSpec.id;
+                    return (
+                      <button
+                        key={savedSpec.id}
+                        type="button"
+                        role="option"
+                        aria-selected={isActive}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => {
+                          setActiveSpecId(savedSpec.id);
+                          setIsSpecMenuOpen(false);
+                        }}
+                        className={`focus-ring relative block w-full rounded-[9px] px-3 py-2.5 text-left transition-colors ${
+                          isActive ? "bg-cobalt/15 text-[#f2f5ff]" : "text-[#cbd2e8] hover:bg-[#17223a]"
+                        }`}
+                      >
+                        {isActive ? <span className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-cobalt" /> : null}
+                        <span className="block truncate text-[14px] font-semibold">{savedSpec.gameTitle}</span>
+                        <span className="mt-1 block font-mono text-[10px] text-slate-500">
+                          {savedSpec.eventCount} events · {savedSpec.payloadCount} payload rows
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <h1 className="mt-3 font-display text-[34px] font-extrabold leading-none text-[#f4f6ff]">{activeSpec.intake.gameTitle}</h1>
+          )}
           <p className="mt-2 text-[13.5px] text-slate-500">
             Read-only view · shareable with viewers · {activeSpec.intake.genre || "Unspecified genre"}
           </p>
@@ -2478,19 +2538,6 @@ function SpecViewer({
             </span>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {savedSpecs.length > 1 ? (
-              <label className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.08em] text-slate-500">
-                Viewing
-                <select
-                  value={activeSpec.id}
-                  onChange={(event) => setActiveSpecId(event.target.value)}
-                  aria-label="Select saved spec"
-                  className="focus-ring h-8 max-w-52 rounded-[7px] border border-line/70 bg-[#0a111e] px-2 font-sans text-xs font-semibold normal-case tracking-normal text-slate-300"
-                >
-                  {savedSpecs.map((savedSpec) => <option key={savedSpec.id} value={savedSpec.id}>{savedSpec.gameTitle}</option>)}
-                </select>
-              </label>
-            ) : null}
             <div className="flex h-8 items-center gap-2 rounded-[7px] border border-line/70 bg-[#0a111e] px-2.5">
               <Search className="h-3.5 w-3.5 text-slate-500" />
               <input
@@ -2504,28 +2551,41 @@ function SpecViewer({
         </div>
         {shareStatus ? <div className="border-b border-cobalt/20 bg-cobalt/10 px-5 py-2 text-xs font-semibold text-cobalt">{shareStatus}</div> : null}
 
-        <div className="flex gap-1 overflow-x-auto border-b border-line/50 bg-[#0a1120] px-4 py-2" role="tablist" aria-label="Spec groups">
-          {groups.map((group) => {
-            const eventCount = group.events.length + platformEventCount(group.platformAdPayloads);
-            const isActive = group.id === activeGroup?.id;
-            const tone = categoryTone(group.label);
-            return (
-              <button
-                key={group.id}
-                type="button"
-                aria-label={`View ${group.id === "gameplay" ? "Gameplay" : group.label} spec group`}
-                aria-selected={isActive}
-                onClick={() => { setActiveGroupId(group.id); setQuery(""); }}
-                className={`focus-ring inline-flex shrink-0 items-center gap-2 rounded-[7px] px-3 py-1.5 text-xs font-semibold transition-colors ${
-                  isActive ? "bg-[#17223a] text-[#eef1fb]" : "text-slate-500 hover:bg-[#101a2c] hover:text-slate-300"
-                }`}
-              >
-                <span className={`h-1.5 w-1.5 rounded-full ${isActive ? tone.bar : "bg-slate-600"}`} />
-                {group.label}
-                <span className="font-mono text-[10px] opacity-70">{eventCount}</span>
-              </button>
-            );
-          })}
+        <div className="border-b border-line/50 bg-[#0a1120]">
+          <div className="flex items-stretch overflow-x-auto" role="tablist" aria-label="Event categories">
+            <div className="flex w-[118px] shrink-0 flex-col justify-center border-r border-line/50 px-4">
+              <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Event</span>
+              <span className="mt-0.5 font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Categories</span>
+            </div>
+            {groups.map((group) => {
+              const eventCount = group.events.length + platformEventCount(group.platformAdPayloads);
+              const payloadCount = payloadCountForEvents(group.events) + group.platformAdPayloads.length;
+              const isActive = group.id === activeGroup?.id;
+              const tone = categoryTone(group.label);
+              return (
+                <button
+                  key={group.id}
+                  type="button"
+                  role="tab"
+                  aria-label={`View ${group.id === "gameplay" ? "Gameplay" : group.label} event category`}
+                  aria-selected={isActive}
+                  onClick={() => { setActiveGroupId(group.id); setQuery(""); }}
+                  className={`relative flex min-w-[166px] shrink-0 flex-col justify-center border-r border-line/50 px-4 py-3 text-left transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-cobalt ${
+                    isActive
+                      ? "bg-[linear-gradient(135deg,rgba(61,130,255,0.18),rgba(13,20,36,0.72))] text-[#f2f5ff]"
+                      : "bg-[#0a1120] text-slate-400 hover:bg-[#101a2d] hover:text-[#eef1fb]"
+                  }`}
+                >
+                  {isActive ? <span className={`absolute inset-y-0 left-0 w-0.5 ${tone.bar}`} /> : null}
+                  <span className="flex items-center gap-2 text-[13px] font-semibold">
+                    <span className={`h-1.5 w-1.5 rounded-full ${isActive ? tone.bar : "bg-slate-500"}`} />
+                    {group.label}
+                  </span>
+                  <span className="mt-1 font-mono text-[10px] font-medium text-slate-500">{eventCount} events · {payloadCount} payloads</span>
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         {activeGroup ? (
@@ -2890,7 +2950,7 @@ export default function MvpApp({ library }: { library: LibrarySnapshot }) {
           <div className="mb-6">
             <div className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.16em] text-cobalt">
               <span className="h-1.5 w-1.5 rounded-full bg-cobalt shadow-[0_0_10px_#3d82ff]" />
-              Spec Generator · Intake
+              Event Design · Intake
             </div>
             <h1 className="mt-3 font-display text-3xl font-extrabold leading-tight text-[#f4f6ff]">Describe the game</h1>
             <p className="mt-2 max-w-2xl text-sm text-slate-500">
