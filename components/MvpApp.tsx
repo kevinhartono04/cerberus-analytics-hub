@@ -915,46 +915,47 @@ function LibraryBrowser({ library }: { library: LibrarySnapshot }) {
 
   return (
     <section className="space-y-6">
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-        <Metric label="Events" value={library.events.length} />
-        <Metric label="Payload Rows" value={library.payloads.length} />
-        <Metric label="Feature Packs" value={library.generationPacks.length} />
-        <Metric label="Ad Payload Rows" value={library.platformAdPayloads.length} />
+      <div>
+        <div className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.16em] text-cobalt">
+          <span className="h-1.5 w-1.5 rounded-full bg-cobalt shadow-[0_0_10px_#3d82ff]" />
+          Spec Generator · Library
+        </div>
+        <h1 className="mt-3 font-display text-[34px] font-extrabold leading-none text-[#f4f6ff]">Reference Library</h1>
+        <p className="mt-2 max-w-3xl text-[13.5px] text-slate-500">
+          The canonical events, generation packs, and governance decisions the generator matches against.
+        </p>
       </div>
 
-      <div className="flex items-center gap-3 rounded-md border border-line bg-white px-3 py-2 shadow-sm">
-        <Search className="h-4 w-4 text-slate-500" />
-        <input
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search events, packs, categories..."
-          className="focus-ring w-full border-0 bg-transparent text-sm outline-none"
-        />
+      <div className="grid gap-[14px] sm:grid-cols-2 xl:grid-cols-4">
+        <EditorMetric label="Events" value={library.events.length} />
+        <EditorMetric label="Payload Rows" value={library.payloads.length} />
+        <EditorMetric label="Feature Packs" value={library.generationPacks.length} />
+        <EditorMetric label="Ad Payload Rows" value={library.platformAdPayloads.length} />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[1fr_1fr]">
-        <div className="rounded-md border border-line bg-white shadow-sm">
-          <div className="border-b border-line px-4 py-3 font-semibold">Generation Packs</div>
-          <div className="divide-y divide-line">
+      <div className="grid gap-4 lg:grid-cols-2">
+        <div className="overflow-hidden rounded-2xl border border-line/70 bg-[#0b1120] shadow-soft">
+          <div className="border-b border-line/60 bg-[#0d1424] px-[18px] py-[14px] font-display text-sm font-bold text-[#eef1fb]">Generation Packs</div>
+          <div className="divide-y divide-line/40">
             {library.generationPacks.map((pack) => (
-              <div key={pack.featurePack} className="p-4">
-                <div className="font-semibold text-ink">{pack.featurePack}</div>
-                <p className="mt-1 text-sm text-slate-600">{pack.applicableWhen}</p>
-                <p className="mt-2 text-xs font-semibold text-slate-500">{pack.launchPriority}</p>
+              <div key={pack.featurePack} className="px-[18px] py-[15px]">
+                <div className="text-[13.5px] font-semibold text-[#eaeefc]">{pack.featurePack}</div>
+                <p className="mt-1.5 text-[12.5px] leading-relaxed text-slate-500">{pack.applicableWhen}</p>
+                <p className="mt-2 font-mono text-[9.5px] font-semibold uppercase tracking-[0.04em] text-amber">{pack.launchPriority}</p>
               </div>
             ))}
           </div>
         </div>
 
-        <div className="rounded-md border border-line bg-white shadow-sm">
-          <div className="border-b border-line px-4 py-3 font-semibold">Governance Decisions</div>
-          <div className="divide-y divide-line">
+        <div className="self-start overflow-hidden rounded-2xl border border-line/70 bg-[#0b1120] shadow-soft">
+          <div className="border-b border-line/60 bg-[#0d1424] px-[18px] py-[14px] font-display text-sm font-bold text-[#eef1fb]">Governance Decisions</div>
+          <div className="divide-y divide-line/40">
             {library.governanceDecisions.map((decision) => (
-              <div key={decision.area} className="p-4 text-sm">
-                <div className="font-semibold text-ink">{decision.area}</div>
-                <p className="mt-1 text-slate-600">{decision.decision}</p>
+              <div key={decision.area} className="px-[18px] py-[15px]">
+                <div className="text-[13.5px] font-semibold text-[#eaeefc]">{decision.area}</div>
+                <p className="mt-1.5 text-[12.5px] leading-relaxed text-slate-400">{decision.decision}</p>
                 {decision.legacy_aliases ? (
-                  <p className="mt-2 text-xs text-slate-500">Aliases: {decision.legacy_aliases}</p>
+                  <p className="mt-2 font-mono text-[11px] text-slate-500">Aliases: {decision.legacy_aliases}</p>
                 ) : null}
               </div>
             ))}
@@ -962,29 +963,49 @@ function LibraryBrowser({ library }: { library: LibrarySnapshot }) {
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-md border border-line bg-white shadow-sm">
-        <div className="border-b border-line px-4 py-3 font-semibold">Event Catalog</div>
+      <div className="overflow-hidden rounded-2xl border border-line/70 bg-[#0b1120] shadow-soft">
+        <div className="flex flex-col gap-3 border-b border-line/60 bg-[#0d1424] px-[18px] py-[14px] sm:flex-row sm:items-center sm:justify-between">
+          <div className="font-display text-sm font-bold text-[#eef1fb]">Event Catalog</div>
+          <div className="flex items-center gap-2 rounded-[9px] border border-line/70 bg-[#0a111e] px-3 py-2">
+            <Search className="h-3.5 w-3.5 text-slate-500" />
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search events, packs, categories"
+              className="focus-ring w-full border-0 bg-transparent text-[12.5px] text-slate-300 outline-none placeholder:text-slate-500 sm:w-[220px]"
+            />
+          </div>
+        </div>
         <div className="max-h-[520px] overflow-auto">
-          <table className="w-full min-w-[960px] text-left text-sm">
-            <thead className="sticky top-0 bg-sage text-xs uppercase text-slate-600">
+          <table className="w-full min-w-[960px] text-left text-[12.5px]">
+            <thead className="sticky top-0 z-10 bg-[#0a1120] font-mono text-[9.5px] uppercase tracking-[0.09em] text-slate-500">
               <tr>
-                <th className="px-3 py-2">Event</th>
-                <th className="px-3 py-2">Pack</th>
-                <th className="px-3 py-2">Category</th>
-                <th className="px-3 py-2">Payloads</th>
-                <th className="px-3 py-2">Guidance</th>
+                <th className="px-[18px] py-3 font-semibold">Event</th>
+                <th className="px-3 py-3 font-semibold">Pack</th>
+                <th className="px-3 py-3 font-semibold">Category</th>
+                <th className="px-[18px] py-3 font-semibold">Payloads & Guidance</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-line">
-              {events.map((event) => (
-                <tr key={event.eventName}>
-                  <td className="px-3 py-3 font-semibold">{event.eventName}</td>
-                  <td className="px-3 py-3">{event.featurePack}</td>
-                  <td className="px-3 py-3">{event.category}</td>
-                  <td className="px-3 py-3 text-slate-600">{event.canonicalPayloadFields}</td>
-                  <td className="px-3 py-3 text-slate-600">{event.generatorGuidance}</td>
-                </tr>
-              ))}
+            <tbody className="divide-y divide-line/40">
+              {events.map((event) => {
+                const tone = categoryTone(`${event.category} ${event.featurePack} ${event.eventName}`);
+                return (
+                  <tr key={event.eventName} className="hover:bg-[#0e1626]">
+                    <td className={`px-[18px] py-3.5 align-top font-mono text-[12.5px] font-semibold ${tone.text}`}>{event.eventName}</td>
+                    <td className="px-3 py-3.5 align-top text-slate-400">{event.featurePack}</td>
+                    <td className="px-3 py-3.5 align-top">
+                      <span className={`inline-flex rounded-[6px] border px-2 py-0.5 font-mono text-[10px] font-semibold ${tone.chip}`}>{event.category}</span>
+                    </td>
+                    <td className="px-[18px] py-3.5 align-top">
+                      <div className="font-mono text-[11.5px] text-slate-400">{event.canonicalPayloadFields}</div>
+                      <div className="mt-1 text-[11.5px] leading-relaxed text-slate-500">{event.generatorGuidance}</div>
+                    </td>
+                  </tr>
+                );
+              })}
+              {!events.length ? (
+                <tr><td colSpan={4} className="px-4 py-10 text-center text-sm text-slate-500">No events match the current search.</td></tr>
+              ) : null}
             </tbody>
           </table>
         </div>
@@ -1943,66 +1964,78 @@ function UserRoleAdmin({ currentUser }: { currentUser: AppUser | null }) {
   }, []);
 
   return (
-    <section className="space-y-4">
-      <div className="flex flex-col justify-between gap-2 md:flex-row md:items-end">
-        <div>
-          <h2 className="text-xl font-bold text-ink">User Roles</h2>
-          <p className="text-sm text-slate-600">Assign admin, editor, or viewer access for signed-in users.</p>
+    <section className="space-y-6">
+      <div>
+        <div className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.16em] text-cobalt">
+          <span className="h-1.5 w-1.5 rounded-full bg-cobalt shadow-[0_0_10px_#3d82ff]" />
+          Spec Generator · Users
         </div>
-        <Metric label="Users" value={users.length} />
+        <h1 className="mt-3 font-display text-[34px] font-extrabold leading-none text-[#f4f6ff]">User Access</h1>
+        <p className="mt-2 text-[13.5px] text-slate-500">Admins manage roles. Access is gated to approved organization accounts.</p>
       </div>
 
-      {status ? <p className="rounded-md border border-line bg-white px-3 py-2 text-sm font-semibold text-cobalt">{status}</p> : null}
+      {status ? <p className="rounded-[10px] border border-cobalt/20 bg-cobalt/10 px-4 py-3 text-sm font-semibold text-cobalt">{status}</p> : null}
 
-      <div className="overflow-hidden rounded-md border border-line bg-white shadow-sm">
-        <table className="w-full min-w-[760px] text-left text-sm">
-          <thead className="bg-sage text-xs uppercase text-slate-600">
-            <tr>
-              <th className="px-3 py-2">User</th>
-              <th className="px-3 py-2">Role</th>
-              <th className="px-3 py-2">Updated</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-line">
-            {users.map((user) => (
-              <tr key={user.id}>
-                <td className="px-3 py-3">
-                  <div className="font-semibold text-ink">{user.name || user.email}</div>
-                  <div className="text-xs text-slate-500">{user.email}</div>
-                </td>
-                <td className="px-3 py-3">
+      <div className="w-full overflow-x-auto rounded-2xl border border-line/70 bg-[#0b1120] shadow-soft">
+        <div className="grid min-w-[760px] grid-cols-[minmax(0,1fr)_220px_180px] border-b border-line/50 bg-[#0a1120] px-5 py-3 font-mono text-[9.5px] font-semibold uppercase tracking-[0.09em] text-slate-500">
+          <div>User</div><div>Role</div><div className="text-right">Manage</div>
+        </div>
+        <div className="max-h-[620px] overflow-auto">
+          {users.map((user) => {
+            const displayName = user.name || user.email;
+            const initials = displayName
+              .split(/[.\s@_-]+/)
+              .filter(Boolean)
+              .slice(0, 2)
+              .map((part) => part[0]?.toUpperCase())
+              .join("");
+            const roleTone = user.role === "admin"
+              ? "border-cobalt/30 bg-cobalt/10 text-cobalt"
+              : user.role === "editor"
+                ? "border-emerald/30 bg-emerald/10 text-emerald"
+                : "border-cyan/30 bg-cyan/10 text-cyan";
+            const isCurrentUser = user.id === currentUser?.id;
+            return (
+              <div key={user.id} className="grid min-w-[760px] grid-cols-[minmax(0,1fr)_220px_180px] items-center border-b border-line/40 px-5 py-3.5 last:border-b-0 hover:bg-[#0e1626]">
+                <div className="flex min-w-0 items-center gap-3">
+                  <div className={`flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-[10px] border font-display text-[13px] font-bold ${roleTone}`}>
+                    {initials || "US"}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="truncate text-[13.5px] font-semibold text-[#eaeefc]">{displayName}</div>
+                    <div className="mt-0.5 truncate font-mono text-[11px] text-slate-500">{user.email}</div>
+                  </div>
+                </div>
+                <div>
+                  <span className={`inline-flex items-center gap-2 rounded-[8px] border px-2.5 py-1.5 font-mono text-[10.5px] font-semibold capitalize ${roleTone}`}>
+                    <span className="h-1.5 w-1.5 rounded-full bg-current" />
+                    {roleLabels[user.role]}
+                  </span>
+                </div>
+                <div className="flex justify-end">
                   <select
+                    aria-label={`Change ${displayName} role`}
                     value={user.role}
-                    disabled={user.id === currentUser?.id}
+                    disabled={isCurrentUser}
                     onChange={(event) => void updateRole(user.id, event.target.value as UserRole)}
-                    className="focus-ring h-10 rounded-md border border-line bg-white px-3 text-sm font-semibold disabled:opacity-60"
+                    className="focus-ring h-9 w-[132px] rounded-[8px] border border-line/70 bg-[#101a2c] px-2 text-xs font-semibold text-slate-300 hover:bg-[#16223a] disabled:cursor-not-allowed disabled:opacity-50"
+                    title={isCurrentUser ? "Your role cannot be changed here" : "Change user role"}
                   >
                     {(["admin", "editor", "viewer"] as UserRole[]).map((role) => (
-                      <option key={role} value={role}>
-                        {roleLabels[role]}
-                      </option>
+                      <option key={role} value={role}>{roleLabels[role]}</option>
                     ))}
                   </select>
-                </td>
-                <td className="px-3 py-3">{new Date(user.updatedAt).toLocaleString()}</td>
-              </tr>
-            ))}
-            {!users.length && !isLoading ? (
-              <tr>
-                <td colSpan={3} className="px-3 py-8 text-center text-sm text-slate-500">
-                  No users have signed in yet.
-                </td>
-              </tr>
-            ) : null}
-            {isLoading ? (
-              <tr>
-                <td colSpan={3} className="px-3 py-8 text-center text-sm text-slate-500">
-                  Loading users...
-                </td>
-              </tr>
-            ) : null}
-          </tbody>
-        </table>
+                </div>
+              </div>
+            );
+          })}
+          {!users.length && !isLoading ? (
+            <div className="px-5 py-10 text-center text-sm text-slate-500">No users have signed in yet.</div>
+          ) : null}
+          {isLoading ? (
+            <div className="px-5 py-10 text-center text-sm text-slate-500">Loading users...</div>
+          ) : null}
+        </div>
       </div>
     </section>
   );
