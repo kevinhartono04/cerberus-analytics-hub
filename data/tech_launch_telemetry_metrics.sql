@@ -14,6 +14,7 @@ with bs as (
       when ep.app_id = 3003 then 'bloomsort'
       when ep.app_id = 3001 then 'wordrush'
       when ep.app_id = 3004 then 'sizzle'
+      when ep.app_id = 3011 then 'stacksmash'
       when ep.app_id = 3005 then 'dotpaint'
       when ep.app_id = 3006 then 'bubblewordchain'
 
@@ -32,7 +33,7 @@ with bs as (
     END as value,
     cume_dist() over (partition by name order by value) as cumulative_dist,
   from (
-      select * from tds_db.raw.ludios_telemetry_events_production where app_id in (3001, 3003, 3004, 3005, 3006)
+      select * from tds_db.raw.ludios_telemetry_events_production where app_id in (3001, 3003, 3004, 3005, 3006, 3011)
           union all
       select * from tds_db.raw.telemetry_events_production where app_id in (18,22,117,122)
   ) ep  

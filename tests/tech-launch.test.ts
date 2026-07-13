@@ -40,6 +40,14 @@ describe("Tech Launch readiness helpers", () => {
     expect(sql).toContain("order by last_seen desc, sample_count desc, app_version desc");
   });
 
+  it("includes StackSmash in the telemetry app-version lookup", () => {
+    const sql = buildTechLaunchAppVersionsSql({ ...filters, appName: "stacksmash" });
+
+    expect(sql).toContain("when ep.app_id = 3011 then 'stacksmash'");
+    expect(sql).toContain("app_id in (3001, 3003, 3004, 3005, 3006, 3011)");
+    expect(sql).toContain("app_name = 'stacksmash'");
+  });
+
   it("parses app version Count CSV previews", () => {
     const versions = parseTechLaunchAppVersions(
       [

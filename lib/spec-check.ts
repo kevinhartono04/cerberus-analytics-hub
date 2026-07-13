@@ -78,6 +78,7 @@ export const specCheckAppIds: Record<(typeof techLaunchAppOptions)[number], numb
   bloomsort: 3003,
   wordrush: 3001,
   sizzle: 3004,
+  stacksmash: 3011,
   dotpaint: 3005,
   bubblewordchain: 3006,
 };

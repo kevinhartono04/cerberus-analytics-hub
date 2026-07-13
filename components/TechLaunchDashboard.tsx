@@ -31,6 +31,7 @@ const appOptions = [
   "mahjongbloom",
   "marble",
   "sizzle",
+  "stacksmash",
   "tripletile",
   "wooblast",
   "woodoku",
@@ -902,7 +903,7 @@ export default function TechLaunchDashboard() {
         </div>
 
         <form onSubmit={submit} className="mb-[22px] rounded-[14px] border border-line/70 bg-[#0b1120] p-4 shadow-soft">
-          <div className="grid items-start gap-[14px] md:grid-cols-2 xl:grid-cols-[minmax(150px,1fr)_130px_160px_230px_auto_auto]">
+          <div className="grid items-start gap-[14px] md:grid-cols-2 xl:grid-cols-[minmax(150px,1fr)_130px_160px_300px_auto_auto]">
             <FilterDropdown
               label="App"
               value={filters.appName as Filters["appName"]}
