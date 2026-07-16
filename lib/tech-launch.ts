@@ -7,6 +7,7 @@ import { z } from "zod";
 
 import { getCountQuery, runCountSql, submitCountSql, type CountQuery } from "@/lib/count-api";
 import { getTechLaunchReadinessCache, saveTechLaunchReadinessCache } from "@/lib/db";
+import { getGooglePlayVitals } from "@/lib/google-play-reporting";
 
 const sqlPath = path.join(process.cwd(), "data", "tech_launch_telemetry_metrics.sql");
 
@@ -67,6 +68,7 @@ export const techLaunchAppVersionsRequestSchema = z
 export const techLaunchStatusRequestSchema = z.object({
   jobKey: z.string().trim().min(1),
   filters: techLaunchFilterSchema,
+  forceRefresh: z.boolean().optional(),
 });
 
 export type TechLaunchFilters = z.infer<typeof techLaunchFilterSchema>;
@@ -86,6 +88,8 @@ export type TechLaunchMetricRow = {
   numSample: number;
   verdict: TechLaunchVerdict;
   higherIsBetter: boolean;
+  source?: "telemetry" | "google-play";
+  detail?: string;
 };
 
 export type TechLaunchSummary = {
@@ -309,6 +313,83 @@ function toVerdict(value: unknown): TechLaunchVerdict {
   return "insufficient data";
 }
 
+function directThresholdVerdict(value: number | null, benchmark: number): TechLaunchVerdict {
+  if (value === null) return "insufficient data";
+  if (value < benchmark) return "green";
+  if (value < benchmark * 1.15) return "yellow";
+  return "red";
+}
+
+async function googlePlayMetricRows(filters: TechLaunchFilters): Promise<TechLaunchMetricRow[]> {
+  if (filters.platform !== "android") return [];
+  try {
+    const vitals = await getGooglePlayVitals(filters.appName, filters.appVersion, filters.startDate, filters.endDate);
+    if (!vitals) return [];
+    return [
+      {
+        name: "GooglePlay_UserPerceivedCrashRate",
+        metricTitle: "User-perceived crash rate",
+        pctOfSample: null,
+        pctOfSampleWithTolerance: null,
+        p50Value: vitals.crash.value,
+        p80Value: null,
+        benchmark: 0.01,
+        numSample: Math.round(vitals.crash.distinctUsers),
+        verdict: directThresholdVerdict(vitals.crash.value, 0.01),
+        higherIsBetter: false,
+        source: "google-play",
+        detail: vitals.crash.latestDate ? `Google Play data through ${vitals.crash.latestDate}` : "No Google Play data returned",
+      },
+      {
+        name: "GooglePlay_UserPerceivedAnrRate",
+        metricTitle: "User-perceived ANR rate",
+        pctOfSample: null,
+        pctOfSampleWithTolerance: null,
+        p50Value: vitals.anr.value,
+        p80Value: null,
+        benchmark: 0.005,
+        numSample: Math.round(vitals.anr.distinctUsers),
+        verdict: directThresholdVerdict(vitals.anr.value, 0.005),
+        higherIsBetter: false,
+        source: "google-play",
+        detail: vitals.anr.latestDate ? `Google Play data through ${vitals.anr.latestDate}` : "No Google Play data returned",
+      },
+    ];
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : "Google Play data could not be loaded";
+    return [
+      {
+        name: "GooglePlay_UserPerceivedCrashRate",
+        metricTitle: "User-perceived crash rate",
+        pctOfSample: null,
+        pctOfSampleWithTolerance: null,
+        p50Value: null,
+        p80Value: null,
+        benchmark: 0.01,
+        numSample: 0,
+        verdict: "insufficient data",
+        higherIsBetter: false,
+        source: "google-play",
+        detail,
+      },
+      {
+        name: "GooglePlay_UserPerceivedAnrRate",
+        metricTitle: "User-perceived ANR rate",
+        pctOfSample: null,
+        pctOfSampleWithTolerance: null,
+        p50Value: null,
+        p80Value: null,
+        benchmark: 0.005,
+        numSample: 0,
+        verdict: "insufficient data",
+        higherIsBetter: false,
+        source: "google-play",
+        detail,
+      },
+    ];
+  }
+}
+
 function rowValue(row: Record<string, unknown>, key: string) {
   return row[key] ?? row[key.toUpperCase()] ?? row[key.toLowerCase()];
 }
@@ -466,7 +547,7 @@ async function completedResponseFromQuery(
   if (query.status !== "completed") throw new Error("Count query is still running");
 
   const now = new Date();
-  const rows = parseTechLaunchRows(query.result_preview);
+  const rows = [...parseTechLaunchRows(query.result_preview), ...(await googlePlayMetricRows(filters))];
   const summary = summarizeTechLaunchRows(rows);
   const expiresAt = new Date(now.getTime() + cacheTtlMs()).toISOString();
   const response: TechLaunchReadinessCompletedResponse = {
@@ -581,8 +662,10 @@ export async function getTechLaunchReadinessStatus(input: unknown): Promise<Tech
   const request = techLaunchStatusRequestSchema.parse(input);
   const filters = normalizedTechLaunchFilters(request.filters);
   const cacheKey = techLaunchCacheKey(filters);
-  const cached = await cachedTechLaunchReadiness(filters, cacheKey);
-  if (cached) return cached;
+  if (!request.forceRefresh) {
+    const cached = await cachedTechLaunchReadiness(filters, cacheKey);
+    if (cached) return cached;
+  }
 
   const countResult = await getCountQuery(request.jobKey, 1000);
   if (countResult.query.status === "error") throw new Error(countResult.query.error ?? "Count query failed");

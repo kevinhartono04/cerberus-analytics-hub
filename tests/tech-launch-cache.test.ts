@@ -135,4 +135,25 @@ describe("Tech Launch readiness cache", () => {
     });
     expect(mocks.getCountQuery).not.toHaveBeenCalled();
   });
+
+  it("bypasses the stale cache while a forced refresh is polling", async () => {
+    const { getTechLaunchReadiness, getTechLaunchReadinessStatus } = await import("@/lib/tech-launch");
+    await getTechLaunchReadiness(request);
+
+    mocks.submitCountSql.mockResolvedValueOnce({
+      ok: true,
+      query: { job_key: "job_force_running", status: "running" },
+    });
+    const pending = await getTechLaunchReadiness({ ...request, forceRefresh: true });
+    expect(pending).toMatchObject({ status: "running", metadata: { jobKey: "job_force_running" } });
+
+    const completed = await getTechLaunchReadinessStatus({
+      jobKey: "job_force_running",
+      filters: request,
+      forceRefresh: true,
+    });
+    expect(completed.status).toBe("completed");
+    expect(completed.cache.hit).toBe(false);
+    expect(mocks.getCountQuery).toHaveBeenCalledWith("job_force_running", 1000);
+  });
 });

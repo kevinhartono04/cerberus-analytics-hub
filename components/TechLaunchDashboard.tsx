@@ -60,6 +60,8 @@ type MetricRow = {
   numSample: number;
   verdict: Verdict;
   higherIsBetter: boolean;
+  source?: "telemetry" | "google-play";
+  detail?: string;
 };
 
 type ReadinessResponse = {
@@ -270,6 +272,16 @@ function compactNumber(value: number | null) {
   return new Intl.NumberFormat(undefined, { maximumFractionDigits: value >= 100 ? 0 : 2 }).format(value);
 }
 
+function googlePlayValue(row: MetricRow) {
+  if (row.p50Value === null) return "n/a";
+  return `${(row.p50Value * 100).toFixed(2)}%`;
+}
+
+function googlePlayBenchmark(row: MetricRow) {
+  if (row.benchmark === null) return "n/a";
+  return `<${(row.benchmark * 100).toFixed(1)}%`;
+}
+
 function verdictLabel(verdict: Verdict) {
   if (verdict === "green") return "Go";
   if (verdict === "yellow") return "Cautious";
@@ -289,6 +301,13 @@ function verdictOverviewClasses(verdict: Verdict) {
   if (verdict === "yellow") return "border-amber/35 bg-[radial-gradient(420px_200px_at_15%_0%,rgba(255,185,95,0.12),transparent_70%),linear-gradient(180deg,#101a2d,#0d1626)] text-amber";
   if (verdict === "red") return "border-rose/35 bg-[radial-gradient(420px_200px_at_15%_0%,rgba(255,122,144,0.12),transparent_70%),linear-gradient(180deg,#101a2d,#0d1626)] text-rose";
   return "border-line/70 bg-[linear-gradient(180deg,#101a2d,#0d1626)] text-[#b3c5ff]";
+}
+
+function verdictValueClasses(verdict: Verdict) {
+  if (verdict === "green") return "text-emerald";
+  if (verdict === "yellow") return "text-amber";
+  if (verdict === "red") return "text-rose";
+  return "text-[#f4f6ff]";
 }
 
 function verdictBarTone(verdict: Verdict): "cobalt" | "emerald" | "amber" | "rose" {
@@ -747,16 +766,23 @@ export default function TechLaunchDashboard() {
     await new Promise((resolve) => window.setTimeout(resolve, ms));
   }
 
-  async function pollReadiness(jobKey: string, pollFilters: Filters, firstDelayMs: number, requestId: number) {
+  async function pollReadiness(
+    jobKey: string,
+    pollFilters: Filters,
+    firstDelayMs: number,
+    requestId: number,
+    forceRefresh: boolean,
+  ) {
     let delayMs = firstDelayMs;
     while (requestIdRef.current === requestId) {
-      setStatusText("Count query is still running. Waiting for results...");
+      setStatusText("Count query is running; Google Play API metrics will load next...");
       await wait(delayMs);
       if (requestIdRef.current !== requestId) return;
 
       const result = await postReadiness("/api/tech-launch/readiness/status", {
         jobKey,
         filters: pollFilters,
+        forceRefresh,
       });
       if (result.status === "completed") {
         if (requestIdRef.current !== requestId) return;
@@ -775,7 +801,7 @@ export default function TechLaunchDashboard() {
     if (options.updateUrlRun !== false) writeFiltersToUrl(filterSnapshot, true);
     setIsLoading(true);
     setError("");
-    setStatusText(forceRefresh ? "Submitting fresh Count query..." : "Checking cache...");
+    setStatusText(forceRefresh ? "Running fresh Count query, then loading Google Play API metrics..." : "Checking Count-query cache, then loading Google Play API metrics...");
     try {
       const result = await postReadiness("/api/tech-launch/readiness", { ...filterSnapshot, forceRefresh });
       if (result.status === "completed") {
@@ -784,8 +810,8 @@ export default function TechLaunchDashboard() {
         setStatusText(result.cache.hit ? "Loaded from cache" : "Query complete");
         return;
       }
-      setStatusText("Count query submitted. Waiting for results...");
-      await pollReadiness(result.metadata.jobKey, result.filters, result.pollAfterMs, requestId);
+      setStatusText("Count query is running; Google Play API metrics load next...");
+      await pollReadiness(result.metadata.jobKey, result.filters, result.pollAfterMs, requestId, forceRefresh);
     } catch (err) {
       if (requestIdRef.current === requestId) {
         setError(err instanceof Error ? err.message : "Could not load Launch Readiness data");
@@ -860,6 +886,8 @@ export default function TechLaunchDashboard() {
     const rank: Record<Verdict, number> = { red: 0, yellow: 1, "insufficient data": 2, green: 3 };
     return [...(data?.rows ?? [])].sort((a, b) => rank[a.verdict] - rank[b.verdict] || a.metricTitle.localeCompare(b.metricTitle));
   }, [data]);
+  const googlePlayRows = useMemo(() => sortedRows.filter((row) => row.source === "google-play"), [sortedRows]);
+  const telemetryRows = useMemo(() => sortedRows.filter((row) => row.source !== "google-play"), [sortedRows]);
 
   const visibleVersionOptions = useMemo(() => {
     const query = filters.appVersion.trim().toLowerCase();
@@ -1047,16 +1075,20 @@ export default function TechLaunchDashboard() {
 
         {data ? (
           <>
-            <section className="mb-4 grid gap-4 xl:grid-cols-[1.45fr_0.62fr_0.62fr_0.62fr]">
-              <div className={`overflow-hidden rounded-2xl border p-6 ${verdictOverviewClasses(data.summary.overallVerdict)}`}>
+            <section className="mb-4 grid gap-4 xl:grid-cols-[1.7fr_0.6fr_0.6fr_0.6fr]">
+              <div className={`overflow-hidden rounded-2xl border p-7 shadow-soft ${verdictOverviewClasses(data.summary.overallVerdict)}`}>
                 <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Overall Verdict</div>
                 <div className="mt-4 flex items-center gap-4">
-                  <div className={`flex h-[52px] w-[52px] items-center justify-center rounded-[14px] border ${verdictClasses(data.summary.overallVerdict)}`}>
+                  <div className={`flex h-[60px] w-[60px] items-center justify-center rounded-[16px] border ${verdictClasses(data.summary.overallVerdict)}`}>
                     {verdictIcon(data.summary.overallVerdict)}
                   </div>
                   <div>
-                    <div className="font-display text-[25px] font-extrabold leading-none">{verdictLabel(data.summary.overallVerdict)}</div>
-                    <div className="mt-1.5 text-[12.5px] text-slate-500">{data.summary.metricCount} readiness metrics scored</div>
+                    <div className="font-display text-[30px] font-extrabold leading-none">{verdictLabel(data.summary.overallVerdict)}</div>
+                    <div className="mt-1.5 text-[12.5px] text-slate-500">
+                      {data.summary.redCount > 0
+                        ? `${data.summary.redCount} hold metric${data.summary.redCount === 1 ? "" : "s"} require attention`
+                        : `${data.summary.metricCount} readiness metrics scored`}
+                    </div>
                   </div>
                 </div>
                 <div className="mt-5 grid grid-cols-3 gap-2">
@@ -1096,6 +1128,43 @@ export default function TechLaunchDashboard() {
                 <div className="mt-2 text-xs leading-relaxed text-slate-500">Expires {new Date(data.cache.expiresAt).toLocaleTimeString()}</div>
               </div>
             </section>
+
+            {googlePlayRows.length ? (
+              <section className="mb-4 rounded-2xl border border-line/70 bg-[#0b1120] px-5 py-4 shadow-soft">
+                <div className="relative flex flex-col gap-4 md:flex-row md:items-center">
+                  <div className="shrink-0 md:w-[220px]">
+                    <div className="flex items-center justify-between gap-3 md:block">
+                      <h2 className="font-display text-sm font-bold text-[#eef1fb]">Google Play Quality</h2>
+                      <div className="font-mono text-[10px] uppercase tracking-[0.08em] text-slate-500 md:mt-1">Android only</div>
+                    </div>
+                    <p className="mt-1 text-xs text-slate-500">User-perceived Vitals.</p>
+                  </div>
+                  <div className={`grid min-w-0 flex-1 gap-3 transition-opacity sm:grid-cols-2 ${isLoading ? "pointer-events-none opacity-35" : "opacity-100"}`}>
+                    {googlePlayRows.map((row) => (
+                      <div key={row.name} className="rounded-xl border border-line/60 bg-[#0d1424]/70 px-4 py-3">
+                        <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                          <div className="text-sm font-semibold text-[#eaeefc]">{row.metricTitle}</div>
+                          <div className={`font-mono text-[11px] font-semibold ${verdictValueClasses(row.verdict)}`}>{verdictLabel(row.verdict)}</div>
+                        </div>
+                        <div className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                          <div className={`font-display text-[24px] font-extrabold leading-none ${verdictValueClasses(row.verdict)}`}>{googlePlayValue(row)}</div>
+                          <div className="font-mono text-[10px] text-slate-500">Target {googlePlayBenchmark(row)}</div>
+                        </div>
+                        <div className="mt-2 text-[11px] leading-relaxed text-slate-500">{row.detail ?? `${new Intl.NumberFormat().format(row.numSample)} user-days`}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {isLoading ? (
+                    <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-xl bg-[#050b18]/70 backdrop-blur-[1px]">
+                      <div className="inline-flex items-center gap-3 rounded-[9px] border border-line/70 bg-[#0d1424] px-4 py-3 text-sm font-semibold text-slate-200 shadow-soft">
+                        <LoadingSpinner className="h-5 w-5 text-cobalt" />
+                        <span>{statusText || "Running Count query and loading Google Play API metrics..."}</span>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              </section>
+            ) : null}
 
             <section className="relative overflow-hidden rounded-2xl border border-line/70 bg-[#0b1120] shadow-soft" aria-busy={isLoading}>
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line/60 bg-[#0d1424] px-[18px] py-[15px]">
@@ -1155,7 +1224,7 @@ export default function TechLaunchDashboard() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-line/40">
-                    {sortedRows.map((row) => (
+                    {telemetryRows.map((row) => (
                       <tr key={row.name} className="hover:bg-[#0e1626]">
                         <td className="px-4 py-4">
                           <div className="text-sm font-semibold text-[#eaeefc]">{row.metricTitle}</div>
@@ -1205,7 +1274,7 @@ export default function TechLaunchDashboard() {
                 ) : null}
               </div>
 
-              {!sortedRows.length ? (
+              {!telemetryRows.length ? (
                 <div className="border-t border-line/60 px-4 py-10 text-center text-sm text-slate-500">
                   No readiness metrics returned for this filter set.
                 </div>
@@ -1219,7 +1288,7 @@ export default function TechLaunchDashboard() {
             {isLoading ? (
               <div className="flex flex-col items-center gap-3">
                 <LoadingSpinner className="h-6 w-6 text-cobalt" />
-                <span>{statusText || "Loading Launch Readiness data..."}</span>
+                <span>{statusText || "Running Count query and loading Google Play API metrics..."}</span>
               </div>
             ) : (
               "Run the dashboard to load readiness metrics."
