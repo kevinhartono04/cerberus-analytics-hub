@@ -225,16 +225,15 @@ export default function CerberusShell<T extends string>({
         >
           <div className={`border-b border-line/50 px-4 py-5 ${collapsed ? "text-center" : ""}`}>
             <div className={`flex items-center gap-3 ${collapsed ? "justify-center" : "max-md:justify-center"}`}>
-              <div className="relative flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-[12px] border border-cobalt/30 bg-[#0d1930] shadow-[0_0_18px_rgba(61,130,255,0.12)]">
-                <span aria-hidden="true" className="absolute inset-[3px] rounded-[8px] border border-white/10" />
-                <img src="/cerberus_logo_512.png" alt="Cerberus" className="relative h-9 w-9 object-contain" />
+              <div className="relative flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-[13px] border border-cobalt/30 bg-[#0d1930] shadow-[0_0_18px_rgba(61,130,255,0.12)]">
+                <img src="/cerberus_logo_512.png" alt="Cerberus" className="relative h-10 w-10 object-contain" />
               </div>
               {collapsed ? null : (
                 <div className="min-w-0 max-md:hidden">
-                  <h1 className="font-display text-[19px] font-extrabold leading-none text-[#f7f8ff]">Cerberus</h1>
-                  <div className="mt-1.5 flex items-center gap-1.5 text-[13px] font-medium leading-none text-[#aeb8d2]">
+                  <h1 className="font-brand text-[18px] font-bold leading-none text-[#f7f8ff]">Cerberus</h1>
+                  <div className="mt-2 flex items-center gap-1.5 leading-none text-[#aeb8d2]">
                     <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-cobalt shadow-[0_0_8px_#3d82ff]" />
-                    Analytics Hub
+                    <span className="font-brand text-[12px] font-semibold">Analytics Hub</span>
                   </div>
                 </div>
               )}
