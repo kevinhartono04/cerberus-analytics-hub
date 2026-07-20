@@ -10,16 +10,21 @@ const mocks = vi.hoisted(() => ({
   getReadiness: vi.fn(),
   getReadinessStatus: vi.fn(),
   requireCurrentAppUser: vi.fn(),
+  assertCanUseTechLaunch: vi.fn(),
 }));
 
 vi.mock("@/lib/tech-launch", () => ({
   getTechLaunchAppVersions: mocks.getAppVersions,
   getTechLaunchReadiness: mocks.getReadiness,
   getTechLaunchReadinessStatus: mocks.getReadinessStatus,
+  techLaunchRequestSchema: { parse: (value: unknown) => value },
+  techLaunchStatusRequestSchema: { parse: (value: unknown) => value },
+  techLaunchAppVersionsRequestSchema: { parse: (value: unknown) => value },
 }));
 
 vi.mock("@/lib/auth", () => ({
   requireCurrentAppUser: mocks.requireCurrentAppUser,
+  assertCanUseTechLaunch: mocks.assertCanUseTechLaunch,
   jsonError: (error: unknown) => {
     if (error instanceof Response) return error;
     return Response.json({ error: error instanceof Error ? error.message : "Unexpected error" }, { status: 500 });
@@ -34,13 +39,13 @@ const body = {
   endDate: "2026-07-02",
 };
 
-function authedRequest(payload = body) {
+function authedRequest(payload: unknown = body) {
   return new Request("http://localhost/api/tech-launch/readiness", {
     method: "POST",
     headers: {
       "content-type": "application/json",
       "x-test-user-id": "tech-launch-user",
-      "x-test-user-email": "tech-launch-user@example.com",
+      "x-test-user-email": "tech-launch-user@tripledotstudios.com",
       "x-test-user-name": "Tech Launch User",
       "x-test-user-role": "viewer",
     },
@@ -50,6 +55,7 @@ function authedRequest(payload = body) {
 
 describe("Tech Launch readiness API", () => {
   beforeEach(() => {
+    mocks.assertCanUseTechLaunch.mockReset().mockResolvedValue(undefined);
     mocks.requireCurrentAppUser.mockReset().mockImplementation(async (request?: Request) => {
       const userId = request?.headers.get("x-test-user-id");
       const email = request?.headers.get("x-test-user-email");
@@ -116,6 +122,7 @@ describe("Tech Launch readiness API", () => {
     expect(response.status).toBe(200);
     expect(json.cache.key).toBe("cache-key");
     expect(mocks.getReadiness).toHaveBeenCalledWith(body);
+    expect(mocks.assertCanUseTechLaunch).toHaveBeenCalledWith(expect.anything(), "wordblast");
   });
 
   it("returns readiness status for authenticated viewers", async () => {
@@ -153,5 +160,15 @@ describe("Tech Launch readiness API", () => {
     const response = await POST(authedRequest());
 
     expect(response.status).toBe(400);
+  });
+
+  it("returns 403 when the app is not granted", async () => {
+    mocks.assertCanUseTechLaunch.mockRejectedValueOnce(
+      new Response(JSON.stringify({ error: "App access denied" }), { status: 403, headers: { "Content-Type": "application/json" } }),
+    );
+
+    const response = await POST(authedRequest());
+    expect(response.status).toBe(403);
+    expect(mocks.getReadiness).not.toHaveBeenCalled();
   });
 });

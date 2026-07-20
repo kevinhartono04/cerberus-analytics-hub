@@ -44,7 +44,7 @@ function request(method: string, role: UserRole, userId: string, body?: unknown)
     headers: {
       "content-type": "application/json",
       "x-test-user-id": userId,
-      "x-test-user-email": `${userId}@example.com`,
+      "x-test-user-email": `${userId}@tripledotstudios.com`,
       "x-test-user-name": userId,
       "x-test-user-role": role,
     },
@@ -74,7 +74,7 @@ function importRequest(
 ) {
   const headers = new Headers({
     "x-test-user-id": userId,
-    "x-test-user-email": `${userId}@example.com`,
+    "x-test-user-email": `${userId}@tripledotstudios.com`,
     "x-test-user-name": userId,
     "x-test-user-role": role,
   });
@@ -119,6 +119,20 @@ afterEach(async () => {
 });
 
 describe("spec RBAC API", () => {
+  it("blocks external users from the saved-spec catalogue", async () => {
+    const response = await LIST_SPECS(
+      new Request("http://localhost/api/specs", {
+        headers: {
+          "x-test-user-id": "external-viewer",
+          "x-test-user-email": "external@partnerstudio.com",
+          "x-test-user-name": "External Viewer",
+          "x-test-user-role": "viewer",
+        },
+      }),
+    );
+    expect(response.status).toBe(403);
+  });
+
   it("allows admins to create, update, and delete any spec", async () => {
     const spec = specWithId("rbac-admin-any");
     await createAs("editor", "editor-owner", spec);

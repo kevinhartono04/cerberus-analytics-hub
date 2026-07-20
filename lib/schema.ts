@@ -31,3 +31,18 @@ export const techLaunchReadinessCache = pgTable("tech_launch_readiness_cache", {
   createdAt: text("created_at").notNull(),
   expiresAt: text("expires_at").notNull(),
 });
+
+export const partnerAccessDomains = pgTable("partner_access_domains", {
+  domain: text("domain").primaryKey(),
+  enabled: text("enabled").notNull(),
+  expiresAt: text("expires_at").notNull(),
+  createdBy: text("created_by").notNull(),
+  updatedBy: text("updated_by").notNull(),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+export const partnerAccessDomainApps = pgTable("partner_access_domain_apps", {
+  domain: text("domain").notNull(),
+  appName: text("app_name").notNull(),
+});

@@ -123,6 +123,14 @@ type AppVersionsResponse = {
   };
 };
 
+type AccessResponse = {
+  authenticated: boolean;
+  access: {
+    accountType: "internal" | "external";
+    techLaunchApps: string[];
+  } | null;
+};
+
 type TechLaunchSessionSnapshot = {
   filters: Filters;
   data: ReadinessResponse | null;
@@ -716,6 +724,8 @@ function DateRangePicker({
 
 export default function TechLaunchDashboard() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [allowedApps, setAllowedApps] = useState<string[] | null>(null);
+  const [accessError, setAccessError] = useState("");
   const [filters, setFilters] = useState<Filters>(() => defaultFilters());
   const [data, setData] = useState<ReadinessResponse | null>(null);
   const [error, setError] = useState("");
@@ -732,6 +742,32 @@ export default function TechLaunchDashboard() {
   const versionRequestIdRef = useRef(0);
   const hasReadUrlRef = useRef(false);
   const skipNextUrlSyncRef = useRef(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetch("/api/me")
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Could not load account access");
+        return (await response.json()) as AccessResponse;
+      })
+      .then((response) => {
+        if (cancelled) return;
+        const apps = response.authenticated ? response.access?.techLaunchApps ?? [] : [];
+        setAllowedApps(apps);
+        setAccessError(apps.length ? "" : "Your account does not have Launch Readiness access. Contact your Tripledot administrator.");
+        if (apps.length) {
+          setFilters((current) => (apps.includes(current.appName) ? current : { ...current, appName: apps[0], appVersion: "" }));
+        }
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setAllowedApps([]);
+        setAccessError(error instanceof Error ? error.message : "Could not load account access");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   function updateFilters(patch: Partial<Filters>) {
     requestIdRef.current += 1;
@@ -795,6 +831,7 @@ export default function TechLaunchDashboard() {
   }
 
   async function loadReadiness(forceRefresh = false, options: { updateUrlRun?: boolean } = {}) {
+    if (!allowedApps?.includes(filters.appName)) return;
     const requestId = requestIdRef.current + 1;
     requestIdRef.current = requestId;
     const filterSnapshot = { ...filters };
@@ -855,6 +892,7 @@ export default function TechLaunchDashboard() {
   }, [filters]);
 
   useEffect(() => {
+    if (allowedApps === null || !allowedApps.includes(filters.appName)) return;
     const requestId = versionRequestIdRef.current + 1;
     versionRequestIdRef.current = requestId;
     setIsLoadingVersions(true);
@@ -880,7 +918,7 @@ export default function TechLaunchDashboard() {
       .finally(() => {
         if (versionRequestIdRef.current === requestId) setIsLoadingVersions(false);
       });
-  }, [filters.appName, filters.platform, filters.startDate, filters.endDate]);
+  }, [allowedApps, filters.appName, filters.platform, filters.startDate, filters.endDate]);
 
   const sortedRows = useMemo(() => {
     const rank: Record<Verdict, number> = { red: 0, yellow: 1, "insufficient data": 2, green: 3 };
@@ -899,13 +937,14 @@ export default function TechLaunchDashboard() {
   const selectedVersion = versionOptions.find((option) => option.appVersion === filters.appVersion);
   const hasMissingSelectedVersion = Boolean(filters.appVersion && !isLoadingVersions && !selectedVersion);
   const hasTypedVersion = Boolean(filters.appVersion.trim());
-  const canRunReadiness = Boolean(hasTypedVersion && !isLoading);
+  const visibleAppOptions = allowedApps === null ? appOptions : appOptions.filter((app) => allowedApps.includes(app));
+  const canRunReadiness = Boolean(hasTypedVersion && !isLoading && allowedApps?.includes(filters.appName));
 
   useEffect(() => {
-    if (!pendingUrlRun || !hasTypedVersion) return;
+    if (!pendingUrlRun || !hasTypedVersion || !allowedApps?.includes(filters.appName)) return;
     setPendingUrlRun(false);
     void loadReadiness(false, { updateUrlRun: false });
-  }, [pendingUrlRun, hasTypedVersion]);
+  }, [allowedApps, filters.appName, pendingUrlRun, hasTypedVersion]);
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -919,7 +958,7 @@ export default function TechLaunchDashboard() {
       collapsed={sidebarCollapsed}
       onToggleCollapsed={() => setSidebarCollapsed((value) => !value)}
     >
-        <div className="mb-6">
+      <div className="mb-6">
           <div className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.16em] text-emerald">
             <span className="h-1.5 w-1.5 rounded-full bg-emerald shadow-[0_0_10px_#4edea3]" />
             Launch Readiness · Readiness
@@ -930,12 +969,17 @@ export default function TechLaunchDashboard() {
           </p>
         </div>
 
+        {allowedApps !== null && !allowedApps.length ? (
+          <section className="mb-[22px] rounded-[14px] border border-amber/30 bg-amber/10 p-5 text-sm text-amber">
+            {accessError}
+          </section>
+        ) : (
         <form onSubmit={submit} className="mb-[22px] rounded-[14px] border border-line/70 bg-[#0b1120] p-4 shadow-soft">
           <div className="grid items-start gap-[14px] md:grid-cols-2 xl:grid-cols-[minmax(150px,1fr)_130px_160px_300px_auto_auto]">
             <FilterDropdown
               label="App"
               value={filters.appName as Filters["appName"]}
-              options={appOptions.map((app) => ({ value: app, label: app }))}
+              options={visibleAppOptions.map((app) => ({ value: app, label: app }))}
               onChange={(appName) => updateFilters({ appName })}
             />
             <FilterDropdown
@@ -1070,6 +1114,7 @@ export default function TechLaunchDashboard() {
             </button>
           </div>
         </form>
+        )}
 
         {error ? <div className="mb-5 rounded-[10px] border border-rose/30 bg-rose/10 px-4 py-3 text-sm font-semibold text-rose">{error}</div> : null}
 

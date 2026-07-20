@@ -1,5 +1,7 @@
 import { getSavedSpecSummary, syncAppUser } from "@/lib/db";
 import { configuredRoleForEmail } from "@/lib/auth-policy";
+import { getExternalTechLaunchApps, isTripledotEmail } from "@/lib/partner-access";
+import { techLaunchAppOptions } from "@/lib/tech-launch";
 import type { AppUser, SavedSpecSummary, UserRole } from "@/lib/types";
 import { userRoleSchema } from "@/lib/types";
 
@@ -42,6 +44,7 @@ function localFallbackIdentity(): Identity | null {
 
 function initialRoleFor(identity: Identity): UserRole {
   if (identity.id === "local-admin") return "admin";
+  if (!isTripledotEmail(identity.email)) return "viewer";
   return configuredRoleForEmail(identity.email);
 }
 
@@ -85,17 +88,50 @@ export async function requireCurrentAppUser(request?: Request): Promise<AppUser>
 }
 
 export function canCreateSpec(user: AppUser) {
-  return user.role === "admin" || user.role === "editor";
+  return isInternalAppUser(user) && (user.role === "admin" || user.role === "editor");
 }
 
 export function canManageUsers(user: AppUser) {
-  return user.role === "admin";
+  return isInternalAppUser(user) && user.role === "admin";
 }
 
 export function canMutateSpec(user: AppUser, spec: Pick<SavedSpecSummary, "ownerUserId"> | null) {
+  if (!isInternalAppUser(user)) return false;
   if (user.role === "admin") return true;
   if (user.role !== "editor" || !spec?.ownerUserId) return false;
   return spec.ownerUserId === user.id;
+}
+
+export function isExternalAppUser(user: AppUser) {
+  return !isInternalAppUser(user);
+}
+
+export function isInternalAppUser(user: AppUser) {
+  return user.id === "local-admin" || isTripledotEmail(user.email);
+}
+
+export async function techLaunchAppsForUser(user: AppUser) {
+  if (isInternalAppUser(user)) return [...techLaunchAppOptions];
+  return getExternalTechLaunchApps(user.email);
+}
+
+export async function assertCanUseTechLaunch(user: AppUser, appName: string) {
+  const allowedApps = await techLaunchAppsForUser(user);
+  if (!allowedApps.includes(appName)) {
+    throw new Response(JSON.stringify({ error: "You do not have access to this app's Launch Readiness data" }), {
+      status: 403,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+}
+
+export function assertInternalAppUser(user: AppUser) {
+  if (isExternalAppUser(user)) {
+    throw new Response(JSON.stringify({ error: "External accounts can access Launch Readiness only" }), {
+      status: 403,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
 }
 
 export function addPermissions(summary: SavedSpecSummary, user: AppUser): SavedSpecSummary {

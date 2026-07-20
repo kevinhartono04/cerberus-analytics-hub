@@ -40,6 +40,7 @@ type ShellUser = {
   name?: string | null;
   email?: string | null;
   roleLabel?: string;
+  accountType?: "internal" | "external";
 };
 
 type ShellMeResponse = {
@@ -48,6 +49,10 @@ type ShellMeResponse = {
     name?: string | null;
     email?: string | null;
     role?: string;
+  } | null;
+  access: {
+    accountType: "internal" | "external";
+    techLaunchApps: string[];
   } | null;
 };
 
@@ -201,6 +206,7 @@ export default function CerberusShell<T extends string>({
           name: response.user.name,
           email: response.user.email,
           roleLabel: formatRoleLabel(response.user.role),
+          accountType: response.access?.accountType,
         });
       })
       .catch(() => {
@@ -210,10 +216,11 @@ export default function CerberusShell<T extends string>({
     return () => {
       cancelled = true;
     };
-  }, [hasExplicitUser, user?.authenticated, user?.email, user?.name, user?.roleLabel]);
+  }, [hasExplicitUser, user?.accountType, user?.authenticated, user?.email, user?.name, user?.roleLabel]);
 
   const sidebarUser = hasExplicitUser ? user : sessionUser;
   const isLoadingUser = !hasExplicitUser && sessionUser === undefined;
+  const visibleProducts = sidebarUser?.accountType === "external" ? products.filter((product) => product.id === "tech-launch") : products;
 
   return (
     <main className="theme-dark min-h-screen bg-mist">
@@ -248,7 +255,7 @@ export default function CerberusShell<T extends string>({
                 </div>
               )}
               <div className="flex flex-col gap-1">
-                {products.map((product) => (
+                {visibleProducts.map((product) => (
                   <ProductLink key={product.id} product={product} active={product.id === currentProduct} collapsed={collapsed} />
                 ))}
               </div>

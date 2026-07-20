@@ -12,6 +12,7 @@ import type {
   LibraryPayload,
   LibrarySnapshot,
   PlatformAdPayload,
+  PartnerDomainAccess,
   SavedSpecSummary,
   UserRole,
 } from "@/lib/types";
@@ -26,6 +27,7 @@ let sqlClient: postgres.Sql | null = null;
 let savedSpecsTableReady: Promise<void> | null = null;
 let appUsersTableReady: Promise<void> | null = null;
 let techLaunchCacheTableReady: Promise<void> | null = null;
+let partnerAccessTablesReady: Promise<void> | null = null;
 
 function getDatabaseUrl() {
   return (
@@ -221,6 +223,59 @@ function ensureSqliteTechLaunchCacheTable() {
       created_at TEXT NOT NULL,
       expires_at TEXT NOT NULL
     )
+  `);
+}
+
+async function ensurePartnerAccessTables() {
+  if (!partnerAccessTablesReady) {
+    const sql = getSql();
+    partnerAccessTablesReady = sql.begin(async (transaction) => {
+      await transaction`
+        CREATE TABLE IF NOT EXISTS partner_access_domains (
+          domain TEXT PRIMARY KEY NOT NULL,
+          enabled TEXT NOT NULL,
+          expires_at TEXT NOT NULL,
+          created_by TEXT NOT NULL,
+          updated_by TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+      `;
+      await transaction`
+        CREATE TABLE IF NOT EXISTS partner_access_domain_apps (
+          domain TEXT NOT NULL,
+          app_name TEXT NOT NULL,
+          PRIMARY KEY (domain, app_name)
+        )
+      `;
+    })
+      .then(() => undefined)
+      .catch((error) => {
+        partnerAccessTablesReady = null;
+        throw error;
+      });
+  }
+
+  await partnerAccessTablesReady;
+  return getSql();
+}
+
+function ensureSqlitePartnerAccessTables() {
+  sqliteExec(`
+    CREATE TABLE IF NOT EXISTS partner_access_domains (
+      domain TEXT PRIMARY KEY NOT NULL,
+      enabled TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      created_by TEXT NOT NULL,
+      updated_by TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS partner_access_domain_apps (
+      domain TEXT NOT NULL,
+      app_name TEXT NOT NULL,
+      PRIMARY KEY (domain, app_name)
+    );
   `);
 }
 
@@ -659,6 +714,176 @@ export async function updateAppUserRole(id: string, role: UserRole): Promise<App
     RETURNING id, email, name, role, created_at, updated_at
   `;
   return row ? rowToAppUser(row) : null;
+}
+
+type PartnerDomainInput = {
+  domain: string;
+  enabled: boolean;
+  expiresAt: string;
+  allowedApps: string[];
+  actorId: string;
+};
+
+function rowToPartnerDomainAccess(row: Record<string, unknown>, allowedApps: string[]): PartnerDomainAccess {
+  return {
+    domain: asString(row.domain),
+    enabled: asString(row.enabled) === "true" || asString(row.enabled) === "1",
+    expiresAt: asString(row.expires_at),
+    createdBy: asString(row.created_by),
+    updatedBy: asString(row.updated_by),
+    createdAt: asString(row.created_at),
+    updatedAt: asString(row.updated_at),
+    allowedApps,
+  };
+}
+
+async function getPartnerDomainApps(domain: string): Promise<string[]> {
+  if (shouldUseLocalSqlite()) {
+    ensureSqlitePartnerAccessTables();
+    return sqliteJsonRows<{ app_name: string }>(`
+      SELECT app_name FROM partner_access_domain_apps
+      WHERE domain = ${sqliteLiteral(domain)}
+      ORDER BY app_name ASC
+    `).map((row) => asString(row.app_name));
+  }
+
+  const sql = await ensurePartnerAccessTables();
+  const rows = await sql<{ app_name: string }[]>`
+    SELECT app_name FROM partner_access_domain_apps
+    WHERE domain = ${domain}
+    ORDER BY app_name ASC
+  `;
+  return rows.map((row) => asString(row.app_name));
+}
+
+export async function getPartnerDomainAccess(domain: string): Promise<PartnerDomainAccess | null> {
+  if (shouldUseLocalSqlite()) {
+    ensureSqlitePartnerAccessTables();
+    const [row] = sqliteJsonRows<Record<string, unknown>>(`
+      SELECT domain, enabled, expires_at, created_by, updated_by, created_at, updated_at
+      FROM partner_access_domains
+      WHERE domain = ${sqliteLiteral(domain)}
+      LIMIT 1
+    `);
+    return row ? rowToPartnerDomainAccess(row, await getPartnerDomainApps(domain)) : null;
+  }
+
+  const sql = await ensurePartnerAccessTables();
+  const [row] = await sql<Record<string, unknown>[]>`
+    SELECT domain, enabled, expires_at, created_by, updated_by, created_at, updated_at
+    FROM partner_access_domains
+    WHERE domain = ${domain}
+    LIMIT 1
+  `;
+  return row ? rowToPartnerDomainAccess(row, await getPartnerDomainApps(domain)) : null;
+}
+
+export async function listPartnerDomainAccess(): Promise<PartnerDomainAccess[]> {
+  if (shouldUseLocalSqlite()) {
+    ensureSqlitePartnerAccessTables();
+    const rows = sqliteJsonRows<Record<string, unknown>>(`
+      SELECT domain, enabled, expires_at, created_by, updated_by, created_at, updated_at
+      FROM partner_access_domains
+      ORDER BY domain ASC
+    `);
+    return Promise.all(rows.map(async (row) => rowToPartnerDomainAccess(row, await getPartnerDomainApps(asString(row.domain)))));
+  }
+
+  const sql = await ensurePartnerAccessTables();
+  const rows = await sql<Record<string, unknown>[]>`
+    SELECT domain, enabled, expires_at, created_by, updated_by, created_at, updated_at
+    FROM partner_access_domains
+    ORDER BY domain ASC
+  `;
+  return Promise.all(rows.map(async (row) => rowToPartnerDomainAccess(row, await getPartnerDomainApps(asString(row.domain)))));
+}
+
+export async function savePartnerDomainAccess(input: PartnerDomainInput): Promise<PartnerDomainAccess> {
+  const now = new Date().toISOString();
+  const allowedApps = [...new Set(input.allowedApps)].sort();
+
+  if (shouldUseLocalSqlite()) {
+    ensureSqlitePartnerAccessTables();
+    const existing = getPartnerDomainAccess(input.domain);
+    const existingRecord = await existing;
+    sqliteExec(`
+      INSERT INTO partner_access_domains (domain, enabled, expires_at, created_by, updated_by, created_at, updated_at)
+      VALUES (
+        ${sqliteLiteral(input.domain)},
+        ${sqliteLiteral(input.enabled ? "true" : "false")},
+        ${sqliteLiteral(input.expiresAt)},
+        ${sqliteLiteral(existingRecord?.createdBy ?? input.actorId)},
+        ${sqliteLiteral(input.actorId)},
+        ${sqliteLiteral(existingRecord?.createdAt ?? now)},
+        ${sqliteLiteral(now)}
+      )
+      ON CONFLICT(domain) DO UPDATE SET
+        enabled = excluded.enabled,
+        expires_at = excluded.expires_at,
+        updated_by = excluded.updated_by,
+        updated_at = excluded.updated_at
+    `);
+    sqliteExec(`DELETE FROM partner_access_domain_apps WHERE domain = ${sqliteLiteral(input.domain)}`);
+    for (const appName of allowedApps) {
+      sqliteExec(`
+        INSERT INTO partner_access_domain_apps (domain, app_name)
+        VALUES (${sqliteLiteral(input.domain)}, ${sqliteLiteral(appName)})
+      `);
+    }
+    return (await getPartnerDomainAccess(input.domain))!;
+  }
+
+  const sql = await ensurePartnerAccessTables();
+  await sql.begin(async (transaction) => {
+    const [existing] = await transaction<Record<string, unknown>[]>`
+      SELECT created_by, created_at FROM partner_access_domains WHERE domain = ${input.domain} LIMIT 1
+    `;
+    await transaction`
+      INSERT INTO partner_access_domains (domain, enabled, expires_at, created_by, updated_by, created_at, updated_at)
+      VALUES (
+        ${input.domain},
+        ${input.enabled ? "true" : "false"},
+        ${input.expiresAt},
+        ${existing ? asString(existing.created_by) : input.actorId},
+        ${input.actorId},
+        ${existing ? asString(existing.created_at) : now},
+        ${now}
+      )
+      ON CONFLICT(domain) DO UPDATE SET
+        enabled = EXCLUDED.enabled,
+        expires_at = EXCLUDED.expires_at,
+        updated_by = EXCLUDED.updated_by,
+        updated_at = EXCLUDED.updated_at
+    `;
+    await transaction`DELETE FROM partner_access_domain_apps WHERE domain = ${input.domain}`;
+    for (const appName of allowedApps) {
+      await transaction`
+        INSERT INTO partner_access_domain_apps (domain, app_name)
+        VALUES (${input.domain}, ${appName})
+      `;
+    }
+  });
+  return (await getPartnerDomainAccess(input.domain))!;
+}
+
+export async function deletePartnerDomainAccess(domain: string) {
+  if (shouldUseLocalSqlite()) {
+    ensureSqlitePartnerAccessTables();
+    const existing = await getPartnerDomainAccess(domain);
+    if (!existing) return false;
+    sqliteExec(`
+      DELETE FROM partner_access_domain_apps WHERE domain = ${sqliteLiteral(domain)};
+      DELETE FROM partner_access_domains WHERE domain = ${sqliteLiteral(domain)};
+    `);
+    return true;
+  }
+
+  const sql = await ensurePartnerAccessTables();
+  return sql.begin(async (transaction) => {
+    await transaction`DELETE FROM partner_access_domain_apps WHERE domain = ${domain}`;
+    const result = await transaction`DELETE FROM partner_access_domains WHERE domain = ${domain}`;
+    return result.count > 0;
+  });
 }
 
 export async function deleteSavedSpec(id: string) {

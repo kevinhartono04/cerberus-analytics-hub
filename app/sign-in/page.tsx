@@ -14,10 +14,10 @@ export default async function Page({
           <span className="font-mono text-lg font-bold text-cobalt">A</span>
         </div>
         <h1 className="mt-4 text-xl font-bold text-ink">Sign in</h1>
-        <p className="mt-2 text-sm text-slate-600">Use your Tripledot Google account to access analytics specs.</p>
+        <p className="mt-2 text-sm text-slate-600">Use an approved Google account to access Analytics Hub.</p>
         {params.error ? (
           <p className="mt-4 rounded-md bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">
-            Sign-in is limited to @tripledotstudios.com accounts.
+            Sign-in is limited to Tripledot accounts and approved partner domains.
           </p>
         ) : null}
         <form

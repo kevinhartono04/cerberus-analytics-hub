@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { addPermissions, assertCanCreateSpec, jsonError, requireCurrentAppUser } from "@/lib/auth";
+import { addPermissions, assertCanCreateSpec, assertInternalAppUser, jsonError, requireCurrentAppUser } from "@/lib/auth";
 import { saveSpec } from "@/lib/db";
 import { isImportSpecError, parseAnalyticsSpecFile } from "@/lib/import-spec";
 
@@ -25,6 +25,7 @@ function isUploadedFile(value: unknown): value is UploadedFile {
 export async function POST(request: Request) {
   try {
     const user = await requireCurrentAppUser(request);
+    assertInternalAppUser(user);
     await assertCanCreateSpec(user);
 
     const formData = await request.formData();

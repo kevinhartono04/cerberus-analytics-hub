@@ -28,7 +28,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { UseFormReturn, useForm } from "react-hook-form";
 
 import CerberusShell, { ShellNavItem } from "@/components/CerberusShell";
@@ -41,9 +41,21 @@ import {
   intakeSchema,
   AppUser,
   LibrarySnapshot,
+  PartnerDomainAccess,
   SavedSpecSummary,
   UserRole,
 } from "@/lib/types";
+
+const techLaunchApps = [
+  "blockkingdom", "bloomsort", "bubblego", "bubblewordchain", "dotpaint", "hexago", "jelly", "mahjongbloom",
+  "marble", "sizzle", "stacksmash", "tripletile", "wooblast", "woodoku", "wordblast", "wordrush",
+] as const;
+
+function defaultPartnerExpiryDate() {
+  const date = new Date();
+  date.setFullYear(date.getFullYear() + 1);
+  return date.toISOString().slice(0, 10);
+}
 
 type Tab = "intake" | "review" | "viewer" | "specs" | "library" | "users";
 
@@ -73,6 +85,10 @@ function tabFromParam(value: string | null): Tab | null {
 type AuthState = {
   authenticated: boolean;
   user: AppUser | null;
+  access?: {
+    accountType: "internal" | "external";
+    techLaunchApps: string[];
+  } | null;
 };
 
 const exampleIntake: GameIntake = {
@@ -1946,6 +1962,140 @@ function SavedSpecsBrowser({
   );
 }
 
+function PartnerDomainAccessAdmin() {
+  const [domains, setDomains] = useState<PartnerDomainAccess[]>([]);
+  const [domain, setDomain] = useState("");
+  const [allowedApps, setAllowedApps] = useState<string[]>([]);
+  const [expiresOn, setExpiresOn] = useState(defaultPartnerExpiryDate);
+  const [enabled, setEnabled] = useState(true);
+  const [status, setStatus] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+
+  async function loadDomains() {
+    setIsLoading(true);
+    try {
+      const response = await fetch("/api/partner-access-domains");
+      if (!response.ok) throw new Error(await response.text());
+      setDomains((await response.json()) as PartnerDomainAccess[]);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not load partner domains");
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void loadDomains();
+  }, []);
+
+  function resetForm() {
+    setDomain("");
+    setAllowedApps([]);
+    setExpiresOn(defaultPartnerExpiryDate());
+    setEnabled(true);
+  }
+
+  function toggleApp(app: string) {
+    setAllowedApps((current) => (current.includes(app) ? current.filter((item) => item !== app) : [...current, app]));
+  }
+
+  async function saveDomain(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setStatus("Saving partner access...");
+    try {
+      const response = await fetch("/api/partner-access-domains", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ domain, enabled, expiresOn, allowedApps }),
+      });
+      if (!response.ok) throw new Error(await response.text());
+      const saved = (await response.json()) as PartnerDomainAccess;
+      setDomains((current) => [...current.filter((item) => item.domain !== saved.domain), saved].sort((a, b) => a.domain.localeCompare(b.domain)));
+      resetForm();
+      setStatus("Partner domain saved");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not save partner domain");
+    }
+  }
+
+  function editDomain(item: PartnerDomainAccess) {
+    setDomain(item.domain);
+    setAllowedApps(item.allowedApps);
+    setExpiresOn(item.expiresAt.slice(0, 10));
+    setEnabled(item.enabled);
+    setStatus(`Editing ${item.domain}`);
+  }
+
+  async function removeDomain(value: string) {
+    setStatus(`Revoking ${value}...`);
+    try {
+      const response = await fetch("/api/partner-access-domains", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ domain: value }),
+      });
+      if (!response.ok) throw new Error(await response.text());
+      setDomains((current) => current.filter((item) => item.domain !== value));
+      if (domain === value) resetForm();
+      setStatus("Partner domain revoked");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not revoke partner domain");
+    }
+  }
+
+  return (
+    <section className="space-y-4 rounded-2xl border border-line/70 bg-[#0b1120] p-5 shadow-soft">
+      <div>
+        <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-emerald">Partner access</div>
+        <h2 className="mt-2 text-lg font-bold text-[#f4f6ff]">Launch Readiness partner domains</h2>
+        <p className="mt-1 text-sm text-slate-500">Verified Google users at an active domain inherit these permitted apps.</p>
+      </div>
+      {status ? <p className="rounded-[9px] border border-cobalt/20 bg-cobalt/10 px-3 py-2 text-sm text-cobalt">{status}</p> : null}
+      <form onSubmit={saveDomain} className="grid gap-4 rounded-[12px] border border-line/60 bg-[#0d1424] p-4 lg:grid-cols-[minmax(180px,1fr)_160px_auto]">
+        <label className="block">
+          <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">Corporate domain</span>
+          <input value={domain} onChange={(event) => setDomain(event.target.value)} placeholder="partnerstudio.com" required className="focus-ring mt-1.5 h-10 w-full rounded-[8px] border border-line/70 bg-[#101a2c] px-3 text-sm text-slate-200" />
+        </label>
+        <label className="block">
+          <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">Expires on</span>
+          <input type="date" value={expiresOn} onChange={(event) => setExpiresOn(event.target.value)} required className="focus-ring mt-1.5 h-10 w-full rounded-[8px] border border-line/70 bg-[#101a2c] px-3 text-sm text-slate-200" />
+        </label>
+        <label className="mt-6 inline-flex h-10 items-center gap-2 text-sm text-slate-300">
+          <input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} className="h-4 w-4 accent-cobalt" /> Enabled
+        </label>
+        <fieldset className="lg:col-span-3">
+          <legend className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">Permitted apps</legend>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {techLaunchApps.map((app) => (
+              <label key={app} className={`inline-flex cursor-pointer items-center gap-2 rounded-[7px] border px-2.5 py-1.5 text-xs font-semibold ${allowedApps.includes(app) ? "border-emerald/40 bg-emerald/10 text-emerald" : "border-line/70 text-slate-400"}`}>
+                <input type="checkbox" checked={allowedApps.includes(app)} onChange={() => toggleApp(app)} className="sr-only" />
+                {app}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+        <div className="flex gap-2 lg:col-span-3">
+          <button type="submit" className="focus-ring inline-flex h-10 items-center gap-2 rounded-[8px] bg-cobalt px-4 text-sm font-semibold text-white hover:bg-cobalt/90"><Plus className="h-4 w-4" />{domain ? "Save domain" : "Add domain"}</button>
+          <button type="button" onClick={resetForm} className="focus-ring h-10 rounded-[8px] border border-line/70 px-4 text-sm font-semibold text-slate-400 hover:bg-[#17223a]">Clear</button>
+        </div>
+      </form>
+      <div className="overflow-x-auto rounded-[12px] border border-line/60">
+        <div className="grid min-w-[680px] grid-cols-[1.2fr_1.7fr_140px_170px] border-b border-line/50 bg-[#0a1120] px-4 py-2.5 font-mono text-[9.5px] font-semibold uppercase tracking-[0.09em] text-slate-500"><div>Domain</div><div>Apps</div><div>Expiry</div><div className="text-right">Manage</div></div>
+        {domains.map((item) => (
+          <div key={item.domain} className="grid min-w-[680px] grid-cols-[1.2fr_1.7fr_140px_170px] items-center border-b border-line/40 px-4 py-3 text-sm last:border-b-0">
+            <div className="font-semibold text-slate-200">{item.domain}<span className={`ml-2 rounded px-1.5 py-0.5 font-mono text-[9px] ${item.enabled && new Date(item.expiresAt).getTime() > Date.now() ? "bg-emerald/10 text-emerald" : "bg-rose/10 text-rose"}`}>{item.enabled && new Date(item.expiresAt).getTime() > Date.now() ? "active" : item.enabled ? "expired" : "disabled"}</span></div>
+            <div className="text-xs text-slate-400">{item.allowedApps.join(", ")}</div>
+            <div className="font-mono text-xs text-slate-400">{item.expiresAt.slice(0, 10)}</div>
+            <div className="flex justify-end gap-2"><button type="button" onClick={() => editDomain(item)} className="focus-ring rounded-[7px] border border-line/70 px-2.5 py-1.5 text-xs font-semibold text-slate-300 hover:bg-[#17223a]">Edit</button><button type="button" onClick={() => void removeDomain(item.domain)} className="focus-ring inline-flex rounded-[7px] border border-rose/40 px-2.5 py-1.5 text-xs font-semibold text-rose hover:bg-rose/10"><Trash2 className="mr-1 h-3.5 w-3.5" />Revoke</button></div>
+          </div>
+        ))}
+        {!domains.length && !isLoading ? <p className="px-4 py-8 text-center text-sm text-slate-500">No partner domains configured.</p> : null}
+        {isLoading ? <p className="px-4 py-8 text-center text-sm text-slate-500">Loading partner domains...</p> : null}
+      </div>
+    </section>
+  );
+}
+
 function UserRoleAdmin({ currentUser }: { currentUser: AppUser | null }) {
   const [users, setUsers] = useState<AppUser[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -2018,6 +2168,7 @@ function UserRoleAdmin({ currentUser }: { currentUser: AppUser | null }) {
                 ? "border-emerald/30 bg-emerald/10 text-emerald"
                 : "border-cyan/30 bg-cyan/10 text-cyan";
             const isCurrentUser = user.id === currentUser?.id;
+            const isExternalUser = !user.email.toLowerCase().endsWith("@tripledotstudios.com");
             return (
               <div key={user.id} className="grid min-w-[760px] grid-cols-[minmax(0,1fr)_220px_180px] items-center border-b border-line/40 px-5 py-3.5 last:border-b-0 hover:bg-[#0e1626]">
                 <div className="flex min-w-0 items-center gap-3">
@@ -2039,10 +2190,10 @@ function UserRoleAdmin({ currentUser }: { currentUser: AppUser | null }) {
                   <select
                     aria-label={`Change ${displayName} role`}
                     value={user.role}
-                    disabled={isCurrentUser}
+                    disabled={isCurrentUser || isExternalUser}
                     onChange={(event) => void updateRole(user.id, event.target.value as UserRole)}
                     className="focus-ring h-9 w-[132px] rounded-[8px] border border-line/70 bg-[#101a2c] px-2 text-xs font-semibold text-slate-300 hover:bg-[#16223a] disabled:cursor-not-allowed disabled:opacity-50"
-                    title={isCurrentUser ? "Your role cannot be changed here" : "Change user role"}
+                    title={isExternalUser ? "External users are always viewers" : isCurrentUser ? "Your role cannot be changed here" : "Change user role"}
                   >
                     {(["admin", "editor", "viewer"] as UserRole[]).map((role) => (
                       <option key={role} value={role}>{roleLabels[role]}</option>
@@ -2060,6 +2211,7 @@ function UserRoleAdmin({ currentUser }: { currentUser: AppUser | null }) {
           ) : null}
         </div>
       </div>
+      <PartnerDomainAccessAdmin />
     </section>
   );
 }
@@ -2684,7 +2836,7 @@ export default function MvpApp({ library }: { library: LibrarySnapshot }) {
   const formErrors = Object.values(form.formState.errors)
     .map((formError) => formError?.message)
     .filter(Boolean);
-  const visibleNavigationItems = navigationItems.filter((item) => item.tab !== "users" || canManageUsers(auth.user));
+  const visibleNavigationItems = navigationItems.filter((item) => auth.access?.accountType !== "external" && (item.tab !== "users" || canManageUsers(auth.user)));
   const activeSavedSpec = spec ? savedSpecs.find((savedSpec) => savedSpec.id === spec.id) : undefined;
   const canCreateOrEdit = canCreateSpecs(auth.user);
   const canSaveActiveSpec = canCreateOrEdit && (activeSavedSpec ? Boolean(activeSavedSpec.canEdit) : true);
@@ -2792,6 +2944,10 @@ export default function MvpApp({ library }: { library: LibrarySnapshot }) {
       setError(err instanceof Error ? err.message : "Could not load user");
     });
   }, []);
+
+  useEffect(() => {
+    if (auth.access?.accountType === "external") window.location.replace("/tech-launch");
+  }, [auth.access?.accountType]);
 
   useEffect(() => {
     if (!auth.authenticated) return;
@@ -2965,6 +3121,7 @@ export default function MvpApp({ library }: { library: LibrarySnapshot }) {
         name: auth.user?.name,
         email: auth.user?.email,
         roleLabel: auth.user ? roleLabels[auth.user.role] : undefined,
+        accountType: auth.access?.accountType,
       }}
     >
         {activeTab === "intake" ? (

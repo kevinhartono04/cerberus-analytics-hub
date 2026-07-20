@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
 
-import { jsonError, requireCurrentAppUser } from "@/lib/auth";
+import { assertInternalAppUser, jsonError, requireCurrentAppUser } from "@/lib/auth";
 import { getSpecCheckAppVersions } from "@/lib/spec-check";
 
 export const runtime = "nodejs";
@@ -16,7 +16,7 @@ function zodIssues(error: unknown) {
 
 export async function POST(request: Request) {
   try {
-    await requireCurrentAppUser(request);
+    assertInternalAppUser(await requireCurrentAppUser(request));
     const body = await request.json();
     return NextResponse.json(await getSpecCheckAppVersions(body));
   } catch (error) {

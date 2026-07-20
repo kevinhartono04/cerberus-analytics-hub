@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
 
-import { jsonError, requireCurrentAppUser } from "@/lib/auth";
-import { getTechLaunchReadiness } from "@/lib/tech-launch";
+import { assertCanUseTechLaunch, jsonError, requireCurrentAppUser } from "@/lib/auth";
+import { getTechLaunchReadiness, techLaunchRequestSchema } from "@/lib/tech-launch";
 
 export const runtime = "nodejs";
 
@@ -16,9 +16,11 @@ function zodIssues(error: unknown) {
 
 export async function POST(request: Request) {
   try {
-    await requireCurrentAppUser(request);
+    const user = await requireCurrentAppUser(request);
     const body = await request.json();
-    return NextResponse.json(await getTechLaunchReadiness(body));
+    const parsed = techLaunchRequestSchema.parse(body);
+    await assertCanUseTechLaunch(user, parsed.appName);
+    return NextResponse.json(await getTechLaunchReadiness(parsed));
   } catch (error) {
     const issues = zodIssues(error);
     if (issues) {

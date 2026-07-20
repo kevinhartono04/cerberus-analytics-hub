@@ -127,6 +127,19 @@ export const appUserSchema = z.object({
 
 export type AppUser = z.infer<typeof appUserSchema>;
 
+export const partnerDomainAccessSchema = z.object({
+  domain: z.string(),
+  enabled: z.boolean(),
+  expiresAt: z.string(),
+  createdBy: z.string(),
+  updatedBy: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  allowedApps: z.array(z.string()),
+});
+
+export type PartnerDomainAccess = z.infer<typeof partnerDomainAccessSchema>;
+
 export type LibraryData = {
   metadata: Record<string, unknown>;
   event_catalog: Array<Record<string, unknown>>;

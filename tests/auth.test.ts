@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { configuredRoleForEmail, isAllowedAuthEmail } from "@/lib/auth-policy";
+import { isExternalAppUser } from "@/lib/auth";
 
 describe("Auth.js sign-in policy", () => {
   it("allows Tripledot Google accounts", () => {
@@ -23,5 +24,16 @@ describe("Auth.js sign-in policy", () => {
     expect(configuredRoleForEmail("oscar.mckittrick@tripledotstudios.com", options)).toBe("editor");
     expect(configuredRoleForEmail("ARTEM.CHUPRYNA@TRIPLEDOTSTUDIOS.COM", options)).toBe("editor");
     expect(configuredRoleForEmail("someone.else@tripledotstudios.com", options)).toBe("viewer");
+  });
+
+  it("keeps the documented local-admin fallback internal", () => {
+    expect(isExternalAppUser({
+      id: "local-admin",
+      email: "local-admin@example.com",
+      name: "Local Admin",
+      role: "admin",
+      createdAt: "",
+      updatedAt: "",
+    })).toBe(false);
   });
 });

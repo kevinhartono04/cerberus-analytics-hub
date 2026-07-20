@@ -1,4 +1,5 @@
 import type { UserRole } from "@/lib/types";
+import { isTripledotEmail } from "@/lib/partner-access";
 
 export function emailSetFromEnv(value: string | undefined) {
   return new Set(
@@ -10,7 +11,7 @@ export function emailSetFromEnv(value: string | undefined) {
 }
 
 export function isAllowedAuthEmail(email: string | null | undefined) {
-  return Boolean(email?.toLowerCase().endsWith("@tripledotstudios.com"));
+  return isTripledotEmail(email);
 }
 
 export function configuredRoleForEmail(

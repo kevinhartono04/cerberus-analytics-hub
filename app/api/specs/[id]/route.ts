@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { addPermissions, assertCanCreateSpec, assertCanMutateSpec, jsonError, requireCurrentAppUser } from "@/lib/auth";
+import { addPermissions, assertCanCreateSpec, assertCanMutateSpec, assertInternalAppUser, jsonError, requireCurrentAppUser } from "@/lib/auth";
 import { deleteSavedSpec, getSavedSpec, saveSpec } from "@/lib/db";
 
 export const runtime = "nodejs";
@@ -19,6 +19,7 @@ export async function GET(_request: Request, context: RouteContext) {
 export async function PUT(request: Request, context: RouteContext) {
   try {
     const user = await requireCurrentAppUser(request);
+    assertInternalAppUser(user);
     await assertCanCreateSpec(user);
     const { id } = await context.params;
     const body = await request.json();
@@ -34,6 +35,7 @@ export async function PUT(request: Request, context: RouteContext) {
 export async function DELETE(request: Request, context: RouteContext) {
   try {
     const user = await requireCurrentAppUser(request);
+    assertInternalAppUser(user);
     const { id } = await context.params;
     const existing = await assertCanMutateSpec(user, id);
     if (!existing) return NextResponse.json({ error: "Spec not found" }, { status: 404 });

@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   getSpecCheckStatus: vi.fn(),
   getSpecCheckAppVersions: vi.fn(),
   requireCurrentAppUser: vi.fn(),
+  assertInternalAppUser: vi.fn(),
 }));
 
 vi.mock("@/lib/spec-check", () => ({
@@ -20,6 +21,7 @@ vi.mock("@/lib/spec-check", () => ({
 
 vi.mock("@/lib/auth", () => ({
   requireCurrentAppUser: mocks.requireCurrentAppUser,
+  assertInternalAppUser: mocks.assertInternalAppUser,
   jsonError: (error: unknown) => {
     if (error instanceof Response) return error;
     return Response.json({ error: error instanceof Error ? error.message : "Unexpected error" }, { status: 500 });
@@ -55,6 +57,7 @@ function request(url: string, payload: unknown, authed = true) {
 
 describe("Spec Check API", () => {
   beforeEach(() => {
+    mocks.assertInternalAppUser.mockReset();
     mocks.requireCurrentAppUser.mockReset().mockImplementation(async (req?: Request) => {
       const userId = req?.headers.get("x-test-user-id");
       const email = req?.headers.get("x-test-user-email");

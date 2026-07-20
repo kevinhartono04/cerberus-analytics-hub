@@ -1,7 +1,7 @@
 import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
 
-import { isAllowedAuthEmail } from "@/lib/auth-policy";
+import { isAllowedExternalGoogleEmail } from "@/lib/partner-access";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   trustHost: true,
@@ -11,8 +11,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   },
   providers: [Google],
   callbacks: {
-    signIn({ user, profile }) {
-      return isAllowedAuthEmail(user.email ?? profile?.email);
+    async signIn({ user, profile }) {
+      return isAllowedExternalGoogleEmail(
+        user.email ?? (typeof profile?.email === "string" ? profile.email : null),
+        profile?.email_verified === true,
+      );
     },
     session({ session, token }) {
       if (session.user) {
