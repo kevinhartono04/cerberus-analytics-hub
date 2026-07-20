@@ -471,7 +471,12 @@ export function summarizeTechLaunchRows(rows: TechLaunchMetricRow[]): TechLaunch
     yellowCount,
     redCount,
     insufficientCount,
-    totalSamples: rows.reduce((total, row) => total + row.numSample, 0),
+    // Google Play coverage is reported separately as user-days. Keeping it out
+    // of this total prevents combining two incompatible units (and counting
+    // the same population once for crash rate and again for ANR rate).
+    totalSamples: rows
+      .filter((row) => row.source !== "google-play")
+      .reduce((total, row) => total + row.numSample, 0),
     ...(weakestMetric ? { weakestMetric } : {}),
   };
 }

@@ -48,6 +48,7 @@ describe("Google Play Tech Launch rows", () => {
         expect.objectContaining({ name: "GooglePlay_UserPerceivedAnrRate", verdict: "yellow", benchmark: 0.005, source: "google-play" }),
       ]),
     );
+    expect(result.summary.totalSamples).toBe(100);
     expect(result.rows.some((row) => row.name === "GooglePlay_DownloadSize")).toBe(false);
   });
 

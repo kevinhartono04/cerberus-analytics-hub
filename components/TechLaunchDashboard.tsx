@@ -1153,7 +1153,7 @@ export default function TechLaunchDashboard() {
               </div>
               <div className="rounded-2xl border border-line/70 bg-[linear-gradient(180deg,#101a2d,#0d1626)] p-5 shadow-soft">
                 <div className="flex items-center justify-between gap-3 font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">
-                  Samples <Database className="h-4 w-4 text-cobalt" />
+                  Telemetry samples <Database className="h-4 w-4 text-cobalt" />
                 </div>
                 <div className="mt-4 font-display text-[30px] font-extrabold leading-none text-[#f4f6ff]">{new Intl.NumberFormat().format(data.summary.totalSamples)}</div>
                 <div className="mt-2 text-xs leading-relaxed text-slate-500">{data.summary.insufficientCount} metric(s) below sample threshold</div>
@@ -1195,7 +1195,10 @@ export default function TechLaunchDashboard() {
                           <div className={`font-display text-[24px] font-extrabold leading-none ${verdictValueClasses(row.verdict)}`}>{googlePlayValue(row)}</div>
                           <div className="font-mono text-[10px] text-slate-500">Target {googlePlayBenchmark(row)}</div>
                         </div>
-                        <div className="mt-2 text-[11px] leading-relaxed text-slate-500">{row.detail ?? `${new Intl.NumberFormat().format(row.numSample)} user-days`}</div>
+                        <div className="mt-2 text-[11px] leading-relaxed text-slate-500">
+                          Coverage: {new Intl.NumberFormat().format(row.numSample)} user-days
+                          {row.detail ? ` · ${row.detail}` : ""}
+                        </div>
                       </div>
                     ))}
                   </div>
