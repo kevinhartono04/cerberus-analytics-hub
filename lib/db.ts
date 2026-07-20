@@ -607,23 +607,32 @@ export async function syncAppUser(identity: { id: string; email: string; name: s
 
   if (shouldUseLocalSqlite()) {
     ensureSqliteAppUsersTable();
-    const existing = sqliteJsonRows<Record<string, unknown>>(`
+    let existing = sqliteJsonRows<Record<string, unknown>>(`
       SELECT id, email, name, role, created_at, updated_at
       FROM app_users
       WHERE id = ${sqliteLiteral(identity.id)}
       LIMIT 1
     `)[0];
+    if (!existing) {
+      existing = sqliteJsonRows<Record<string, unknown>>(`
+        SELECT id, email, name, role, created_at, updated_at
+        FROM app_users
+        WHERE lower(email) = lower(${sqliteLiteral(identity.email)})
+        LIMIT 1
+      `)[0];
+    }
     if (existing) {
       const role = syncedRole(userRoleSchema.catch("viewer").parse(asString(existing.role)), initialRole);
       sqliteExec(`
         UPDATE app_users
-        SET email = ${sqliteLiteral(identity.email)},
+        SET id = ${sqliteLiteral(identity.id)},
+          email = ${sqliteLiteral(identity.email)},
           name = ${sqliteLiteral(identity.name)},
           role = ${sqliteLiteral(role)},
           updated_at = ${sqliteLiteral(now)}
-        WHERE id = ${sqliteLiteral(identity.id)}
+        WHERE id = ${sqliteLiteral(asString(existing.id))}
       `);
-      return { ...rowToAppUser(existing), email: identity.email, name: identity.name, role, updatedAt: now };
+      return { ...rowToAppUser(existing), id: identity.id, email: identity.email, name: identity.name, role, updatedAt: now };
     }
 
     sqliteExec(`
@@ -641,23 +650,32 @@ export async function syncAppUser(identity: { id: string; email: string; name: s
   }
 
   const sql = await ensureAppUsersTable();
-  const [existing] = await sql<Record<string, unknown>[]>`
+  let [existing] = await sql<Record<string, unknown>[]>`
     SELECT id, email, name, role, created_at, updated_at
     FROM app_users
     WHERE id = ${identity.id}
     LIMIT 1
   `;
+  if (!existing) {
+    [existing] = await sql<Record<string, unknown>[]>`
+      SELECT id, email, name, role, created_at, updated_at
+      FROM app_users
+      WHERE lower(email) = lower(${identity.email})
+      LIMIT 1
+    `;
+  }
   if (existing) {
     const role = syncedRole(userRoleSchema.catch("viewer").parse(asString(existing.role)), initialRole);
     await sql`
       UPDATE app_users
-      SET email = ${identity.email},
+      SET id = ${identity.id},
+        email = ${identity.email},
         name = ${identity.name},
         role = ${role},
         updated_at = ${now}
-      WHERE id = ${identity.id}
+      WHERE id = ${asString(existing.id)}
     `;
-    return { ...rowToAppUser(existing), email: identity.email, name: identity.name, role, updatedAt: now };
+    return { ...rowToAppUser(existing), id: identity.id, email: identity.email, name: identity.name, role, updatedAt: now };
   }
 
   await sql`
@@ -665,6 +683,36 @@ export async function syncAppUser(identity: { id: string; email: string; name: s
     VALUES (${identity.id}, ${identity.email}, ${identity.name}, ${initialRole}, ${now}, ${now})
   `;
   return { ...identity, role: initialRole, createdAt: now, updatedAt: now };
+}
+
+export async function createInternalAppUser(input: { email: string; name: string; role: UserRole }): Promise<AppUser> {
+  const email = input.email.trim().toLowerCase();
+  const now = new Date().toISOString();
+  const id = `pending:${email}`;
+
+  if (shouldUseLocalSqlite()) {
+    ensureSqliteAppUsersTable();
+    const [existing] = sqliteJsonRows<Record<string, unknown>>(`
+      SELECT id FROM app_users WHERE lower(email) = lower(${sqliteLiteral(email)}) LIMIT 1
+    `);
+    if (existing) throw new Error("A user with this email already exists");
+    sqliteExec(`
+      INSERT INTO app_users (id, email, name, role, created_at, updated_at)
+      VALUES (${sqliteLiteral(id)}, ${sqliteLiteral(email)}, ${sqliteLiteral(input.name || email)}, ${sqliteLiteral(input.role)}, ${sqliteLiteral(now)}, ${sqliteLiteral(now)})
+    `);
+    return { id, email, name: input.name || email, role: input.role, createdAt: now, updatedAt: now };
+  }
+
+  const sql = await ensureAppUsersTable();
+  const [existing] = await sql<Record<string, unknown>[]>`
+    SELECT id FROM app_users WHERE lower(email) = lower(${email}) LIMIT 1
+  `;
+  if (existing) throw new Error("A user with this email already exists");
+  await sql`
+    INSERT INTO app_users (id, email, name, role, created_at, updated_at)
+    VALUES (${id}, ${email}, ${input.name || email}, ${input.role}, ${now}, ${now})
+  `;
+  return { id, email, name: input.name || email, role: input.role, createdAt: now, updatedAt: now };
 }
 
 export async function listAppUsers(): Promise<AppUser[]> {

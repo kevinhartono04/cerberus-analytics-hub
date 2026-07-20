@@ -2100,6 +2100,9 @@ function UserRoleAdmin({ currentUser }: { currentUser: AppUser | null }) {
   const [users, setUsers] = useState<AppUser[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [status, setStatus] = useState("");
+  const [newUserEmail, setNewUserEmail] = useState("");
+  const [newUserName, setNewUserName] = useState("");
+  const [newUserRole, setNewUserRole] = useState<UserRole>("viewer");
 
   async function loadUsers() {
     setIsLoading(true);
@@ -2132,6 +2135,27 @@ function UserRoleAdmin({ currentUser }: { currentUser: AppUser | null }) {
     }
   }
 
+  async function addUser(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setStatus("Adding user...");
+    try {
+      const response = await fetch("/api/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: newUserEmail, name: newUserName, role: newUserRole }),
+      });
+      if (!response.ok) throw new Error(await response.text());
+      const user = (await response.json()) as AppUser;
+      setUsers((current) => [...current, user].sort((a, b) => a.email.localeCompare(b.email)));
+      setNewUserEmail("");
+      setNewUserName("");
+      setNewUserRole("viewer");
+      setStatus("User added. Their role will apply when they first sign in with Google.");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not add user");
+    }
+  }
+
   useEffect(() => {
     void loadUsers();
   }, []);
@@ -2148,6 +2172,25 @@ function UserRoleAdmin({ currentUser }: { currentUser: AppUser | null }) {
       </div>
 
       {status ? <p className="rounded-[10px] border border-cobalt/20 bg-cobalt/10 px-4 py-3 text-sm font-semibold text-cobalt">{status}</p> : null}
+
+      <form onSubmit={addUser} className="grid gap-3 rounded-2xl border border-line/70 bg-[#0b1120] p-5 shadow-soft md:grid-cols-[minmax(180px,1fr)_minmax(160px,0.7fr)_140px_auto]">
+        <label className="block">
+          <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">Tripledot email</span>
+          <input type="email" value={newUserEmail} onChange={(event) => setNewUserEmail(event.target.value)} placeholder="name@tripledotstudios.com" required className="focus-ring mt-1.5 h-10 w-full rounded-[8px] border border-line/70 bg-[#101a2c] px-3 text-sm text-slate-200" />
+        </label>
+        <label className="block">
+          <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">Name (optional)</span>
+          <input value={newUserName} onChange={(event) => setNewUserName(event.target.value)} placeholder="Name shown before first sign-in" className="focus-ring mt-1.5 h-10 w-full rounded-[8px] border border-line/70 bg-[#101a2c] px-3 text-sm text-slate-200" />
+        </label>
+        <label className="block">
+          <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">Role</span>
+          <select value={newUserRole} onChange={(event) => setNewUserRole(event.target.value as UserRole)} className="focus-ring mt-1.5 h-10 w-full rounded-[8px] border border-line/70 bg-[#101a2c] px-3 text-sm font-semibold text-slate-200">
+            {(["admin", "editor", "viewer"] as UserRole[]).map((role) => <option key={role} value={role}>{roleLabels[role]}</option>)}
+          </select>
+        </label>
+        <button type="submit" className="focus-ring mt-[25px] inline-flex h-10 items-center justify-center gap-2 rounded-[8px] bg-cobalt px-4 text-sm font-semibold text-white hover:bg-cobalt/90"><Plus className="h-4 w-4" />Add user</button>
+        <p className="md:col-span-4 text-xs text-slate-500">Use this for Tripledot users only. Partners are granted Tech Launch access by domain below.</p>
+      </form>
 
       <div className="w-full overflow-x-auto rounded-2xl border border-line/70 bg-[#0b1120] shadow-soft">
         <div className="grid min-w-[760px] grid-cols-[minmax(0,1fr)_220px_180px] border-b border-line/50 bg-[#0a1120] px-5 py-3 font-mono text-[9.5px] font-semibold uppercase tracking-[0.09em] text-slate-500">
