@@ -369,8 +369,9 @@ function MetricComparison({ row }: { row: MetricRow }) {
 function benchmarkComparisonPct(row: MetricRow) {
   const observed = row.higherIsBetter ? row.p50Value : row.p80Value;
   if (observed === null || row.benchmark === null || row.benchmark === 0) return "n/a";
-  const ratio = row.higherIsBetter ? observed / row.benchmark : row.benchmark / observed;
-  return `${Math.round(ratio * 100)}%`;
+  const delta = (observed / row.benchmark - 1) * 100;
+  const rounded = Math.round(delta);
+  return `${rounded > 0 ? "+" : ""}${rounded}%`;
 }
 
 function SummaryCard({
@@ -1265,7 +1266,7 @@ export default function TechLaunchDashboard() {
                       <th className="px-4 py-3 text-right">
                         <ColumnHeader
                           label="% vs Benchmark"
-                          description="How far the observed value is from the benchmark."
+                          description="((Observed ÷ benchmark) − 1) × 100. Observed is the median for FPS Average and P80 for all other metrics; positive means observed is above the benchmark."
                           tooltipAlign="right"
                         />
                       </th>
