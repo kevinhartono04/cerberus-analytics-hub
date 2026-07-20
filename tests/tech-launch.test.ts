@@ -27,6 +27,15 @@ describe("Tech Launch readiness helpers", () => {
     expect(sql).toContain("app_version = '1.0.0-canary' -- modifiable parameter");
   });
 
+  it("calculates launch statistics from raw telemetry events", () => {
+    const sql = buildTechLaunchSql(filters);
+
+    expect(sql).toContain("percentile_cont(0.8) within group (order by e.value) as p80_value");
+    expect(sql).toContain("median(e.value) as p50_value");
+    expect(sql).toContain("count(*) as num_sample");
+    expect(sql).not.toContain("group by\n    1,2,3,4,5,6");
+  });
+
   it("keeps cache keys stable for equivalent normalized filters", () => {
     expect(techLaunchCacheKey(filters)).toBe(techLaunchCacheKey({ ...filters, appVersion: " 1.0.0 " }));
   });
