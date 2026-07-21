@@ -3,6 +3,8 @@
 import {
   Activity,
   AlertTriangle,
+  ArrowDown,
+  ArrowUp,
   CalendarDays,
   ChevronDown,
   CheckCircle2,
@@ -10,15 +12,23 @@ import {
   ChevronRight,
   Database,
   Gauge,
+  GitCompareArrows,
+  Rows3,
   RefreshCw,
   SlidersHorizontal,
   XCircle,
 } from "lucide-react";
-import { FormEvent, ReactNode, useEffect, useId, useMemo, useRef, useState } from "react";
+import React, { FormEvent, ReactNode, useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import CerberusShell from "@/components/CerberusShell";
 import { readDashboardSession, writeDashboardSession } from "@/lib/dashboard-session";
+import {
+  createMetricComparison,
+  summarizeMetricComparison,
+  type ComparisonMetricRow,
+  type ComparisonSummary,
+} from "@/lib/tech-launch-comparison";
 
 const appOptions = [
   "blockkingdom",
@@ -39,6 +49,22 @@ const appOptions = [
   "wordrush",
 ] as const;
 
+const metricDisplayOrder = [
+  "Telemetry_First_Load_Time",
+  "Telemetry_Subsequent_Load_Time",
+  "Telemetry_FPS_Average",
+  "Telemetry_FPS_Stability",
+  "Telemetry_Runtime_Memory_Use",
+  "Telemetry_ThermalState",
+  "GooglePlay_UserPerceivedCrashRate",
+  "GooglePlay_UserPerceivedAnrRate",
+];
+
+function metricDisplayPosition(name: string) {
+  const position = metricDisplayOrder.indexOf(name);
+  return position < 0 ? Number.MAX_SAFE_INTEGER : position;
+}
+
 type Verdict = "green" | "yellow" | "red" | "insufficient data";
 
 type Filters = {
@@ -48,6 +74,9 @@ type Filters = {
   startDate: string;
   endDate: string;
 };
+
+type ComparisonFilters = Pick<Filters, "appName" | "appVersion">;
+type ComparisonView = "individual" | "unified";
 
 type MetricRow = {
   name: string;
@@ -134,6 +163,10 @@ type AccessResponse = {
 type TechLaunchSessionSnapshot = {
   filters: Filters;
   data: ReadinessResponse | null;
+  compareEnabled?: boolean;
+  comparisonView?: ComparisonView;
+  comparisonFilters?: ComparisonFilters;
+  comparisonData?: ReadinessResponse | null;
   statusText: string;
 };
 
@@ -218,7 +251,14 @@ function isDateValue(value: string) {
   return datePattern.test(value);
 }
 
-function filtersFromSearchParams(params: URLSearchParams): Filters | null {
+type DashboardSearchState = {
+  filters: Filters;
+  compareEnabled: boolean;
+  comparisonView: ComparisonView;
+  comparisonFilters: ComparisonFilters;
+};
+
+function filtersFromSearchParams(params: URLSearchParams): DashboardSearchState | null {
   const hasFilterParam = ["appName", "platform", "appVersion", "startDate", "endDate"].some((key) => params.has(key));
   if (!hasFilterParam) return null;
 
@@ -247,10 +287,24 @@ function filtersFromSearchParams(params: URLSearchParams): Filters | null {
     next.endDate = endDate;
   }
   if (next.startDate > next.endDate) return null;
-  return next;
+
+  const compareEnabled = params.get("compare") === "1";
+  const comparisonView = params.get("compareView") === "unified" ? "unified" : "individual";
+  const comparisonAppName = params.get("compareAppName");
+  const comparisonVersion = params.get("compareAppVersion");
+  if (compareEnabled && comparisonAppName && !isAppName(comparisonAppName)) return null;
+  return {
+    filters: next,
+    compareEnabled,
+    comparisonView,
+    comparisonFilters: {
+      appName: comparisonAppName && isAppName(comparisonAppName) ? comparisonAppName : next.appName,
+      appVersion: comparisonVersion?.trim() ?? "",
+    },
+  };
 }
 
-function writeFiltersToUrl(filters: Filters, run: boolean) {
+function writeFiltersToUrl(filters: Filters, compareEnabled: boolean, comparisonView: ComparisonView, comparisonFilters: ComparisonFilters, run: boolean) {
   if (typeof window === "undefined") return;
   const url = new URL(window.location.href);
   url.searchParams.set("appName", filters.appName);
@@ -262,6 +316,19 @@ function writeFiltersToUrl(filters: Filters, run: boolean) {
   }
   url.searchParams.set("startDate", filters.startDate);
   url.searchParams.set("endDate", filters.endDate);
+  if (compareEnabled) {
+    url.searchParams.set("compare", "1");
+    if (comparisonView === "unified") url.searchParams.set("compareView", "unified");
+    else url.searchParams.delete("compareView");
+    url.searchParams.set("compareAppName", comparisonFilters.appName);
+    if (comparisonFilters.appVersion) url.searchParams.set("compareAppVersion", comparisonFilters.appVersion);
+    else url.searchParams.delete("compareAppVersion");
+  } else {
+    url.searchParams.delete("compare");
+    url.searchParams.delete("compareView");
+    url.searchParams.delete("compareAppName");
+    url.searchParams.delete("compareAppVersion");
+  }
   if (run) {
     url.searchParams.set("run", "1");
   } else {
@@ -372,6 +439,75 @@ function benchmarkComparisonPct(row: MetricRow) {
   const delta = (observed / row.benchmark - 1) * 100;
   const rounded = Math.round(delta);
   return `${rounded > 0 ? "+" : ""}${rounded}%`;
+}
+
+function comparisonDelta(value: number | null, relativeValue: number | null) {
+  if (value === null) return "n/a";
+  const formatted = compactNumber(value);
+  const signed = value > 0 ? `+${formatted}` : formatted;
+  if (relativeValue === null) return signed;
+  const relative = Math.round(relativeValue * 100);
+  return `${signed} (${relative > 0 ? "+" : ""}${relative}%)`;
+}
+
+function comparisonValueLabel(row: ComparisonMetricRow, value: number | null) {
+  if (value === null) return "n/a";
+  if (row.name.startsWith("GooglePlay_")) return `${(value * 100).toFixed(2)}%`;
+  return compactNumber(value);
+}
+
+function comparisonStatisticLabel(row: ComparisonMetricRow) {
+  if (row.name.startsWith("GooglePlay_")) return "Rate";
+  return row.baseline?.higherIsBetter ?? row.comparison?.higherIsBetter ? "Median" : "P80";
+}
+
+function comparisonBenchmarkLabel(row: ComparisonMetricRow) {
+  const benchmark = row.baseline?.benchmark ?? row.comparison?.benchmark ?? null;
+  if (benchmark === null) return "n/a";
+  return row.name.startsWith("GooglePlay_") ? `${(benchmark * 100).toFixed(1)}%` : compactNumber(benchmark);
+}
+
+function DeltaOutcomeIndicator({ row }: { row: ComparisonMetricRow }) {
+  if ((row.status !== "improved" && row.status !== "regressed") || !row.baseline) return null;
+  const isImproved = row.status === "improved";
+  const pointsUp = row.baseline.higherIsBetter ? isImproved : !isImproved;
+  const Icon = pointsUp ? ArrowUp : ArrowDown;
+  const color = isImproved ? "text-emerald" : "text-rose";
+  return <Icon className={`h-3.5 w-3.5 shrink-0 ${color}`} aria-label={isImproved ? "Improved" : "Regressed"} />;
+}
+
+function sortedTelemetryRows(rows: MetricRow[]) {
+  return rows.filter((row) => row.source !== "google-play").sort((a, b) => metricDisplayPosition(a.name) - metricDisplayPosition(b.name) || a.metricTitle.localeCompare(b.metricTitle));
+}
+
+function ComparisonViewToggle({ view, onChange }: { view: ComparisonView; onChange: (view: ComparisonView) => void }) {
+  return (
+    <div className="inline-flex rounded-[8px] border border-line/70 bg-[#0a111e] p-1">
+      <div className="group relative"><button type="button" onClick={() => onChange("individual")} aria-label="Show individual metric tables" className={`focus-ring flex h-8 w-8 items-center justify-center rounded-[6px] ${view === "individual" ? "bg-cobalt text-white" : "text-slate-500 hover:text-slate-300"}`}><Rows3 className="h-4 w-4" /></button><span role="tooltip" className="pointer-events-none absolute left-1/2 top-full z-20 mt-2 -translate-x-1/2 whitespace-nowrap rounded-md border border-line bg-[#0d1424] px-2 py-1 text-xs font-semibold text-slate-200 opacity-0 shadow-soft transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">Individual metrics</span></div>
+      <div className="group relative"><button type="button" onClick={() => onChange("unified")} aria-label="Show unified comparison table" className={`focus-ring flex h-8 w-8 items-center justify-center rounded-[6px] ${view === "unified" ? "bg-cobalt text-white" : "text-slate-500 hover:text-slate-300"}`}><GitCompareArrows className="h-4 w-4" /></button><span role="tooltip" className="pointer-events-none absolute right-0 top-full z-20 mt-2 whitespace-nowrap rounded-md border border-line bg-[#0d1424] px-2 py-1 text-xs font-semibold text-slate-200 opacity-0 shadow-soft transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">Unified comparison</span></div>
+    </div>
+  );
+}
+
+function IndividualReadinessTable({ data, label, isLoading, statusText, headerAction }: { data: ReadinessResponse; label: string; isLoading: boolean; statusText: string; headerAction?: ReactNode }) {
+  const rows = sortedTelemetryRows(data.rows);
+  return (
+    <section className="relative overflow-hidden rounded-2xl border border-line/70 bg-[#0b1120] shadow-soft" aria-busy={isLoading}>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line/60 bg-[#0d1424] px-[18px] py-[15px]">
+        <div><h2 className="font-display text-base font-bold text-[#eef1fb]">Readiness Metrics · {label}</h2><p className="mt-1 text-xs text-slate-500">Last run {new Date(data.metadata.executedAt).toLocaleString()}</p></div>
+        <div className="flex flex-wrap items-center justify-end gap-2"><div className="rounded-[8px] border border-line/70 bg-[#0a111e] px-3 py-2 font-mono text-[11px] text-slate-400">{data.filters.appName} · {data.filters.platform} · {data.filters.appVersion}</div>{headerAction}</div>
+      </div>
+      <div className="relative overflow-x-auto">
+        <div className={`transition-opacity ${isLoading ? "opacity-35" : "opacity-100"}`}>
+          <table className="min-w-[1180px] w-full text-left text-sm">
+            <thead className="bg-[#0a1120] font-mono text-[11px] font-semibold uppercase tracking-[0.04em] text-slate-500"><tr><th className="px-4 py-3">Metric</th><th className="px-4 py-3">Verdict</th><th className="px-4 py-3">% Within Benchmark*</th><th className="px-4 py-3">Benchmark</th><th className="px-4 py-3">Median</th><th className="px-4 py-3">P80</th><th className="px-4 py-3">Samples</th><th className="px-4 py-3 text-right">% vs Benchmark</th></tr></thead>
+            <tbody className="divide-y divide-line/40">{rows.map((row) => <tr key={row.name} className="hover:bg-[#0e1626]"><td className="px-4 py-4"><div className="text-sm font-semibold text-[#eaeefc]">{row.metricTitle}</div><div className="mt-1 font-mono text-xs text-slate-500">{row.name}</div></td><td className="px-4 py-4"><span className={`inline-flex items-center gap-2 rounded-md border px-2.5 py-1 text-xs font-semibold ${verdictClasses(row.verdict)}`}>{verdictIcon(row.verdict)}{verdictLabel(row.verdict)}</span></td><td className="px-4 py-4"><div className="min-w-44"><div className={`mb-2 font-mono text-xs ${verdictValueClasses(row.verdict)}`}>{pct(row.pctOfSampleWithTolerance)}</div><Bar value={row.pctOfSampleWithTolerance} tone={verdictBarTone(row.verdict)} /></div></td><td className="px-4 py-4 font-mono text-sm text-slate-300">{compactNumber(row.benchmark)}</td><td className="px-4 py-4 font-mono text-sm text-slate-300">{compactNumber(row.p50Value)}</td><td className="px-4 py-4 font-mono text-sm text-slate-300">{compactNumber(row.p80Value)}</td><td className="px-4 py-4 font-mono text-sm text-slate-400">{new Intl.NumberFormat().format(row.numSample)}</td><td className="px-4 py-4 text-right font-mono text-sm" style={{ color: verdictColor(row.verdict) }}>{benchmarkComparisonPct(row)}</td></tr>)}</tbody>
+          </table>
+        </div>
+        {isLoading ? <div className="pointer-events-none absolute inset-0 flex min-h-56 items-center justify-center bg-[#050b18]/70 backdrop-blur-[1px]"><div className="inline-flex items-center gap-3 rounded-[9px] border border-line/70 bg-[#0d1424] px-4 py-3 text-sm font-semibold text-slate-200 shadow-soft"><LoadingSpinner className="h-5 w-5 text-cobalt" />{statusText || "Running comparison..."}</div></div> : null}
+      </div>
+    </section>
+  );
 }
 
 function SummaryCard({
@@ -729,6 +865,10 @@ export default function TechLaunchDashboard() {
   const [accessError, setAccessError] = useState("");
   const [filters, setFilters] = useState<Filters>(() => defaultFilters());
   const [data, setData] = useState<ReadinessResponse | null>(null);
+  const [compareEnabled, setCompareEnabled] = useState(false);
+  const [comparisonView, setComparisonView] = useState<ComparisonView>("individual");
+  const [comparisonFilters, setComparisonFilters] = useState<ComparisonFilters>(() => ({ appName: defaultFilters().appName, appVersion: "" }));
+  const [comparisonData, setComparisonData] = useState<ReadinessResponse | null>(null);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [statusText, setStatusText] = useState("");
@@ -737,10 +877,15 @@ export default function TechLaunchDashboard() {
   const [versionError, setVersionError] = useState("");
   const [versionCacheStatus, setVersionCacheStatus] = useState("");
   const [isVersionMenuOpen, setIsVersionMenuOpen] = useState(false);
+  const [comparisonVersionOptions, setComparisonVersionOptions] = useState<AppVersionOption[]>([]);
+  const [isLoadingComparisonVersions, setIsLoadingComparisonVersions] = useState(false);
+  const [comparisonVersionError, setComparisonVersionError] = useState("");
+  const [isComparisonVersionMenuOpen, setIsComparisonVersionMenuOpen] = useState(false);
   const [pendingUrlRun, setPendingUrlRun] = useState(false);
   const [isSessionStateReady, setIsSessionStateReady] = useState(false);
   const requestIdRef = useRef(0);
   const versionRequestIdRef = useRef(0);
+  const comparisonVersionRequestIdRef = useRef(0);
   const hasReadUrlRef = useRef(false);
   const skipNextUrlSyncRef = useRef(false);
 
@@ -758,6 +903,7 @@ export default function TechLaunchDashboard() {
         setAccessError(apps.length ? "" : "Your account does not have Launch Readiness access. Contact your Tripledot administrator.");
         if (apps.length) {
           setFilters((current) => (apps.includes(current.appName) ? current : { ...current, appName: apps[0], appVersion: "" }));
+          setComparisonFilters((current) => (apps.includes(current.appName) ? current : { appName: apps[0], appVersion: "" }));
         }
       })
       .catch((error) => {
@@ -774,9 +920,19 @@ export default function TechLaunchDashboard() {
     requestIdRef.current += 1;
     setIsLoading(false);
     setData(null);
+    setComparisonData(null);
     setError("");
     setStatusText("");
     setFilters((current) => ({ ...current, ...patch }));
+  }
+
+  function updateComparisonFilters(patch: Partial<ComparisonFilters>) {
+    requestIdRef.current += 1;
+    setIsLoading(false);
+    setComparisonData(null);
+    setError("");
+    setStatusText("");
+    setComparisonFilters((current) => ({ ...current, ...patch }));
   }
 
   async function postReadiness(path: string, body: unknown) {
@@ -809,12 +965,12 @@ export default function TechLaunchDashboard() {
     firstDelayMs: number,
     requestId: number,
     forceRefresh: boolean,
-  ) {
+  ): Promise<ReadinessResponse | null> {
     let delayMs = firstDelayMs;
     while (requestIdRef.current === requestId) {
-      setStatusText("Count query is running; Google Play API metrics will load next...");
+      setStatusText(compareEnabled ? "Comparison queries are running; Google Play API metrics will load next..." : "Count query is running; Google Play API metrics will load next...");
       await wait(delayMs);
-      if (requestIdRef.current !== requestId) return;
+      if (requestIdRef.current !== requestId) return null;
 
       const result = await postReadiness("/api/tech-launch/readiness/status", {
         jobKey,
@@ -822,13 +978,18 @@ export default function TechLaunchDashboard() {
         forceRefresh,
       });
       if (result.status === "completed") {
-        if (requestIdRef.current !== requestId) return;
-        setData(result);
-        setStatusText(result.cache.hit ? "Loaded from cache" : "Query complete");
-        return;
+        if (requestIdRef.current !== requestId) return null;
+        return result;
       }
       delayMs = result.pollAfterMs;
     }
+    return null;
+  }
+
+  async function resolveReadiness(filterSnapshot: Filters, requestId: number, forceRefresh: boolean): Promise<ReadinessResponse | null> {
+    const result = await postReadiness("/api/tech-launch/readiness", { ...filterSnapshot, forceRefresh });
+    if (result.status === "completed") return requestIdRef.current === requestId ? result : null;
+    return pollReadiness(result.metadata.jobKey, result.filters, result.pollAfterMs, requestId, forceRefresh);
   }
 
   async function loadReadiness(forceRefresh = false, options: { updateUrlRun?: boolean } = {}) {
@@ -836,20 +997,25 @@ export default function TechLaunchDashboard() {
     const requestId = requestIdRef.current + 1;
     requestIdRef.current = requestId;
     const filterSnapshot = { ...filters };
-    if (options.updateUrlRun !== false) writeFiltersToUrl(filterSnapshot, true);
+    const comparisonSnapshot: Filters = { ...filters, ...comparisonFilters };
+    if (compareEnabled && !allowedApps.includes(comparisonSnapshot.appName)) return;
+    if (options.updateUrlRun !== false) writeFiltersToUrl(filterSnapshot, compareEnabled, comparisonView, comparisonFilters, true);
     setIsLoading(true);
     setError("");
-    setStatusText(forceRefresh ? "Running fresh Count query, then loading Google Play API metrics..." : "Checking Count-query cache, then loading Google Play API metrics...");
+    setStatusText(
+      compareEnabled
+        ? forceRefresh ? "Running fresh baseline and comparison queries..." : "Checking baseline and comparison caches..."
+        : forceRefresh ? "Running fresh Count query, then loading Google Play API metrics..." : "Checking Count-query cache, then loading Google Play API metrics...",
+    );
     try {
-      const result = await postReadiness("/api/tech-launch/readiness", { ...filterSnapshot, forceRefresh });
-      if (result.status === "completed") {
-        if (requestIdRef.current !== requestId) return;
-        setData(result);
-        setStatusText(result.cache.hit ? "Loaded from cache" : "Query complete");
-        return;
-      }
-      setStatusText("Count query is running; Google Play API metrics load next...");
-      await pollReadiness(result.metadata.jobKey, result.filters, result.pollAfterMs, requestId, forceRefresh);
+      const results = await Promise.all([
+        resolveReadiness(filterSnapshot, requestId, forceRefresh),
+        compareEnabled ? resolveReadiness(comparisonSnapshot, requestId, forceRefresh) : Promise.resolve(null),
+      ]);
+      if (requestIdRef.current !== requestId || !results[0] || (compareEnabled && !results[1])) return;
+      setData(results[0]);
+      setComparisonData(results[1]);
+      setStatusText(compareEnabled ? "Comparison complete" : results[0].cache.hit ? "Loaded from cache" : "Query complete");
     } catch (err) {
       if (requestIdRef.current === requestId) {
         setError(err instanceof Error ? err.message : "Could not load Launch Readiness data");
@@ -867,11 +1033,18 @@ export default function TechLaunchDashboard() {
     hasReadUrlRef.current = true;
     skipNextUrlSyncRef.current = true;
     if (urlFilters) {
-      setFilters(urlFilters);
+      setFilters(urlFilters.filters);
+      setCompareEnabled(urlFilters.compareEnabled);
+      setComparisonView(urlFilters.comparisonView);
+      setComparisonFilters(urlFilters.comparisonFilters);
       if (new URLSearchParams(window.location.search).get("run") === "1") setPendingUrlRun(true);
     } else if (sessionSnapshot) {
       setFilters(sessionSnapshot.filters);
       setData(sessionSnapshot.data);
+      setCompareEnabled(sessionSnapshot.compareEnabled ?? false);
+      setComparisonView(sessionSnapshot.comparisonView ?? "individual");
+      setComparisonFilters(sessionSnapshot.comparisonFilters ?? { appName: sessionSnapshot.filters.appName, appVersion: "" });
+      setComparisonData(sessionSnapshot.comparisonData ?? null);
       setStatusText(sessionSnapshot.statusText);
     }
     setIsSessionStateReady(true);
@@ -879,8 +1052,8 @@ export default function TechLaunchDashboard() {
 
   useEffect(() => {
     if (!isSessionStateReady) return;
-    writeDashboardSession<TechLaunchSessionSnapshot>(techLaunchSessionKey, { filters, data, statusText });
-  }, [data, filters, isSessionStateReady, statusText]);
+    writeDashboardSession<TechLaunchSessionSnapshot>(techLaunchSessionKey, { filters, data, compareEnabled, comparisonView, comparisonFilters, comparisonData, statusText });
+  }, [compareEnabled, comparisonData, comparisonFilters, comparisonView, data, filters, isSessionStateReady, statusText]);
 
   useEffect(() => {
     if (!hasReadUrlRef.current) return;
@@ -889,8 +1062,8 @@ export default function TechLaunchDashboard() {
       skipNextUrlSyncRef.current = false;
       return;
     }
-    writeFiltersToUrl(filters, false);
-  }, [filters]);
+    writeFiltersToUrl(filters, compareEnabled, comparisonView, comparisonFilters, false);
+  }, [compareEnabled, comparisonFilters, comparisonView, filters]);
 
   useEffect(() => {
     if (allowedApps === null || !allowedApps.includes(filters.appName)) return;
@@ -921,9 +1094,39 @@ export default function TechLaunchDashboard() {
       });
   }, [allowedApps, filters.appName, filters.platform, filters.startDate, filters.endDate]);
 
+  useEffect(() => {
+    if (!compareEnabled || allowedApps === null || !allowedApps.includes(comparisonFilters.appName)) return;
+    const requestId = comparisonVersionRequestIdRef.current + 1;
+    comparisonVersionRequestIdRef.current = requestId;
+    setIsLoadingComparisonVersions(true);
+    setComparisonVersionError("");
+
+    void postAppVersions({
+      appName: comparisonFilters.appName,
+      platform: filters.platform,
+      startDate: filters.startDate,
+      endDate: filters.endDate,
+    })
+      .then((result) => {
+        if (comparisonVersionRequestIdRef.current !== requestId) return;
+        setComparisonVersionOptions(result.versions);
+        setComparisonFilters((current) => {
+          if (current.appVersion) return current;
+          return { ...current, appVersion: result.versions.find((option) => !(current.appName === filters.appName && option.appVersion === filters.appVersion))?.appVersion ?? "" };
+        });
+      })
+      .catch((err) => {
+        if (comparisonVersionRequestIdRef.current !== requestId) return;
+        setComparisonVersionOptions([]);
+        setComparisonVersionError(err instanceof Error ? err.message : "Could not load comparison app versions");
+      })
+      .finally(() => {
+        if (comparisonVersionRequestIdRef.current === requestId) setIsLoadingComparisonVersions(false);
+      });
+  }, [allowedApps, compareEnabled, comparisonFilters.appName, filters.appName, filters.appVersion, filters.platform, filters.startDate, filters.endDate]);
+
   const sortedRows = useMemo(() => {
-    const rank: Record<Verdict, number> = { red: 0, yellow: 1, "insufficient data": 2, green: 3 };
-    return [...(data?.rows ?? [])].sort((a, b) => rank[a.verdict] - rank[b.verdict] || a.metricTitle.localeCompare(b.metricTitle));
+    return [...(data?.rows ?? [])].sort((a, b) => metricDisplayPosition(a.name) - metricDisplayPosition(b.name) || a.metricTitle.localeCompare(b.metricTitle));
   }, [data]);
   const googlePlayRows = useMemo(() => sortedRows.filter((row) => row.source === "google-play"), [sortedRows]);
   const telemetryRows = useMemo(() => sortedRows.filter((row) => row.source !== "google-play"), [sortedRows]);
@@ -935,17 +1138,45 @@ export default function TechLaunchDashboard() {
     return filtered.slice(0, 12);
   }, [filters.appVersion, versionOptions]);
 
+  const visibleComparisonVersionOptions = useMemo(() => {
+    const query = comparisonFilters.appVersion.trim().toLowerCase();
+    if (!query) return comparisonVersionOptions.slice(0, 12);
+    return comparisonVersionOptions.filter((option) => option.appVersion.toLowerCase().includes(query)).slice(0, 12);
+  }, [comparisonFilters.appVersion, comparisonVersionOptions]);
+
   const selectedVersion = versionOptions.find((option) => option.appVersion === filters.appVersion);
   const hasMissingSelectedVersion = Boolean(filters.appVersion && !isLoadingVersions && !selectedVersion);
   const hasTypedVersion = Boolean(filters.appVersion.trim());
+  const hasTypedComparisonVersion = Boolean(comparisonFilters.appVersion.trim());
   const visibleAppOptions = allowedApps === null ? appOptions : appOptions.filter((app) => allowedApps.includes(app));
-  const canRunReadiness = Boolean(hasTypedVersion && !isLoading && allowedApps?.includes(filters.appName));
+  const selectedComparisonVersion = comparisonVersionOptions.find((option) => option.appVersion === comparisonFilters.appVersion);
+  const hasMissingSelectedComparisonVersion = Boolean(comparisonFilters.appVersion && !isLoadingComparisonVersions && !selectedComparisonVersion);
+  const isSameComparison = comparisonFilters.appName === filters.appName && comparisonFilters.appVersion === filters.appVersion;
+  const canRunReadiness = Boolean(
+    hasTypedVersion &&
+      !isLoading &&
+      allowedApps?.includes(filters.appName) &&
+      (!compareEnabled || (hasTypedComparisonVersion && !isSameComparison && allowedApps?.includes(comparisonFilters.appName))),
+  );
+  const comparisonRows = useMemo<ComparisonMetricRow[]>(
+    () => (data && comparisonData ? createMetricComparison(data.rows, comparisonData.rows) : []),
+    [comparisonData, data],
+  );
+  const comparisonSummary = useMemo<ComparisonSummary | null>(
+    () => (comparisonRows.length ? summarizeMetricComparison(comparisonRows) : null),
+    [comparisonRows],
+  );
 
   useEffect(() => {
-    if (!pendingUrlRun || !hasTypedVersion || !allowedApps?.includes(filters.appName)) return;
+    if (
+      !pendingUrlRun ||
+      !hasTypedVersion ||
+      !allowedApps?.includes(filters.appName) ||
+      (compareEnabled && (!hasTypedComparisonVersion || isSameComparison || !allowedApps?.includes(comparisonFilters.appName)))
+    ) return;
     setPendingUrlRun(false);
     void loadReadiness(false, { updateUrlRun: false });
-  }, [allowedApps, filters.appName, pendingUrlRun, hasTypedVersion]);
+  }, [allowedApps, compareEnabled, comparisonFilters.appName, filters.appName, hasTypedComparisonVersion, hasTypedVersion, isSameComparison, pendingUrlRun]);
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -976,6 +1207,32 @@ export default function TechLaunchDashboard() {
           </section>
         ) : (
         <form onSubmit={submit} className="mb-[22px] rounded-[14px] border border-line/70 bg-[#0b1120] p-4 shadow-soft">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-line/60 pb-4">
+            <div>
+              <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">Query setup</div>
+              <div className="mt-1 text-sm text-slate-400">Compare one release against another version or app.</div>
+            </div>
+            <div className="inline-flex items-center gap-3 rounded-[8px] border border-line/70 bg-[#0a111e] px-3 py-2">
+              <span className="text-sm font-semibold text-slate-300">Comparison</span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={compareEnabled}
+                aria-label="Toggle comparison mode"
+                onClick={() => {
+                  const nextEnabled = !compareEnabled;
+                  setCompareEnabled(nextEnabled);
+                  setComparisonData(null);
+                  if (nextEnabled) {
+                    setComparisonFilters({ appName: filters.appName, appVersion: versionOptions.find((option) => option.appVersion !== filters.appVersion)?.appVersion ?? "" });
+                  }
+                }}
+                className={`focus-ring relative h-5 w-9 shrink-0 rounded-full transition-colors ${compareEnabled ? "bg-cobalt" : "bg-slate-600"}`}
+              >
+                <span className={`absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white transition-transform ${compareEnabled ? "translate-x-4" : "translate-x-0"}`} />
+              </button>
+            </div>
+          </div>
           <div className="grid items-start gap-[14px] md:grid-cols-2 xl:grid-cols-[minmax(150px,1fr)_130px_160px_300px_auto_auto]">
             <FilterDropdown
               label="App"
@@ -993,7 +1250,7 @@ export default function TechLaunchDashboard() {
               onChange={(platform) => updateFilters({ platform })}
             />
             <label className="block">
-              <span className={techLabelClass}>App Version</span>
+              <span className={techLabelClass}>{compareEnabled ? "Baseline version" : "Version"}</span>
               <div
                 className="relative"
                 onBlur={(event) => {
@@ -1114,6 +1371,108 @@ export default function TechLaunchDashboard() {
               Refresh
             </button>
           </div>
+          {compareEnabled ? (
+            <section className="mt-4 border-t border-line/60 pt-4">
+              <div className="flex flex-wrap items-start gap-[14px]">
+                <div className="w-full sm:w-[220px]"><FilterDropdown
+                  label="Compare app"
+                  value={comparisonFilters.appName as Filters["appName"]}
+                  options={visibleAppOptions.map((app) => ({ value: app, label: app }))}
+                  onChange={(appName) => updateComparisonFilters({ appName, appVersion: "" })}
+                /></div>
+                <label className="block w-full sm:w-[220px]">
+                  <span className={techLabelClass}>Compare version</span>
+                  <div
+                    className="relative"
+                    onBlur={(event) => {
+                      if (!event.currentTarget.contains(event.relatedTarget)) setIsComparisonVersionMenuOpen(false);
+                    }}
+                  >
+                    <input
+                      value={comparisonFilters.appVersion}
+                      onChange={(event) => {
+                        updateComparisonFilters({ appVersion: event.target.value });
+                        setIsComparisonVersionMenuOpen(true);
+                      }}
+                      onFocus={() => setIsComparisonVersionMenuOpen(true)}
+                      placeholder={isLoadingComparisonVersions ? "Type version or wait for suggestions" : "Type or select version"}
+                      className={`${techInputClass} font-mono pr-20`}
+                      role="combobox"
+                      aria-label="Compare version"
+                      aria-expanded={isComparisonVersionMenuOpen}
+                      aria-controls="tech-launch-comparison-version-options"
+                    />
+                    {comparisonFilters.appVersion ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          updateComparisonFilters({ appVersion: "" });
+                          setIsComparisonVersionMenuOpen(true);
+                        }}
+                        className="focus-ring absolute right-9 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-[6px] text-slate-500 hover:bg-[#17223a] hover:text-slate-200"
+                        aria-label="Clear compare version"
+                      >
+                        <XCircle className="h-4 w-4" />
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => setIsComparisonVersionMenuOpen((open) => !open)}
+                      className="focus-ring absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-[6px] text-slate-500 hover:bg-[#17223a] hover:text-slate-200"
+                      aria-label="Toggle compare version suggestions"
+                      aria-expanded={isComparisonVersionMenuOpen}
+                    >
+                      <ChevronDown className={`h-4 w-4 transition-transform ${isComparisonVersionMenuOpen ? "rotate-180" : ""}`} />
+                    </button>
+                    {isComparisonVersionMenuOpen ? (
+                      <div
+                        id="tech-launch-comparison-version-options"
+                        role="listbox"
+                        className="absolute left-0 top-full z-50 mt-2 max-h-72 w-full overflow-y-auto rounded-[9px] border border-line/70 bg-[#0d1424] p-1 shadow-soft"
+                      >
+                        {isLoadingComparisonVersions ? (
+                          <div className="flex items-center gap-2 px-3 py-3 text-sm font-semibold text-slate-500"><LoadingSpinner />Loading suggestions...</div>
+                        ) : visibleComparisonVersionOptions.length ? (
+                          visibleComparisonVersionOptions.map((option) => (
+                            <button
+                              key={option.appVersion}
+                              type="button"
+                              role="option"
+                              aria-selected={comparisonFilters.appVersion === option.appVersion}
+                              onMouseDown={(event) => event.preventDefault()}
+                              onClick={() => {
+                                updateComparisonFilters({ appVersion: option.appVersion });
+                                setIsComparisonVersionMenuOpen(false);
+                              }}
+                              className={`focus-ring block w-full rounded-[7px] px-3 py-2 text-left transition-colors hover:bg-[#17223a] ${comparisonFilters.appVersion === option.appVersion ? "bg-emerald/10 text-emerald" : "text-slate-400"}`}
+                            >
+                              <span className="block text-sm font-bold text-slate-200">{option.appVersion}</span>
+                              <span className="mt-1 block text-xs">{new Intl.NumberFormat(undefined, { notation: "compact" }).format(option.sampleCount)} samples</span>
+                            </button>
+                          ))
+                        ) : (
+                          <div className="px-3 py-3 text-sm text-slate-500">No matching suggestions. You can still run this typed version.</div>
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
+                  <p className={`mt-1 h-3 truncate font-mono text-[10px] leading-3 ${comparisonVersionError || hasMissingSelectedComparisonVersion || isSameComparison ? "text-amber" : "text-slate-500"}`}>
+                    {comparisonVersionError
+                      ? "Suggestions unavailable"
+                      : hasMissingSelectedComparisonVersion
+                        ? "Not found in range"
+                        : isSameComparison
+                          ? "Choose a different app or version"
+                          : isLoadingComparisonVersions
+                            ? "Loading suggestions"
+                            : selectedComparisonVersion
+                              ? `${new Intl.NumberFormat(undefined, { notation: "compact" }).format(selectedComparisonVersion.sampleCount)} samples`
+                              : "Type or select a version"}
+                  </p>
+                </label>
+              </div>
+            </section>
+          ) : null}
         </form>
         )}
 
@@ -1121,6 +1480,55 @@ export default function TechLaunchDashboard() {
 
         {data ? (
           <>
+            {compareEnabled && comparisonData && comparisonSummary ? (
+              <>
+                <section className="mb-4 grid gap-4 xl:grid-cols-4">
+                  <div className={`rounded-2xl border p-5 shadow-soft ${verdictOverviewClasses(data.summary.overallVerdict)}`}>
+                    <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">Baseline verdict</div>
+                    <div className="mt-3 flex items-center gap-3"><span className={`flex h-10 w-10 items-center justify-center rounded-xl border ${verdictClasses(data.summary.overallVerdict)}`}>{verdictIcon(data.summary.overallVerdict)}</span><span className="font-display text-2xl font-extrabold">{verdictLabel(data.summary.overallVerdict)}</span></div>
+                    <div className="mt-3 font-mono text-[10px] text-slate-500">{data.filters.appName} · {data.filters.appVersion}</div>
+                  </div>
+                  <div className={`rounded-2xl border p-5 shadow-soft ${verdictOverviewClasses(comparisonData.summary.overallVerdict)}`}>
+                    <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">Comparison verdict</div>
+                    <div className="mt-3 flex items-center gap-3"><span className={`flex h-10 w-10 items-center justify-center rounded-xl border ${verdictClasses(comparisonData.summary.overallVerdict)}`}>{verdictIcon(comparisonData.summary.overallVerdict)}</span><span className="font-display text-2xl font-extrabold">{verdictLabel(comparisonData.summary.overallVerdict)}</span></div>
+                    <div className="mt-3 font-mono text-[10px] text-slate-500">{comparisonData.filters.appName} · {comparisonData.filters.appVersion}</div>
+                  </div>
+                  <div className="rounded-2xl border border-line/70 bg-[linear-gradient(180deg,#101a2d,#0d1626)] p-5 shadow-soft">
+                    <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">Changes</div>
+                    <div className="mt-3 flex items-baseline gap-3"><span className="font-display text-2xl font-extrabold text-rose">{comparisonSummary.regressedCount}</span><span className="text-xs text-slate-500">regressed</span><span className="font-display text-xl font-extrabold text-emerald">{comparisonSummary.improvedCount}</span><span className="text-xs text-slate-500">improved</span></div>
+                    <div className="mt-3 font-mono text-[10px] text-slate-500">{comparisonSummary.unchangedCount} unchanged · {comparisonSummary.notComparableCount} not comparable</div>
+                  </div>
+                  <div className="rounded-2xl border border-line/70 bg-[linear-gradient(180deg,#101a2d,#0d1626)] p-5 shadow-soft">
+                    <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">Largest regression</div>
+                    <div className="mt-3 text-[18px] font-extrabold leading-tight text-rose">{comparisonSummary.largestRegression?.metricTitle ?? "None"}</div>
+                    <div className="mt-3 font-mono text-[10px] text-slate-500">{comparisonSummary.largestRegression ? comparisonDelta(comparisonSummary.largestRegression.absoluteDelta, comparisonSummary.largestRegression.relativeDelta) : "No regressions detected"}</div>
+                  </div>
+                </section>
+
+                {comparisonView === "unified" ? (
+                <section className="relative overflow-hidden rounded-2xl border border-line/70 bg-[#0b1120] shadow-soft" aria-busy={isLoading}>
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line/60 bg-[#0d1424] px-[18px] py-[15px]">
+                    <div><h2 className="font-display text-base font-bold text-[#eef1fb]">Readiness comparison</h2><p className="mt-1 text-xs text-slate-500">{comparisonFilters.appName === filters.appName ? "Release comparison" : "Benchmark comparison"} · shared {filters.platform} data from {filters.startDate} to {filters.endDate}</p></div>
+                    <div className="flex items-center gap-2">{isLoading ? <div className="inline-flex h-9 items-center gap-2 rounded-[8px] border border-cobalt/40 bg-cobalt/15 px-3 text-sm font-semibold text-cobalt"><LoadingSpinner />{statusText || "Running comparison..."}</div> : null}<ComparisonViewToggle view={comparisonView} onChange={setComparisonView} /></div>
+                  </div>
+                  <div className="relative overflow-x-auto">
+                    <div className={`transition-opacity ${isLoading ? "opacity-35" : "opacity-100"}`}>
+                      <table className="min-w-[1120px] w-full text-left text-sm">
+                        <thead className="bg-[#0a1120] font-mono text-[11px] font-semibold uppercase tracking-[0.04em] text-slate-500"><tr><th className="px-4 py-3">Metric</th><th className="px-4 py-3">Statistic</th><th className="px-4 py-3"><span className="block text-slate-500">Baseline</span><span className="mt-1 block normal-case tracking-normal text-slate-300">{data.filters.appName} · {data.filters.appVersion}</span></th><th className="px-4 py-3"><span className="block text-slate-500">Compare to</span><span className="mt-1 block normal-case tracking-normal text-slate-300">{comparisonData.filters.appName} · {comparisonData.filters.appVersion}</span></th><th className="px-4 py-3">Benchmark</th><th className="px-4 py-3">Delta <span className="normal-case tracking-normal text-slate-400">({data.filters.appVersion} − {comparisonData.filters.appVersion})</span></th><th className="px-4 py-3 text-right">Samples <span className="normal-case tracking-normal text-slate-600">(baseline / compare to)</span></th></tr></thead>
+                        <tbody className="divide-y divide-line/40">
+                          {comparisonRows.map((row) => <tr key={row.name} className="hover:bg-[#0e1626]"><td className="px-4 py-4"><div className="font-semibold text-[#eaeefc]">{row.metricTitle}</div><div className="mt-1 font-mono text-xs text-slate-500">{row.name}</div></td><td className="px-4 py-4 font-mono text-xs text-slate-400">{comparisonStatisticLabel(row)}</td><td className="px-4 py-4"><div className="font-mono text-sm" style={{ color: row.baseline ? verdictColor(row.baseline.verdict) : "#64748b" }} title={row.baseline ? verdictLabel(row.baseline.verdict) : "Missing"}>{comparisonValueLabel(row, row.baselineValue)}</div></td><td className="px-4 py-4"><div className="font-mono text-sm" style={{ color: row.comparison ? verdictColor(row.comparison.verdict) : "#64748b" }} title={row.comparison ? verdictLabel(row.comparison.verdict) : "Missing"}>{comparisonValueLabel(row, row.comparisonValue)}</div></td><td className="px-4 py-4 font-mono text-sm text-slate-400">{comparisonBenchmarkLabel(row)}</td><td className="px-4 py-4"><div className="flex items-center gap-2 font-mono text-sm text-slate-300">{comparisonDelta(row.absoluteDelta, row.relativeDelta)}<DeltaOutcomeIndicator row={row} /></div></td><td className="px-4 py-4 text-right font-mono text-xs text-slate-600">{row.baseline ? new Intl.NumberFormat().format(row.baseline.numSample) : "—"} <span className="text-slate-700">/</span> {row.comparison ? new Intl.NumberFormat().format(row.comparison.numSample) : "—"}</td></tr>)}
+                        </tbody>
+                      </table>
+                    </div>
+                    {isLoading ? <div className="pointer-events-none absolute inset-0 flex min-h-56 items-center justify-center bg-[#050b18]/70 backdrop-blur-[1px]"><div className="inline-flex items-center gap-3 rounded-[9px] border border-line/70 bg-[#0d1424] px-4 py-3 text-sm font-semibold text-slate-200 shadow-soft"><LoadingSpinner className="h-5 w-5 text-cobalt" />{statusText || "Running comparison..."}</div></div> : null}
+                  </div>
+                </section>
+                ) : (
+                  <div className="space-y-4"><IndividualReadinessTable data={data} label="Baseline" isLoading={isLoading} statusText={statusText} headerAction={<ComparisonViewToggle view={comparisonView} onChange={setComparisonView} />} /><IndividualReadinessTable data={comparisonData} label="Compare to" isLoading={isLoading} statusText={statusText} /></div>
+                )}
+              </>
+            ) : (
+              <>
             <section className="mb-4 grid gap-4 xl:grid-cols-[1.7fr_0.6fr_0.6fr_0.6fr]">
               <div className={`overflow-hidden rounded-2xl border p-7 shadow-soft ${verdictOverviewClasses(data.summary.overallVerdict)}`}>
                 <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Overall Verdict</div>
@@ -1331,6 +1739,8 @@ export default function TechLaunchDashboard() {
             </section>
 
             <p className="mt-3 px-[18px] text-[11.5px] text-slate-500">* A 15% tolerance is applied to the benchmark share.</p>
+              </>
+            )}
           </>
         ) : (
           <div className="rounded-2xl border border-dashed border-line/70 bg-[#0b1120] px-4 py-14 text-center text-sm text-slate-500" aria-busy={isLoading}>
