@@ -34,6 +34,7 @@ describe("Google Play Tech Launch rows", () => {
       versionCodes: ["100"],
       crash: { value: 0.009, distinctUsers: 1000, latestDate: "2026-07-01" },
       anr: { value: 0.0055, distinctUsers: 1000, latestDate: "2026-07-01" },
+      lmk: { value: 0.011, distinctUsers: 1000, latestDate: "2026-07-01" },
     });
   });
 
@@ -44,8 +45,9 @@ describe("Google Play Tech Launch rows", () => {
 
     expect(result.rows).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ name: "GooglePlay_UserPerceivedCrashRate", verdict: "green", benchmark: 0.01, source: "google-play" }),
-        expect.objectContaining({ name: "GooglePlay_UserPerceivedAnrRate", verdict: "yellow", benchmark: 0.005, source: "google-play" }),
+        expect.objectContaining({ name: "GooglePlay_UserPerceivedCrashRate7d", verdict: "green", benchmark: 0.01, source: "google-play" }),
+        expect.objectContaining({ name: "GooglePlay_UserPerceivedAnrRate7d", verdict: "yellow", benchmark: 0.005, source: "google-play" }),
+        expect.objectContaining({ name: "GooglePlay_UserPerceivedLmkRate7d", verdict: "yellow", benchmark: 0.01, source: "google-play" }),
       ]),
     );
     expect(result.summary.totalSamples).toBe(100);

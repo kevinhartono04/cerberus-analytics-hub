@@ -41,9 +41,18 @@ export type GooglePlayVital = {
 export type GooglePlayVitals = {
   crash: GooglePlayVital;
   anr: GooglePlayVital;
+  lmk: GooglePlayVital;
   packageName: string;
   versionCodes: string[];
 };
+
+type VitalMetricSet = "crashRateMetricSet" | "anrRateMetricSet" | "lmkRateMetricSet";
+
+const sevenDayMetrics = {
+  crash: { metricSet: "crashRateMetricSet", rateMetric: "userPerceivedCrashRate7dUserWeighted" },
+  anr: { metricSet: "anrRateMetricSet", rateMetric: "userPerceivedAnrRate7dUserWeighted" },
+  lmk: { metricSet: "lmkRateMetricSet", rateMetric: "userPerceivedLmkRate7dUserWeighted" },
+} as const satisfies Record<string, { metricSet: VitalMetricSet; rateMetric: string }>;
 
 let cachedToken: { value: string; expiresAt: number } | null = null;
 
@@ -158,10 +167,8 @@ export async function getGooglePlayVitals(appName: string, appVersion: string, s
   if (!config) return null;
   const versionCodes = await resolveVersionCodes(appVersion, config);
   if (!versionCodes.length) throw new Error(`No Google Play release matches ${appVersion}`);
-  const aggregate = (rows: ReportingRow[], rateMetric: string): GooglePlayVital => {
-    let users = 0;
-    let weightedRate = 0;
-    let latestDate: string | undefined;
+  const latestRate = (rows: ReportingRow[], rateMetric: string): GooglePlayVital => {
+    const dailyValues = new Map<string, { users: number; weightedRate: number }>();
     for (const row of rows) {
       const metrics = new Map(
         (row.metrics ?? []).map((metric) => [
@@ -172,24 +179,26 @@ export async function getGooglePlayVitals(appName: string, appVersion: string, s
       const rate = metrics.get(rateMetric);
       const distinctUsers = metrics.get("distinctUsers");
       if (rate === undefined || distinctUsers === undefined || !Number.isFinite(rate) || !Number.isFinite(distinctUsers) || !distinctUsers) continue;
-      users += distinctUsers;
-      weightedRate += rate * distinctUsers;
       const date = asDate(row.startTime);
-      if (date && (!latestDate || date > latestDate)) latestDate = date;
+      if (!date) continue;
+      const current = dailyValues.get(date) ?? { users: 0, weightedRate: 0 };
+      current.users += distinctUsers;
+      current.weightedRate += rate * distinctUsers;
+      dailyValues.set(date, current);
     }
-    return { value: users ? weightedRate / users : null, distinctUsers: users, ...(latestDate ? { latestDate } : {}) };
+    const latestDate = [...dailyValues.keys()].sort().at(-1);
+    const latest = latestDate ? dailyValues.get(latestDate) : undefined;
+    return { value: latest?.users ? latest.weightedRate / latest.users : null, distinctUsers: latest?.users ?? 0, ...(latestDate ? { latestDate } : {}) };
   };
-  const [crashMetricSet, anrMetricSet] = await Promise.all([
-    reportingRequest<MetricSet>(`/apps/${encodeURIComponent(config.packageName)}/crashRateMetricSet`),
-    reportingRequest<MetricSet>(`/apps/${encodeURIComponent(config.packageName)}/anrRateMetricSet`),
-  ]);
+  const metricSets = await Promise.all(
+    Object.values(sevenDayMetrics).map(({ metricSet }) => reportingRequest<MetricSet>(`/apps/${encodeURIComponent(config.packageName)}/${metricSet}`)),
+  );
   const requestedEndTime = addOneDay(endDate);
-  const endTimes = {
-    crashRateMetricSet: dailyFreshnessEndTime(crashMetricSet) ?? requestedEndTime,
-    anrRateMetricSet: dailyFreshnessEndTime(anrMetricSet) ?? requestedEndTime,
-  } as const;
+  const endTimes = Object.fromEntries(
+    Object.values(sevenDayMetrics).map(({ metricSet }, index) => [metricSet, dailyFreshnessEndTime(metricSets[index]) ?? requestedEndTime]),
+  ) as Record<VitalMetricSet, DateTime>;
 
-  const requestRows = async (metricSet: "crashRateMetricSet" | "anrRateMetricSet", rateMetric: string) => {
+  const requestRows = async (metricSet: VitalMetricSet, rateMetric: string) => {
     const allRows: ReportingRow[] = [];
     const endTime = endTimes[metricSet];
     if ((comparableDate(toDateTime(startDate)) ?? 0) >= (comparableDate(endTime) ?? Number.MAX_SAFE_INTEGER)) return allRows;
@@ -212,14 +221,16 @@ export async function getGooglePlayVitals(appName: string, appVersion: string, s
     }
     return allRows;
   };
-  const [crashRows, anrRows] = await Promise.all([
-    requestRows("crashRateMetricSet", "userPerceivedCrashRate"),
-    requestRows("anrRateMetricSet", "userPerceivedAnrRate"),
+  const [crashRows, anrRows, lmkRows] = await Promise.all([
+    requestRows(sevenDayMetrics.crash.metricSet, sevenDayMetrics.crash.rateMetric),
+    requestRows(sevenDayMetrics.anr.metricSet, sevenDayMetrics.anr.rateMetric),
+    requestRows(sevenDayMetrics.lmk.metricSet, sevenDayMetrics.lmk.rateMetric),
   ]);
   return {
     packageName: config.packageName,
     versionCodes,
-    crash: aggregate(crashRows, "userPerceivedCrashRate"),
-    anr: aggregate(anrRows, "userPerceivedAnrRate"),
+    crash: latestRate(crashRows, sevenDayMetrics.crash.rateMetric),
+    anr: latestRate(anrRows, sevenDayMetrics.anr.rateMetric),
+    lmk: latestRate(lmkRows, sevenDayMetrics.lmk.rateMetric),
   };
 }

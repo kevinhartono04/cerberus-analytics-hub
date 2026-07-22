@@ -43,8 +43,8 @@ describe("Tech Launch metric comparison", () => {
 
   it("uses p50 Google Play rates when P80 is unavailable", () => {
     const rows = createMetricComparison(
-      [metric({ name: "GooglePlay_UserPerceivedCrashRate", p50Value: 0.008, p80Value: null })],
-      [metric({ name: "GooglePlay_UserPerceivedCrashRate", p50Value: 0.012, p80Value: null, verdict: "yellow" })],
+      [metric({ name: "GooglePlay_UserPerceivedCrashRate7d", p50Value: 0.008, p80Value: null })],
+      [metric({ name: "GooglePlay_UserPerceivedCrashRate7d", p50Value: 0.012, p80Value: null, verdict: "yellow" })],
     );
 
     expect(rows[0]).toMatchObject({ baselineValue: 0.008, comparisonValue: 0.012, status: "improved" });

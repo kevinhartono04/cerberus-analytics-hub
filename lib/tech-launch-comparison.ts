@@ -40,8 +40,9 @@ const metricOrder = [
   "Telemetry_FPS_Stability",
   "Telemetry_Runtime_Memory_Use",
   "Telemetry_ThermalState",
-  "GooglePlay_UserPerceivedCrashRate",
-  "GooglePlay_UserPerceivedAnrRate",
+  "GooglePlay_UserPerceivedCrashRate7d",
+  "GooglePlay_UserPerceivedAnrRate7d",
+  "GooglePlay_UserPerceivedLmkRate7d",
 ];
 
 function observedValue(row: ComparableMetricRow) {

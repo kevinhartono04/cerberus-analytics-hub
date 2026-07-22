@@ -56,8 +56,9 @@ const metricDisplayOrder = [
   "Telemetry_FPS_Stability",
   "Telemetry_Runtime_Memory_Use",
   "Telemetry_ThermalState",
-  "GooglePlay_UserPerceivedCrashRate",
-  "GooglePlay_UserPerceivedAnrRate",
+  "GooglePlay_UserPerceivedCrashRate7d",
+  "GooglePlay_UserPerceivedAnrRate7d",
+  "GooglePlay_UserPerceivedLmkRate7d",
 ];
 
 function metricDisplayPosition(name: string) {
@@ -1588,12 +1589,12 @@ export default function TechLaunchDashboard() {
                 <div className="relative flex flex-col gap-4 md:flex-row md:items-center">
                   <div className="shrink-0 md:w-[220px]">
                     <div className="flex items-center justify-between gap-3 md:block">
-                      <h2 className="font-display text-sm font-bold text-[#eef1fb]">Google Play Quality</h2>
+                      <h2 className="font-display text-base font-bold text-[#eef1fb]">Google Play Quality</h2>
                       <div className="font-mono text-[10px] uppercase tracking-[0.08em] text-slate-500 md:mt-1">Android only</div>
                     </div>
-                    <p className="mt-1 text-xs text-slate-500">User-perceived Vitals.</p>
+                    <p className="mt-1 text-xs text-slate-500">7-day user-weighted vitals.</p>
                   </div>
-                  <div className={`grid min-w-0 flex-1 gap-3 transition-opacity sm:grid-cols-2 ${isLoading ? "pointer-events-none opacity-35" : "opacity-100"}`}>
+                  <div className={`grid min-w-0 flex-1 gap-3 transition-opacity sm:grid-cols-2 xl:grid-cols-3 ${isLoading ? "pointer-events-none opacity-35" : "opacity-100"}`}>
                     {googlePlayRows.map((row) => (
                       <div key={row.name} className="rounded-xl border border-line/60 bg-[#0d1424]/70 px-4 py-3">
                         <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
@@ -1626,7 +1627,7 @@ export default function TechLaunchDashboard() {
             <section className="relative overflow-hidden rounded-2xl border border-line/70 bg-[#0b1120] shadow-soft" aria-busy={isLoading}>
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line/60 bg-[#0d1424] px-[18px] py-[15px]">
                 <div>
-                  <h2 className="font-display text-base font-bold text-[#eef1fb]">Readiness Metrics</h2>
+                  <h2 className="font-display text-base font-bold text-[#eef1fb]">Internal Telemetry</h2>
                   <p className="mt-1 text-xs text-slate-500">
                     Last run {new Date(data.metadata.executedAt).toLocaleString()}
                     {data.metadata.durationMs ? ` · Count duration ${Math.round(data.metadata.durationMs)}ms` : ""}

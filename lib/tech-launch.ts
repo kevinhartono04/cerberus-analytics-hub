@@ -327,7 +327,7 @@ async function googlePlayMetricRows(filters: TechLaunchFilters): Promise<TechLau
     if (!vitals) return [];
     return [
       {
-        name: "GooglePlay_UserPerceivedCrashRate",
+        name: "GooglePlay_UserPerceivedCrashRate7d",
         metricTitle: "User-perceived crash rate",
         pctOfSample: null,
         pctOfSampleWithTolerance: null,
@@ -341,7 +341,7 @@ async function googlePlayMetricRows(filters: TechLaunchFilters): Promise<TechLau
         detail: vitals.crash.latestDate ? `Google Play data through ${vitals.crash.latestDate}` : "No Google Play data returned",
       },
       {
-        name: "GooglePlay_UserPerceivedAnrRate",
+        name: "GooglePlay_UserPerceivedAnrRate7d",
         metricTitle: "User-perceived ANR rate",
         pctOfSample: null,
         pctOfSampleWithTolerance: null,
@@ -354,12 +354,26 @@ async function googlePlayMetricRows(filters: TechLaunchFilters): Promise<TechLau
         source: "google-play",
         detail: vitals.anr.latestDate ? `Google Play data through ${vitals.anr.latestDate}` : "No Google Play data returned",
       },
+      {
+        name: "GooglePlay_UserPerceivedLmkRate7d",
+        metricTitle: "User-perceived LMK rate",
+        pctOfSample: null,
+        pctOfSampleWithTolerance: null,
+        p50Value: vitals.lmk.value,
+        p80Value: null,
+        benchmark: 0.01,
+        numSample: Math.round(vitals.lmk.distinctUsers),
+        verdict: directThresholdVerdict(vitals.lmk.value, 0.01),
+        higherIsBetter: false,
+        source: "google-play",
+        detail: vitals.lmk.latestDate ? `Google Play data through ${vitals.lmk.latestDate}` : "No Google Play data returned",
+      },
     ];
   } catch (error) {
     const detail = error instanceof Error ? error.message : "Google Play data could not be loaded";
     return [
       {
-        name: "GooglePlay_UserPerceivedCrashRate",
+        name: "GooglePlay_UserPerceivedCrashRate7d",
         metricTitle: "User-perceived crash rate",
         pctOfSample: null,
         pctOfSampleWithTolerance: null,
@@ -373,13 +387,27 @@ async function googlePlayMetricRows(filters: TechLaunchFilters): Promise<TechLau
         detail,
       },
       {
-        name: "GooglePlay_UserPerceivedAnrRate",
+        name: "GooglePlay_UserPerceivedAnrRate7d",
         metricTitle: "User-perceived ANR rate",
         pctOfSample: null,
         pctOfSampleWithTolerance: null,
         p50Value: null,
         p80Value: null,
         benchmark: 0.005,
+        numSample: 0,
+        verdict: "insufficient data",
+        higherIsBetter: false,
+        source: "google-play",
+        detail,
+      },
+      {
+        name: "GooglePlay_UserPerceivedLmkRate7d",
+        metricTitle: "User-perceived LMK rate",
+        pctOfSample: null,
+        pctOfSampleWithTolerance: null,
+        p50Value: null,
+        p80Value: null,
+        benchmark: 0.01,
         numSample: 0,
         verdict: "insufficient data",
         higherIsBetter: false,
