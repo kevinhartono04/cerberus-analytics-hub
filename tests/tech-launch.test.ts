@@ -54,7 +54,7 @@ describe("Tech Launch readiness helpers", () => {
     const sql = buildTechLaunchAppVersionsSql({ ...filters, appName: "stacksmash" });
 
     expect(sql).toContain("when ep.app_id = 3011 then 'stacksmash'");
-    expect(sql).toContain("app_id in (3001, 3003, 3004, 3005, 3006, 3011, 3013)");
+    expect(sql).toContain("app_id in (3001, 3003, 3004, 3005, 3006, 3011, 3012, 3013)");
     expect(sql).toContain("app_name = 'stacksmash'");
   });
 
@@ -62,8 +62,16 @@ describe("Tech Launch readiness helpers", () => {
     const sql = buildTechLaunchAppVersionsSql({ ...filters, appName: "wordoku" });
 
     expect(sql).toContain("when ep.app_id = 3013 then 'wordoku'");
-    expect(sql).toContain("app_id in (3001, 3003, 3004, 3005, 3006, 3011, 3013)");
+    expect(sql).toContain("app_id in (3001, 3003, 3004, 3005, 3006, 3011, 3012, 3013)");
     expect(sql).toContain("app_name = 'wordoku'");
+  });
+
+  it("includes TreasureShot in the telemetry app-version lookup", () => {
+    const sql = buildTechLaunchAppVersionsSql({ ...filters, appName: "treasureshot" });
+
+    expect(sql).toContain("when ep.app_id = 3012 then 'treasureshot'");
+    expect(sql).toContain("app_id in (3001, 3003, 3004, 3005, 3006, 3011, 3012, 3013)");
+    expect(sql).toContain("app_name = 'treasureshot'");
   });
 
   it("parses app version Count CSV previews", () => {

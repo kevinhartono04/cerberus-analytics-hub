@@ -34,12 +34,15 @@ describe("buildSpecCheckSql", () => {
     expect(specCheckAppIds.bloomsort).toBe(3003);
     expect(specCheckAppIds.wordblast).toBe(122);
     expect(specCheckAppIds.stacksmash).toBe(3011);
+    expect(specCheckAppIds.treasureshot).toBe(3012);
     expect(specCheckAppIds.wordoku).toBe(3013);
     const sql = buildSpecCheckSql({ ...baseFilters, appName: "bloomsort" });
     expect(sql).toContain("3003 as app_id, -- modifiable parameter");
 
     const stacksmashSql = buildSpecCheckSql({ ...baseFilters, appName: "stacksmash" });
     expect(stacksmashSql).toContain("3011 as app_id, -- modifiable parameter");
+    const treasureshotSql = buildSpecCheckSql({ ...baseFilters, appName: "treasureshot" });
+    expect(treasureshotSql).toContain("3012 as app_id, -- modifiable parameter");
     const wordokuSql = buildSpecCheckSql({ ...baseFilters, appName: "wordoku" });
     expect(wordokuSql).toContain("3013 as app_id, -- modifiable parameter");
   });

@@ -16,6 +16,7 @@ with source_events as (
       when ep.app_id = 3001 then 'wordrush'
       when ep.app_id = 3004 then 'sizzle'
       when ep.app_id = 3011 then 'stacksmash'
+      when ep.app_id = 3012 then 'treasureshot'
       when ep.app_id = 3005 then 'dotpaint'
       when ep.app_id = 3006 then 'bubblewordchain'
       else null
@@ -26,7 +27,7 @@ with source_events as (
     ep.created_at,
     ep.payload
   from (
-    select * from tds_db.raw.ludios_telemetry_events_production where app_id in (3001, 3003, 3004, 3005, 3006, 3011, 3013)
+    select * from tds_db.raw.ludios_telemetry_events_production where app_id in (3001, 3003, 3004, 3005, 3006, 3011, 3012, 3013)
     union all
     select * from tds_db.raw.telemetry_events_production where app_id in (18, 22, 117, 122)
   ) ep

@@ -42,6 +42,7 @@ const appOptions = [
   "marble",
   "sizzle",
   "stacksmash",
+  "treasureshot",
   "tripletile",
   "wooblast",
   "woodoku",
