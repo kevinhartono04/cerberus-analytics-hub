@@ -37,6 +37,7 @@ const appOptions = [
   "wooblast",
   "woodoku",
   "wordblast",
+  "wordoku",
   "wordrush",
 ] as const;
 

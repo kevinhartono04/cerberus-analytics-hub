@@ -21,6 +21,7 @@ export const techLaunchAppOptions = [
   "bubblego",
   "mahjongbloom",
   "wordblast",
+  "wordoku",
   "jelly",
   "bloomsort",
   "wordrush",
@@ -220,6 +221,7 @@ with events as (
       when ep.app_id = 23 then 'bubblego'
       when ep.app_id = 119 then 'mahjongbloom'
       when ep.app_id = 122 then 'wordblast'
+      when ep.app_id = 3013 then 'wordoku'
       when ep.app_id = 125 then 'jelly'
       when ep.app_id = 3003 then 'bloomsort'
       when ep.app_id = 3001 then 'wordrush'
@@ -233,7 +235,7 @@ with events as (
     ep.platform,
     ep.created_at::date as event_date
   from (
-      select * from tds_db.raw.ludios_telemetry_events_production where app_id in (3001, 3003, 3004, 3005, 3006, 3011)
+      select * from tds_db.raw.ludios_telemetry_events_production where app_id in (3001, 3003, 3004, 3005, 3006, 3011, 3013)
           union all
       select * from tds_db.raw.telemetry_events_production where app_id in (18,22,117,122)
   ) ep

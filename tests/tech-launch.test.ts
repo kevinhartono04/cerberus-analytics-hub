@@ -33,6 +33,7 @@ describe("Tech Launch readiness helpers", () => {
     expect(sql).toContain("percentile_cont(0.8) within group (order by e.value) as p80_value");
     expect(sql).toContain("median(e.value) as p50_value");
     expect(sql).toContain("count(*) as num_sample");
+    expect(sql).toContain("when num_sample < 100 then 'insufficient data'");
     expect(sql).not.toContain("group by\n    1,2,3,4,5,6");
   });
 
@@ -53,8 +54,16 @@ describe("Tech Launch readiness helpers", () => {
     const sql = buildTechLaunchAppVersionsSql({ ...filters, appName: "stacksmash" });
 
     expect(sql).toContain("when ep.app_id = 3011 then 'stacksmash'");
-    expect(sql).toContain("app_id in (3001, 3003, 3004, 3005, 3006, 3011)");
+    expect(sql).toContain("app_id in (3001, 3003, 3004, 3005, 3006, 3011, 3013)");
     expect(sql).toContain("app_name = 'stacksmash'");
+  });
+
+  it("includes Wordoku in the telemetry app-version lookup", () => {
+    const sql = buildTechLaunchAppVersionsSql({ ...filters, appName: "wordoku" });
+
+    expect(sql).toContain("when ep.app_id = 3013 then 'wordoku'");
+    expect(sql).toContain("app_id in (3001, 3003, 3004, 3005, 3006, 3011, 3013)");
+    expect(sql).toContain("app_name = 'wordoku'");
   });
 
   it("parses app version Count CSV previews", () => {

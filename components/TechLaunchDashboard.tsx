@@ -46,6 +46,7 @@ const appOptions = [
   "wooblast",
   "woodoku",
   "wordblast",
+  "wordoku",
   "wordrush",
 ] as const;
 
@@ -1708,7 +1709,7 @@ export default function TechLaunchDashboard() {
                         <td className="px-4 py-4 font-mono text-sm text-slate-300">{compactNumber(row.p80Value)}</td>
                         <td className="px-4 py-4">
                           <span
-                            className={`font-mono text-sm ${row.numSample < 50 ? "text-amber" : "text-slate-400"}`}
+                            className={`font-mono text-sm ${row.numSample < 100 ? "text-amber" : "text-slate-400"}`}
                           >
                             {new Intl.NumberFormat().format(row.numSample)}
                           </span>

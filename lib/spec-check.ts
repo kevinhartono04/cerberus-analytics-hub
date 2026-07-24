@@ -74,6 +74,7 @@ export const specCheckAppIds: Record<(typeof techLaunchAppOptions)[number], numb
   bubblego: 23,
   mahjongbloom: 119,
   wordblast: 122,
+  wordoku: 3013,
   jelly: 125,
   bloomsort: 3003,
   wordrush: 3001,

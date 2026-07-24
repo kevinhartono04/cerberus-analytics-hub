@@ -10,6 +10,7 @@ with source_events as (
       when ep.app_id = 23 then 'bubblego'
       when ep.app_id = 119 then 'mahjongbloom'
       when ep.app_id = 122 then 'wordblast'
+      when ep.app_id = 3013 then 'wordoku'
       when ep.app_id = 125 then 'jelly'
       when ep.app_id = 3003 then 'bloomsort'
       when ep.app_id = 3001 then 'wordrush'
@@ -25,7 +26,7 @@ with source_events as (
     ep.created_at,
     ep.payload
   from (
-    select * from tds_db.raw.ludios_telemetry_events_production where app_id in (3001, 3003, 3004, 3005, 3006, 3011)
+    select * from tds_db.raw.ludios_telemetry_events_production where app_id in (3001, 3003, 3004, 3005, 3006, 3011, 3013)
     union all
     select * from tds_db.raw.telemetry_events_production where app_id in (18, 22, 117, 122)
   ) ep
@@ -97,7 +98,7 @@ select
   benchmark,
   num_sample,
   case
-    when num_sample < 50 then 'insufficient data'
+    when num_sample < 100 then 'insufficient data'
     when pct_of_sample_w_tolerance >= 0.8 then 'green'
     when pct_of_sample_w_tolerance between 0.5 and 0.8 then 'yellow'
     else 'red'
