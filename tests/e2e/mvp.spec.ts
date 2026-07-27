@@ -98,7 +98,11 @@ test("generates, edits, saves, reopens, and deletes a draft spec", async ({ page
   await expect(page.getByText("Saved Game Specs")).toBeVisible();
   await expect(page.getByText("Sample Match Timed")).toBeVisible();
 
-  await page.getByRole("button", { name: "Open", exact: true }).click();
+  await page.getByRole("button", { name: "Duplicate Sample Match Timed" }).click();
+  await expect(page.getByText("Duplicated Sample Match Timed (Copy)")).toBeVisible();
+  await expect(page.getByText("Sample Match Timed (Copy)", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "Open", exact: true }).first().click();
   await expect(page.getByText("Saved spec loaded")).toBeVisible();
   expect(await hasTextareaValue(page, "Edited trigger for test review.")).toBe(true);
   expect(await hasTextareaValue(page, "Edited payload description for test review.")).toBe(true);
@@ -106,6 +110,7 @@ test("generates, edits, saves, reopens, and deletes a draft spec", async ({ page
 
   await page.getByRole("button", { name: "Saved Specs" }).click();
   page.on("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Delete" }).click();
   await page.getByRole("button", { name: "Delete" }).click();
   await expect(page.getByText("No saved specs yet")).toBeVisible();
 });

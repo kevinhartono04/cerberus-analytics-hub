@@ -1750,20 +1750,24 @@ function SavedSpecsBrowser({
   savedSpecs,
   onOpen,
   onEdit,
+  onDuplicate,
   onDelete,
   onImport,
   canImport,
   importStatus,
   isImporting,
+  isDuplicating,
 }: {
   savedSpecs: SavedSpecSummary[];
   onOpen: (id: string) => Promise<void>;
   onEdit: (id: string) => Promise<void>;
+  onDuplicate: (id: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   onImport: (file: File, details: { gameTitle: string; genre: string }) => Promise<void>;
   canImport: boolean;
   importStatus: string;
   isImporting: boolean;
+  isDuplicating: boolean;
 }) {
   const [pendingImportFile, setPendingImportFile] = useState<File | null>(null);
   const [importGameTitle, setImportGameTitle] = useState("");
@@ -1938,6 +1942,19 @@ function SavedSpecsBrowser({
                   >
                     <Pencil className="h-3.5 w-3.5" />
                     Edit
+                  </button>
+                ) : null}
+                {canImport ? (
+                  <button
+                    type="button"
+                    title="Duplicate saved spec"
+                    aria-label={`Duplicate ${savedSpec.gameTitle}`}
+                    disabled={isDuplicating}
+                    onClick={() => void onDuplicate(savedSpec.id)}
+                    className="focus-ring inline-flex h-9 flex-1 items-center justify-center gap-2 rounded-[9px] border border-cobalt/40 bg-cobalt/10 px-3 text-xs font-semibold text-cobalt hover:bg-cobalt/20 disabled:cursor-wait disabled:opacity-50"
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                    {isDuplicating ? "Duplicating..." : "Duplicate"}
                   </button>
                 ) : null}
                 {savedSpec.canDelete ? (
@@ -2845,6 +2862,7 @@ export default function MvpApp({ library }: { library: LibrarySnapshot }) {
   const [isViewerLoading, setIsViewerLoading] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const [isDuplicating, setIsDuplicating] = useState(false);
   const [error, setError] = useState("");
   const [saveStatus, setSaveStatus] = useState("");
   const [importStatus, setImportStatus] = useState("");
@@ -3128,6 +3146,29 @@ export default function MvpApp({ library }: { library: LibrarySnapshot }) {
     await loadViewerSpecs(id);
   }
 
+  async function duplicateSavedSpec(id: string) {
+    if (!canCreateOrEdit) {
+      setError("Only admins and editors can duplicate specs.");
+      return;
+    }
+    setError("");
+    setImportStatus("");
+    setIsDuplicating(true);
+    try {
+      const response = await fetch(`/api/specs/${id}/duplicate`, { method: "POST" });
+      if (!response.ok) throw new Error(await response.text());
+      const duplicate = (await response.json()) as SavedSpecSummary;
+      await refreshSavedSpecs();
+      setImportStatus(`Duplicated ${duplicate.gameTitle}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Could not duplicate spec";
+      setImportStatus(message);
+      setError(message);
+    } finally {
+      setIsDuplicating(false);
+    }
+  }
+
   async function deleteSpec(id: string) {
     setError("");
     const response = await fetch(`/api/specs/${id}`, { method: "DELETE" });
@@ -3328,11 +3369,13 @@ export default function MvpApp({ library }: { library: LibrarySnapshot }) {
             savedSpecs={savedSpecs}
             onOpen={viewSavedSpec}
             onEdit={openSavedSpec}
+            onDuplicate={duplicateSavedSpec}
             onDelete={deleteSpec}
             onImport={importSpecFile}
             canImport={canCreateOrEdit}
             importStatus={importStatus}
             isImporting={isImporting}
+            isDuplicating={isDuplicating}
           />
         ) : null}
         {activeTab === "library" ? <LibraryBrowser library={library} /> : null}

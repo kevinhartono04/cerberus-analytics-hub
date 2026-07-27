@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { DELETE, GET as GET_SPEC, PUT } from "@/app/api/specs/[id]/route";
+import { POST as DUPLICATE_SPEC } from "@/app/api/specs/[id]/duplicate/route";
 import { POST as GENERATE_SPEC } from "@/app/api/generate/route";
 import { POST as IMPORT_SPEC } from "@/app/api/specs/import/route";
 import { GET as LIST_SPECS, POST } from "@/app/api/specs/route";
@@ -159,6 +160,29 @@ describe("spec RBAC API", () => {
 
     const otherDelete = await DELETE(request("DELETE", "editor", "editor-owner"), context(otherSpec.id));
     expect(otherDelete.status).toBe(403);
+  });
+
+  it("lets editors duplicate a spec they do not own", async () => {
+    const source = specWithId("rbac-editor-duplicate-source");
+    await createAs("admin", "admin-user", source);
+
+    const response = await DUPLICATE_SPEC(request("POST", "editor", "editor-duplicator"), context(source.id));
+    expect(response.status).toBe(201);
+
+    const duplicate = (await response.json()) as {
+      id: string;
+      gameTitle: string;
+      ownerUserId: string;
+      canEdit: boolean;
+    };
+    createdSpecIds.add(duplicate.id);
+    expect(duplicate.id).not.toBe(source.id);
+    expect(duplicate.gameTitle).toBe("RBAC Test Game (Copy)");
+    expect(duplicate.ownerUserId).toBe("editor-duplicator");
+    expect(duplicate.canEdit).toBe(true);
+
+    const sourceAfterDuplicate = await GET_SPEC(publicRequest(), context(source.id));
+    expect((await sourceAfterDuplicate.json()).intake.gameTitle).toBe("RBAC Test Game");
   });
 
   it("blocks viewers from creating specs", async () => {
