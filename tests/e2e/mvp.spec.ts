@@ -102,6 +102,13 @@ test("generates, edits, saves, reopens, and deletes a draft spec", async ({ page
   await expect(page.getByText("Duplicated Sample Match Timed (Copy)")).toBeVisible();
   await expect(page.getByText("Sample Match Timed (Copy)", { exact: true })).toBeVisible();
 
+  await page.getByRole("button", { name: "Rename Sample Match Timed", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Rename Saved Spec" })).toBeVisible();
+  await page.getByLabel("Spec Name").fill("Renamed Sample Match Timed");
+  await page.getByRole("button", { name: "Save Name" }).click();
+  await expect(page.getByText("Renamed Renamed Sample Match Timed")).toBeVisible();
+  await expect(page.getByText("Renamed Sample Match Timed", { exact: true })).toBeVisible();
+
   await page.getByRole("button", { name: "Open", exact: true }).first().click();
   await expect(page.getByText("Saved spec loaded")).toBeVisible();
   expect(await hasTextareaValue(page, "Edited trigger for test review.")).toBe(true);

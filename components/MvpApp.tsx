@@ -1746,32 +1746,110 @@ function ImportDetailsDialog({
   );
 }
 
+function RenameSpecDialog({
+  spec,
+  gameTitle,
+  isRenaming,
+  onGameTitleChange,
+  onCancel,
+  onSubmit,
+}: {
+  spec: SavedSpecSummary | null;
+  gameTitle: string;
+  isRenaming: boolean;
+  onGameTitleChange: (value: string) => void;
+  onCancel: () => void;
+  onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
+}) {
+  if (!spec) return null;
+  const canSubmit = Boolean(gameTitle.trim()) && !isRenaming;
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm">
+      <form onSubmit={onSubmit} className="w-full max-w-md rounded-2xl border border-line/70 bg-[#0d1424] p-5 shadow-soft">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-cobalt">Saved Specs</div>
+            <h3 className="mt-2 font-display text-lg font-bold text-[#f2f5ff]">Rename Saved Spec</h3>
+            <p className="mt-1 text-sm text-slate-500">Update the name shown across Saved Specs and the Spec Viewer.</p>
+          </div>
+          <button
+            type="button"
+            aria-label="Cancel rename"
+            disabled={isRenaming}
+            onClick={onCancel}
+            className="focus-ring inline-flex h-9 w-9 items-center justify-center rounded-md border border-line/70 bg-[#0a111e] text-slate-500 hover:bg-[#17223a] disabled:opacity-50"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <label className="mt-5 block">
+          <span className={editorLabelClass}>Spec Name</span>
+          <input
+            value={gameTitle}
+            onChange={(event) => onGameTitleChange(event.target.value)}
+            className={editorInputClass}
+            required
+            autoFocus
+          />
+        </label>
+
+        <div className="mt-5 flex flex-wrap justify-end gap-2">
+          <button
+            type="button"
+            disabled={isRenaming}
+            onClick={onCancel}
+            className="focus-ring inline-flex h-10 items-center gap-2 rounded-[9px] border border-line/70 bg-[#121b2c] px-3 text-sm font-semibold text-text-muted hover:bg-[#17223a] disabled:opacity-50"
+          >
+            <X className="h-4 w-4" />
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={!canSubmit}
+            className="focus-ring inline-flex h-10 items-center gap-2 rounded-md bg-cobalt px-3 text-sm font-semibold text-white hover:bg-cobalt/90 disabled:opacity-50"
+          >
+            <Save className="h-4 w-4" />
+            {isRenaming ? "Saving..." : "Save Name"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 function SavedSpecsBrowser({
   savedSpecs,
   onOpen,
   onEdit,
+  onRename,
   onDuplicate,
   onDelete,
   onImport,
   canImport,
   importStatus,
   isImporting,
+  isRenaming,
   isDuplicating,
 }: {
   savedSpecs: SavedSpecSummary[];
   onOpen: (id: string) => Promise<void>;
   onEdit: (id: string) => Promise<void>;
+  onRename: (id: string, gameTitle: string) => Promise<boolean>;
   onDuplicate: (id: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   onImport: (file: File, details: { gameTitle: string; genre: string }) => Promise<void>;
   canImport: boolean;
   importStatus: string;
   isImporting: boolean;
+  isRenaming: boolean;
   isDuplicating: boolean;
 }) {
   const [pendingImportFile, setPendingImportFile] = useState<File | null>(null);
   const [importGameTitle, setImportGameTitle] = useState("");
   const [importGenre, setImportGenre] = useState("");
+  const [specToRename, setSpecToRename] = useState<SavedSpecSummary | null>(null);
+  const [renamedGameTitle, setRenamedGameTitle] = useState("");
 
   function titleFromFile(file: File) {
     return file.name.replace(/\.(xlsx|csv)$/i, "").trim();
@@ -1790,6 +1868,17 @@ function SavedSpecsBrowser({
     setImportGenre("");
   }
 
+  function stageRename(savedSpec: SavedSpecSummary) {
+    setSpecToRename(savedSpec);
+    setRenamedGameTitle(savedSpec.gameTitle);
+  }
+
+  function closeRenameDetails() {
+    if (isRenaming) return;
+    setSpecToRename(null);
+    setRenamedGameTitle("");
+  }
+
   async function submitImportDetails(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!pendingImportFile || !importGameTitle.trim()) return;
@@ -1798,6 +1887,12 @@ function SavedSpecsBrowser({
       genre: importGenre.trim(),
     });
     closeImportDetails();
+  }
+
+  async function submitRenameDetails(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!specToRename || !renamedGameTitle.trim()) return;
+    if (await onRename(specToRename.id, renamedGameTitle.trim())) closeRenameDetails();
   }
 
   function ImportControl() {
@@ -1834,6 +1929,14 @@ function SavedSpecsBrowser({
           onCancel={closeImportDetails}
           onSubmit={submitImportDetails}
         />
+        <RenameSpecDialog
+          spec={specToRename}
+          gameTitle={renamedGameTitle}
+          isRenaming={isRenaming}
+          onGameTitleChange={setRenamedGameTitle}
+          onCancel={closeRenameDetails}
+          onSubmit={submitRenameDetails}
+        />
         <div>
           <div className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.16em] text-cobalt">
             <span className="h-1.5 w-1.5 rounded-full bg-cobalt shadow-[0_0_10px_#3d82ff]" />
@@ -1866,6 +1969,14 @@ function SavedSpecsBrowser({
         onGenreChange={setImportGenre}
         onCancel={closeImportDetails}
         onSubmit={submitImportDetails}
+      />
+      <RenameSpecDialog
+        spec={specToRename}
+        gameTitle={renamedGameTitle}
+        isRenaming={isRenaming}
+        onGameTitleChange={setRenamedGameTitle}
+        onCancel={closeRenameDetails}
+        onSubmit={submitRenameDetails}
       />
       <div className="flex flex-col justify-between gap-5 md:flex-row md:items-end">
         <div>
@@ -1905,7 +2016,22 @@ function SavedSpecsBrowser({
                 </div>
                 <StatusChip status={savedSpec.status} />
               </div>
-              <h2 className="mt-4 truncate font-display text-[17px] font-bold text-[#f2f5ff]">{savedSpec.gameTitle}</h2>
+              <div className="mt-4 flex items-center gap-2">
+                <h2 className="min-w-0 flex-1 truncate font-display text-[17px] font-bold text-[#f2f5ff]">{savedSpec.gameTitle}</h2>
+                {savedSpec.canEdit ? (
+                  <button
+                    type="button"
+                    title="Rename saved spec"
+                    aria-label={`Rename ${savedSpec.gameTitle}`}
+                    disabled={isRenaming}
+                    onClick={() => stageRename(savedSpec)}
+                    className="focus-ring inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-line/70 bg-[#101a2c] px-2 font-mono text-[9px] font-semibold uppercase tracking-[0.08em] text-text-muted hover:bg-[#16223a] disabled:cursor-wait disabled:opacity-50"
+                  >
+                    <Pencil className="h-3 w-3" />
+                    Rename
+                  </button>
+                ) : null}
+              </div>
               <p className="mt-1 truncate text-[12.5px] text-slate-500">{savedSpec.genre || "Unspecified"}</p>
               <div className="mt-4 flex items-end gap-[18px] border-t border-line/40 pt-4">
                 <div>
@@ -2862,6 +2988,7 @@ export default function MvpApp({ library }: { library: LibrarySnapshot }) {
   const [isViewerLoading, setIsViewerLoading] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const [isRenaming, setIsRenaming] = useState(false);
   const [isDuplicating, setIsDuplicating] = useState(false);
   const [error, setError] = useState("");
   const [saveStatus, setSaveStatus] = useState("");
@@ -3169,6 +3296,45 @@ export default function MvpApp({ library }: { library: LibrarySnapshot }) {
     }
   }
 
+  async function renameSavedSpec(id: string, gameTitle: string) {
+    if (!canCreateOrEdit) {
+      setError("Only admins and editors can rename specs.");
+      return false;
+    }
+    setError("");
+    setImportStatus("");
+    setIsRenaming(true);
+    try {
+      const getResponse = await fetch(`/api/specs/${id}`);
+      if (!getResponse.ok) throw new Error(await getResponse.text());
+      const currentSpec = (await getResponse.json()) as GeneratedSpec;
+      const renamedSpec = {
+        ...currentSpec,
+        intake: { ...currentSpec.intake, gameTitle },
+      };
+      const response = await fetch(`/api/specs/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(renamedSpec),
+      });
+      if (!response.ok) throw new Error(await response.text());
+      await refreshSavedSpecs();
+      if (spec?.id === id) {
+        setSpec(renamedSpec);
+        form.reset(renamedSpec.intake);
+      }
+      setImportStatus(`Renamed ${gameTitle}`);
+      return true;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Could not rename spec";
+      setImportStatus(message);
+      setError(message);
+      return false;
+    } finally {
+      setIsRenaming(false);
+    }
+  }
+
   async function deleteSpec(id: string) {
     setError("");
     const response = await fetch(`/api/specs/${id}`, { method: "DELETE" });
@@ -3369,12 +3535,14 @@ export default function MvpApp({ library }: { library: LibrarySnapshot }) {
             savedSpecs={savedSpecs}
             onOpen={viewSavedSpec}
             onEdit={openSavedSpec}
+            onRename={renameSavedSpec}
             onDuplicate={duplicateSavedSpec}
             onDelete={deleteSpec}
             onImport={importSpecFile}
             canImport={canCreateOrEdit}
             importStatus={importStatus}
             isImporting={isImporting}
+            isRenaming={isRenaming}
             isDuplicating={isDuplicating}
           />
         ) : null}

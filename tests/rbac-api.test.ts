@@ -144,6 +144,10 @@ describe("spec RBAC API", () => {
     };
     const putResponse = await PUT(request("PUT", "admin", "admin-user", updated), context(spec.id));
     expect(putResponse.status).toBe(200);
+    expect((await putResponse.json()).gameTitle).toBe("Admin Updated");
+
+    const renamedSpec = await GET_SPEC(publicRequest(), context(spec.id));
+    expect((await renamedSpec.json()).intake.gameTitle).toBe("Admin Updated");
 
     const deleteResponse = await DELETE(request("DELETE", "admin", "admin-user"), context(spec.id));
     expect(deleteResponse.status).toBe(200);
