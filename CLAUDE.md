@@ -60,6 +60,9 @@ npm run test:ui    # playwright (e2e); boots dev server on 127.0.0.1:3100
 - `users` — GET all users (admin only); `users/[id]` — PATCH role (admin only).
 - `tech-launch/app-versions` — available app versions.
 - `tech-launch/readiness` + `tech-launch/readiness/status` — kick off / poll readiness job.
+- `tech-launch/level-fail-rate` — level-by-level unique-player fail-rate series and breach status.
+- `tech-launch/gameplay-alert-settings` — read global gameplay thresholds; admins can update them.
+- `cron/gameplay-alerts` — protected daily evaluator for gameplay alert state and Slack transitions.
 - `spec-check` + `spec-check/status` — kick off / poll a spec-vs-live-data check (submit-then-poll like tech-launch).
 - `spec-check/app-versions` — app versions observed in the Ludios events union table.
 
@@ -89,6 +92,7 @@ Set in Vercel (not all present in `.env.local`):
 - **AI:** `OPENAI_API_KEY`, `OPENAI_MODEL`.
 - **Count / Snowflake:** `COUNT_API_KEY`, `COUNT_PROJECT_KEY`, `COUNT_CONNECTION_KEY`, `COUNT_QUERY_TIMEOUT_MS`, `COUNT_API_BASE_URL` (default `https://api.eu.count.co`); `SNOWFLAKE_*`.
 - **Caching:** `TECH_LAUNCH_CACHE_TTL_SECONDS` (default 900), `TECH_LAUNCH_APP_VERSION_CACHE_TTL_SECONDS` (default 3600), `SPEC_CHECK_CACHE_TTL_SECONDS` (default 900), `SPEC_CHECK_APP_VERSION_CACHE_TTL_SECONDS` (default 3600).
+- **Gameplay alerts:** `CRON_SECRET` (authorizes the Vercel cron request) and `SLACK_GAMEPLAY_ALERT_WEBHOOK_URL` (shared-channel incoming webhook).
 
 ## Conventions
 

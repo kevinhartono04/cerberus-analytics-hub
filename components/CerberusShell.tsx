@@ -3,6 +3,7 @@
 import {
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   ClipboardCheck,
   Gauge,
   LogIn,
@@ -165,6 +166,7 @@ export default function CerberusShell<T extends string>({
   onToggleCollapsed,
   user,
   contentClassName = "max-w-[1320px]",
+  activeLaunchSection = "technical",
   children,
 }: {
   currentProduct: HubProductId;
@@ -175,10 +177,12 @@ export default function CerberusShell<T extends string>({
   onToggleCollapsed?: () => void;
   user?: ShellUser;
   contentClassName?: string;
+  activeLaunchSection?: "technical" | "level-funnel";
   children: ReactNode;
 }) {
   const hasExplicitUser = user !== undefined;
   const [sessionUser, setSessionUser] = useState<ShellUser | undefined>(user);
+  const [launchReadinessExpanded, setLaunchReadinessExpanded] = useState(currentProduct === "tech-launch");
 
   useEffect(() => {
     if (hasExplicitUser) {
@@ -255,9 +259,33 @@ export default function CerberusShell<T extends string>({
                 </div>
               )}
               <div className="flex flex-col gap-1">
-                {visibleProducts.map((product) => (
-                  <ProductLink key={product.id} product={product} active={product.id === currentProduct} collapsed={collapsed} />
-                ))}
+                {visibleProducts.map((product) => {
+                  const isLaunchReadiness = product.id === "tech-launch";
+                  return (
+                    <div key={product.id}>
+                      <div className="flex items-center gap-1">
+                        <ProductLink product={product} active={product.id === currentProduct} collapsed={collapsed} />
+                        {isLaunchReadiness && !collapsed ? (
+                          <button
+                            type="button"
+                            aria-label={launchReadinessExpanded ? "Collapse Launch Readiness sections" : "Expand Launch Readiness sections"}
+                            aria-expanded={launchReadinessExpanded}
+                            onClick={() => setLaunchReadinessExpanded((expanded) => !expanded)}
+                            className="focus-ring -ml-9 mr-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-500 hover:bg-sage hover:text-slate-200 max-md:hidden"
+                          >
+                            <ChevronDown className={`h-4 w-4 transition-transform ${launchReadinessExpanded ? "" : "-rotate-90"}`} />
+                          </button>
+                        ) : null}
+                      </div>
+                      {isLaunchReadiness && !collapsed && launchReadinessExpanded ? (
+                        <div className="ml-8 mt-1 flex flex-col gap-1 border-l border-line/70 pl-3 max-md:hidden">
+                          <a href="/tech-launch" aria-current={activeLaunchSection === "technical" ? "page" : undefined} className={`focus-ring rounded-md px-2 py-1.5 text-xs font-semibold transition-colors ${activeLaunchSection === "technical" ? "bg-cobalt/10 text-cobalt" : "text-slate-500 hover:bg-sage hover:text-slate-200"}`}>Technical Readiness</a>
+                          <a href="/tech-launch/level-funnel" aria-current={activeLaunchSection === "level-funnel" ? "page" : undefined} className={`focus-ring rounded-md px-2 py-1.5 text-xs font-semibold transition-colors ${activeLaunchSection === "level-funnel" ? "bg-cobalt/10 text-cobalt" : "text-slate-500 hover:bg-sage hover:text-slate-200"}`}>Level Funnel Check</a>
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
               </div>
             </div>
 

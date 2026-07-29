@@ -32,6 +32,43 @@ export const techLaunchReadinessCache = pgTable("tech_launch_readiness_cache", {
   expiresAt: text("expires_at").notNull(),
 });
 
+export const gameplayAlertSettings = pgTable("gameplay_alert_settings", {
+  id: text("id").primaryKey(),
+  normalThreshold: text("normal_threshold").notNull(),
+  hardThreshold: text("hard_threshold").notNull(),
+  minPlayers: integer("min_players").notNull(),
+  updatedAt: text("updated_at").notNull(),
+  updatedBy: text("updated_by").notNull(),
+});
+
+export const gameplayAlertStates = pgTable("gameplay_alert_states", {
+  alertKey: text("alert_key").primaryKey(),
+  appName: text("app_name").notNull(),
+  platform: text("platform").notNull(),
+  appVersion: text("app_version").notNull(),
+  level: integer("level").notNull(),
+  layoutBankId: text("layout_bank_id"),
+  difficultyTier: text("difficulty_tier").notNull(),
+  status: text("status").notNull(),
+  firstSeenAt: text("first_seen_at").notNull(),
+  lastSeenAt: text("last_seen_at").notNull(),
+  resolvedAt: text("resolved_at"),
+  supersededAt: text("superseded_at"),
+  lastFailRate: text("last_fail_rate").notNull(),
+  lastReachedPlayers: integer("last_reached_players").notNull(),
+  threshold: text("threshold").notNull(),
+  slackOpenDeliveredAt: text("slack_open_delivered_at"),
+  slackResolvedDeliveredAt: text("slack_resolved_delivered_at"),
+});
+
+export const gameplayAlertEvaluationRuns = pgTable("gameplay_alert_evaluation_runs", {
+  id: text("id").primaryKey(),
+  evaluatedAt: text("evaluated_at").notNull(),
+  filters: text("filters").notNull(),
+  result: text("result").notNull(),
+  transitionCount: integer("transition_count").notNull(),
+});
+
 export const partnerAccessDomains = pgTable("partner_access_domains", {
   domain: text("domain").primaryKey(),
   enabled: text("enabled").notNull(),
