@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { deliverGameplayAlertTransitions, reconcileGameplayAlerts } from "@/lib/gameplay-alerts";
-import { getTechLaunchAppVersions, techLaunchAppOptions } from "@/lib/tech-launch";
+import { deliverGameplayAlertTransitions, getGameplayAlertSettings, reconcileGameplayAlerts } from "@/lib/gameplay-alerts";
 
 export const runtime = "nodejs";
 
@@ -20,16 +19,22 @@ export async function GET(request: Request) {
 
   const range = dateRange();
   const failures: string[] = [];
+  const settings = await getGameplayAlertSettings();
+  const targets = settings.alertTargets.flatMap((target) => target.platforms.map((platform) => ({
+    appName: target.appName,
+    platform,
+    appVersion: target.appVersion,
+    ...range,
+  })));
+  const results = await Promise.allSettled(targets.map((target) => reconcileGameplayAlerts(target)));
   const transitions = [];
-  for (const appName of techLaunchAppOptions) {
-    try {
-      const versions = await getTechLaunchAppVersions({ appName, platform: "android", ...range });
-      const appVersion = versions.versions[0]?.appVersion;
-      if (!appVersion) continue;
-      const result = await reconcileGameplayAlerts({ appName, platform: "android", appVersion, ...range });
-      transitions.push(...result.transitions);
-    } catch (error) {
-      failures.push(`${appName}: ${error instanceof Error ? error.message : "evaluation failed"}`);
+  for (let index = 0; index < results.length; index += 1) {
+    const result = results[index];
+    const target = targets[index];
+    if (result.status === "fulfilled") {
+      transitions.push(...result.value.transitions);
+    } else {
+      failures.push(`${target.appName} ${target.platform} ${target.appVersion}: ${result.reason instanceof Error ? result.reason.message : "evaluation failed"}`);
     }
   }
 
@@ -39,5 +44,5 @@ export async function GET(request: Request) {
   } catch (error) {
     failures.push(`Slack: ${error instanceof Error ? error.message : "delivery failed"}`);
   }
-  return NextResponse.json({ evaluatedAt: new Date().toISOString(), transitionCount: transitions.length, delivery, failures });
+  return NextResponse.json({ evaluatedAt: new Date().toISOString(), targetCount: targets.length, transitionCount: transitions.length, delivery, failures });
 }

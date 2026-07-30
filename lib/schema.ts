@@ -37,6 +37,7 @@ export const gameplayAlertSettings = pgTable("gameplay_alert_settings", {
   normalThreshold: text("normal_threshold").notNull(),
   hardThreshold: text("hard_threshold").notNull(),
   minPlayers: integer("min_players").notNull(),
+  alertTargets: text("alert_targets").notNull(),
   updatedAt: text("updated_at").notNull(),
   updatedBy: text("updated_by").notNull(),
 });

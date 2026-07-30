@@ -31,7 +31,14 @@ type GameplayAlertSettings = {
   normalThreshold: number;
   hardThreshold: number;
   minPlayers: number;
+  alertTargets: GameplayAlertTarget[];
   updatedAt?: string;
+};
+
+type GameplayAlertTarget = {
+  appName: typeof appOptions[number];
+  platforms: Array<"android" | "ios">;
+  appVersion: string;
 };
 
 type LevelFailRatePoint = {
@@ -79,11 +86,25 @@ type LevelFailRateResponse = {
   metadata: { executedAt: string; durationMs?: number };
 };
 
+type LevelFailRatePendingResponse = {
+  status: "running";
+  filters: Filters;
+  settings: GameplayAlertSettings;
+  metadata: { jobKey: string; submittedAt: string };
+  pollAfterMs: number;
+};
+
+type LevelFailRateRunResponse = LevelFailRateResponse | LevelFailRatePendingResponse;
+
 function isoDate(date: Date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function wait(milliseconds: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 }
 
 function defaultFilters(): Filters {
@@ -103,10 +124,11 @@ async function responseMessage(response: Response) {
   }
 }
 
-function AlertSettings({ settings, canManage, onSave }: { settings: GameplayAlertSettings; canManage: boolean; onSave: (value: Pick<GameplayAlertSettings, "normalThreshold" | "hardThreshold" | "minPlayers">) => Promise<void> }) {
+function AlertSettings({ settings, canManage, onSave }: { settings: GameplayAlertSettings; canManage: boolean; onSave: (value: Pick<GameplayAlertSettings, "normalThreshold" | "hardThreshold" | "minPlayers" | "alertTargets">) => Promise<void> }) {
   const [normal, setNormal] = useState(String(Math.round(settings.normalThreshold * 100)));
   const [hard, setHard] = useState(String(Math.round(settings.hardThreshold * 100)));
   const [minimum, setMinimum] = useState(String(settings.minPlayers));
+  const [targets, setTargets] = useState<GameplayAlertTarget[]>(settings.alertTargets);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -114,23 +136,37 @@ function AlertSettings({ settings, canManage, onSave }: { settings: GameplayAler
     setNormal(String(Math.round(settings.normalThreshold * 100)));
     setHard(String(Math.round(settings.hardThreshold * 100)));
     setMinimum(String(settings.minPlayers));
+    setTargets(settings.alertTargets);
   }, [settings]);
 
   if (!canManage) return null;
   return (
     <details className="rounded-[9px] border border-line/70 bg-[#0a111e] px-3 py-2 text-xs text-slate-400">
-      <summary className="cursor-pointer font-semibold text-slate-300">Alert thresholds (admin)</summary>
+      <summary className="cursor-pointer font-semibold text-slate-300">Alert delivery and thresholds (admin)</summary>
       <div className="mt-3 grid gap-2 sm:grid-cols-4">
         <label><span className="font-mono text-[10px] uppercase text-slate-500">Normal %</span><input aria-label="Normal fail threshold" value={normal} onChange={(event) => setNormal(event.target.value)} type="number" min="0" max="100" className="mt-1 h-8 w-full rounded border border-line bg-[#0d1424] px-2 text-slate-200" /></label>
         <label><span className="font-mono text-[10px] uppercase text-slate-500">Hard %</span><input aria-label="Hard fail threshold" value={hard} onChange={(event) => setHard(event.target.value)} type="number" min="0" max="100" className="mt-1 h-8 w-full rounded border border-line bg-[#0d1424] px-2 text-slate-200" /></label>
         <label><span className="font-mono text-[10px] uppercase text-slate-500">Min players</span><input aria-label="Minimum players" value={minimum} onChange={(event) => setMinimum(event.target.value)} type="number" min="1" className="mt-1 h-8 w-full rounded border border-line bg-[#0d1424] px-2 text-slate-200" /></label>
-        <button type="button" disabled={saving} onClick={() => {
-          const value = { normalThreshold: Number(normal) / 100, hardThreshold: Number(hard) / 100, minPlayers: Number(minimum) };
-          if (!Number.isFinite(value.normalThreshold) || !Number.isFinite(value.hardThreshold) || !Number.isInteger(value.minPlayers)) { setMessage("Enter valid thresholds and player count."); return; }
-          setSaving(true); setMessage("");
-          void onSave(value).then(() => setMessage("Saved.")).catch((error) => setMessage(error instanceof Error ? error.message : "Could not save settings.")).finally(() => setSaving(false));
-        }} className="mt-[18px] h-8 rounded bg-cobalt px-3 font-semibold text-white disabled:opacity-60">{saving ? "Saving" : "Save"}</button>
       </div>
+      <div className="mt-4 border-t border-line/60 pt-3">
+        <div className="flex flex-wrap items-center justify-between gap-2"><div><p className="font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">Slack alert targets</p><p className="mt-1 text-[11px] text-slate-500">Only these game, platform, and version combinations are evaluated by the daily cron.</p></div><button type="button" onClick={() => setTargets((current) => [...current, { appName: "stacksmash", platforms: ["android", "ios"], appVersion: "" }])} className="rounded border border-line px-2 py-1 font-semibold text-slate-300 hover:bg-sage">Add target</button></div>
+        <div className="mt-3 space-y-2">
+          {targets.map((target, index) => <div key={`${target.appName}-${target.appVersion}-${index}`} className="grid gap-2 rounded border border-line/70 bg-[#0d1424] p-2 md:grid-cols-[minmax(120px,1fr)_minmax(120px,1fr)_auto_auto] md:items-end">
+            <label><span className="font-mono text-[10px] uppercase text-slate-500">Game</span><select aria-label={`Alert game ${index + 1}`} value={target.appName} onChange={(event) => setTargets((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, appName: event.target.value as GameplayAlertTarget["appName"] } : entry))} className="mt-1 h-8 w-full rounded border border-line bg-[#0a111e] px-2 text-slate-200">{appOptions.map((app) => <option key={app} value={app}>{app}</option>)}</select></label>
+            <label><span className="font-mono text-[10px] uppercase text-slate-500">App version</span><input aria-label={`Alert app version ${index + 1}`} value={target.appVersion} onChange={(event) => setTargets((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, appVersion: event.target.value } : entry))} placeholder="e.g. 0.2.0" className="mt-1 h-8 w-full rounded border border-line bg-[#0a111e] px-2 text-slate-200" /></label>
+            <fieldset className="mt-1 flex h-8 items-center gap-3 rounded border border-line bg-[#0a111e] px-2"><legend className="sr-only">Platforms for {target.appName}</legend>{(["android", "ios"] as const).map((platform) => <label key={platform} className="flex items-center gap-1.5 text-[11px] text-slate-300"><input type="checkbox" checked={target.platforms.includes(platform)} onChange={(event) => setTargets((current) => current.map((entry, entryIndex) => entryIndex === index ? { ...entry, platforms: event.target.checked ? [...new Set([...entry.platforms, platform])] : entry.platforms.filter((value) => value !== platform) } : entry))} />{platform}</label>)}</fieldset>
+            <button type="button" aria-label={`Remove alert target ${index + 1}`} onClick={() => setTargets((current) => current.filter((_, entryIndex) => entryIndex !== index))} className="h-8 rounded border border-rose/30 px-2 font-semibold text-rose hover:bg-rose/10">Remove</button>
+          </div>)}
+          {!targets.length ? <p className="rounded border border-dashed border-line/70 px-3 py-2 text-[11px] text-slate-500">No Slack targets configured. The scheduled evaluator will not send alerts.</p> : null}
+        </div>
+      </div>
+      <button type="button" disabled={saving} onClick={() => {
+        const value = { normalThreshold: Number(normal) / 100, hardThreshold: Number(hard) / 100, minPlayers: Number(minimum), alertTargets: targets.map((target) => ({ ...target, appVersion: target.appVersion.trim() })) };
+        if (!Number.isFinite(value.normalThreshold) || !Number.isFinite(value.hardThreshold) || !Number.isInteger(value.minPlayers)) { setMessage("Enter valid thresholds and player count."); return; }
+        if (value.alertTargets.some((target) => !target.appVersion || !target.platforms.length)) { setMessage("Every alert target needs an app version and at least one platform."); return; }
+        setSaving(true); setMessage("");
+        void onSave(value).then(() => setMessage("Saved.")).catch((error) => setMessage(error instanceof Error ? error.message : "Could not save settings.")).finally(() => setSaving(false));
+      }} className="mt-4 h-8 rounded bg-cobalt px-3 font-semibold text-white disabled:opacity-60">{saving ? "Saving" : "Save alert configuration"}</button>
       {message ? <p className="mt-2 text-xs text-amber">{message}</p> : null}
     </details>
   );
@@ -249,8 +285,10 @@ export default function LevelFunnelDashboard() {
   const [versionError, setVersionError] = useState("");
   const [data, setData] = useState<LevelFailRateResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  const [queryStatus, setQueryStatus] = useState("");
   const [accessError, setAccessError] = useState("");
   const [error, setError] = useState("");
+  const queryRequestIdRef = useRef(0);
 
   const selectableApps = useMemo(() => allowedApps?.length ? appOptions.filter((app) => allowedApps.includes(app)) : appOptions, [allowedApps]);
 
@@ -294,26 +332,39 @@ export default function LevelFunnelDashboard() {
   }, [allowedApps, filters.appName, filters.platforms, filters.startDate, filters.endDate]);
 
   function updateFilters(patch: Partial<Filters>) {
+    queryRequestIdRef.current += 1;
     setFilters((current) => ({ ...current, ...patch }));
     setData(null);
-    setError("");
+    setError(""); setQueryStatus("");
   }
 
   async function runCheck(forceRefresh = false) {
     if (!allowedApps?.includes(filters.appName)) return;
-    setLoading(true); setError("");
+    const requestId = queryRequestIdRef.current + 1;
+    queryRequestIdRef.current = requestId;
+    const filterSnapshot = { ...filters };
+    setLoading(true); setError(""); setQueryStatus(forceRefresh ? "Submitting a fresh Count query…" : "Submitting the Count query…");
     try {
-      const response = await fetch("/api/tech-launch/level-fail-rate", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...filters, forceRefresh }) });
+      const response = await fetch("/api/tech-launch/level-fail-rate", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...filterSnapshot, forceRefresh }) });
       if (!response.ok) throw new Error(await responseMessage(response));
-      setData((await response.json()) as LevelFailRateResponse);
+      let result = (await response.json()) as LevelFailRateRunResponse;
+      while (result.status === "running" && queryRequestIdRef.current === requestId) {
+        setQueryStatus("Count query is running. This page will keep checking until the result is ready…");
+        await wait(result.pollAfterMs);
+        if (queryRequestIdRef.current !== requestId) return;
+        const statusResponse = await fetch("/api/tech-launch/level-fail-rate/status", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jobKey: result.metadata.jobKey, filters: result.filters }) });
+        if (!statusResponse.ok) throw new Error(await responseMessage(statusResponse));
+        result = (await statusResponse.json()) as LevelFailRateRunResponse;
+      }
+      if (queryRequestIdRef.current === requestId && result.status !== "running") setData(result);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Could not run level funnel check");
+      if (queryRequestIdRef.current === requestId) setError(reason instanceof Error ? reason.message : "Could not run level funnel check");
     } finally {
-      setLoading(false);
+      if (queryRequestIdRef.current === requestId) { setLoading(false); setQueryStatus(""); }
     }
   }
 
-  async function saveSettings(value: Pick<GameplayAlertSettings, "normalThreshold" | "hardThreshold" | "minPlayers">) {
+  async function saveSettings(value: Pick<GameplayAlertSettings, "normalThreshold" | "hardThreshold" | "minPlayers" | "alertTargets">) {
     const response = await fetch("/api/tech-launch/gameplay-alert-settings", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(value) });
     if (!response.ok) throw new Error(await responseMessage(response));
     const settings = (await response.json()) as GameplayAlertSettings;
@@ -345,6 +396,7 @@ export default function LevelFunnelDashboard() {
           <button type="button" onClick={() => void runCheck(true)} disabled={loading || !allowedApps?.length} className="focus-ring mt-[18px] inline-flex h-10 items-center gap-2 rounded-[8px] border border-line/70 bg-[#0a111e] px-4 text-sm font-semibold text-slate-300 hover:bg-sage disabled:opacity-60"><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />Refresh</button>
         </div>
         <p className="mt-4 border-t border-line/60 pt-4 text-xs text-slate-500">A new level hash pauses only that changed level while it is adopted; unchanged levels continue normally across bank changes.</p>
+        {queryStatus ? <p className="mt-2 text-xs font-medium text-cobalt">{queryStatus}</p> : null}
       </form>
 
       {error ? <div className="mb-5 rounded-[10px] border border-rose/30 bg-rose/10 px-4 py-3 text-sm font-semibold text-rose">{error}</div> : null}

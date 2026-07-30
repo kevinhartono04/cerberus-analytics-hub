@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildLevelFailRateSql, parseLevelFailRateRows } from "@/lib/gameplay-alerts";
+import { buildLevelFailRateSql, dailyGameplayAlertFilters, gameplayAlertSettingsInputSchema, parseLevelFailRateRows } from "@/lib/gameplay-alerts";
 
 const filters = {
   appName: "wordblast",
@@ -10,9 +10,23 @@ const filters = {
   endDate: "2026-07-07",
 };
 
-const settings = { normalThreshold: 0.5, hardThreshold: 0.7, minPlayers: 50 };
+const settings = { normalThreshold: 0.5, hardThreshold: 0.7, minPlayers: 50, alertTargets: [] };
 
 describe("gameplay difficulty alerts", () => {
+  it("supports explicit, version-pinned Slack targets and defaults the daily evaluator to Stacksmash 0.2.0 on both platforms", () => {
+    expect(gameplayAlertSettingsInputSchema.parse({
+      normalThreshold: 0.5,
+      hardThreshold: 0.7,
+      minPlayers: 50,
+      alertTargets: [{ appName: "stacksmash", platforms: ["ios", "android", "android"], appVersion: "0.2.0" }],
+    }).alertTargets).toEqual([{ appName: "stacksmash", platforms: ["android", "ios"], appVersion: "0.2.0" }]);
+
+    expect(dailyGameplayAlertFilters(new Date("2026-07-29T12:00:00.000Z"))).toEqual([
+      { appName: "stacksmash", platform: "android", appVersion: "0.2.0", startDate: "2026-07-22", endDate: "2026-07-28" },
+      { appName: "stacksmash", platform: "ios", appVersion: "0.2.0", startDate: "2026-07-22", endDate: "2026-07-28" },
+    ]);
+  });
+
   it("builds a query with the selected release filters and unique player contract", () => {
     const sql = buildLevelFailRateSql(filters);
     expect(sql).toContain("user_id::string as user_id");

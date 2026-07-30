@@ -15,16 +15,27 @@ import {
   type GameplayAlertSettingsRecord,
   type GameplayAlertStateRecord,
 } from "@/lib/db";
-import { runCountSql } from "@/lib/count-api";
+import { getCountQuery, runCountSql, submitCountSql, type CountQuery } from "@/lib/count-api";
 import { normalizedTechLaunchFilters, techLaunchAppOptions, techLaunchFilterSchema, techLaunchPlatformOptions, type TechLaunchFilters } from "@/lib/tech-launch";
 
 const sqlPath = path.join(process.cwd(), "data", "tech_launch_level_fail_rate.sql");
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 
+export const gameplayAlertTargetSchema = z.object({
+  appName: z.enum(techLaunchAppOptions),
+  platforms: z.array(z.enum(techLaunchPlatformOptions)).min(1)
+    .transform((platforms) => [...new Set(platforms)].sort())
+    .pipe(z.array(z.enum(techLaunchPlatformOptions)).min(1).max(techLaunchPlatformOptions.length)),
+  appVersion: z.string().trim().min(1, "Enter an app version").max(80),
+});
+
+export type GameplayAlertTarget = z.infer<typeof gameplayAlertTargetSchema>;
+
 export const gameplayAlertSettingsSchema = z.object({
   normalThreshold: z.number().min(0).max(1),
   hardThreshold: z.number().min(0).max(1),
   minPlayers: z.number().int().min(1).max(1_000_000),
+  alertTargets: z.array(gameplayAlertTargetSchema).max(25).default([]),
   updatedAt: z.string().optional(),
   updatedBy: z.string().optional(),
 });
@@ -44,6 +55,15 @@ export const levelFunnelFilterSchema = z.object({
 
 export type LevelFunnelFilters = z.infer<typeof levelFunnelFilterSchema>;
 
+export const levelFailRateRequestSchema = levelFunnelFilterSchema.extend({
+  forceRefresh: z.boolean().optional(),
+});
+
+export const levelFailRateStatusRequestSchema = z.object({
+  jobKey: z.string().trim().min(1),
+  filters: levelFunnelFilterSchema,
+});
+
 export function normalizedLevelFunnelFilters(input: unknown): LevelFunnelFilters {
   const source = input && typeof input === "object" ? input as Record<string, unknown> : {};
   const platforms = Array.isArray(source.platforms) ? source.platforms : source.platform ? [source.platform] : ["android"];
@@ -59,6 +79,7 @@ export const gameplayAlertSettingsInputSchema = gameplayAlertSettingsSchema.pick
   normalThreshold: true,
   hardThreshold: true,
   minPlayers: true,
+  alertTargets: true,
 });
 
 export const levelFailRatePointSchema = z.object({
@@ -118,6 +139,16 @@ export const levelFailRateResponseSchema = z.object({
 
 export type LevelFailRateResponse = z.infer<typeof levelFailRateResponseSchema>;
 
+export type LevelFailRatePendingResponse = {
+  status: "running";
+  filters: LevelFunnelFilters;
+  settings: GameplayAlertSettings;
+  metadata: { jobKey: string; submittedAt: string };
+  pollAfterMs: number;
+};
+
+export type LevelFailRateRunResponse = LevelFailRateResponse | LevelFailRatePendingResponse;
+
 export type GameplayAlertState = {
   alertKey: string;
   appName: string;
@@ -144,7 +175,12 @@ export type GameplayAlertTransition = {
   state: GameplayAlertState;
 };
 
-const defaultSettings: GameplayAlertSettings = { normalThreshold: 0.5, hardThreshold: 0.7, minPlayers: 50 };
+const defaultSettings: GameplayAlertSettings = {
+  normalThreshold: 0.5,
+  hardThreshold: 0.7,
+  minPlayers: 50,
+  alertTargets: [{ appName: "stacksmash", platforms: ["android", "ios"], appVersion: "0.2.0" }],
+};
 
 function readBaseSql() {
   return fs.readFileSync(sqlPath, "utf8");
@@ -265,6 +301,7 @@ function settingsFromRecord(record: GameplayAlertSettingsRecord | null): Gamepla
     normalThreshold: record.normalThreshold,
     hardThreshold: record.hardThreshold,
     minPlayers: record.minPlayers,
+    alertTargets: record.alertTargets,
     updatedAt: record.updatedAt,
     updatedBy: record.updatedBy,
   });
@@ -281,25 +318,27 @@ export async function updateGameplayAlertSettings(input: unknown, actorId: strin
   return { ...settings, updatedAt: now, updatedBy: actorId };
 }
 
-export async function getLevelFailRate(input: unknown): Promise<LevelFailRateResponse> {
-  const filters = normalizedLevelFunnelFilters(input);
-  const settings = await getGameplayAlertSettings();
-  let result;
-  try {
-    result = await runCountSql(buildLevelFailRateSql(filters), { cacheStrategy: "default", previewRows: 1000 });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Gameplay data query failed";
-    if (/public_user_id|invalid identifier|unknown column|does not exist/i.test(message)) {
-      return {
-        status: "unavailable", filters, settings, points: [],
-        summary: { breachCount: 0, eligibleLevelCount: 0, unavailableReason: "This game does not expose the required player, level, outcome, and difficulty telemetry contract." },
-        metadata: { executedAt: new Date().toISOString() },
-      };
-    }
+function unavailableLevelFailRateResponse(filters: LevelFunnelFilters, settings: GameplayAlertSettings): LevelFailRateResponse {
+  return {
+    status: "unavailable", filters, settings, points: [],
+    summary: { breachCount: 0, eligibleLevelCount: 0, unavailableReason: "This game does not expose the required player, level, outcome, and difficulty telemetry contract." },
+    metadata: { executedAt: new Date().toISOString() },
+  };
+}
+
+function isUnavailableTelemetryError(error: unknown) {
+  const message = error instanceof Error ? error.message : "";
+  return /public_user_id|invalid identifier|unknown column|does not exist/i.test(message);
+}
+
+async function completedLevelFailRateResponse(query: CountQuery, filters: LevelFunnelFilters, settings: GameplayAlertSettings): Promise<LevelFailRateResponse> {
+  if (query.status === "error") {
+    const error = new Error(query.error ?? "Count query failed");
+    if (isUnavailableTelemetryError(error)) return unavailableLevelFailRateResponse(filters, settings);
     throw error;
   }
-  if (result.query.status === "error") throw new Error(result.query.error ?? "Count query failed");
-  const points = parseLevelFailRateRows(result.query.result_preview, settings);
+  if (query.status !== "completed") throw new Error("Count query is still running");
+  const points = parseLevelFailRateRows(query.result_preview, settings);
   const openStatesByLevel = new Map<number, GameplayAlertState[]>();
   const persistedStateFilters = filters.platforms.length === 1 && filters.appVersions.length === 1
     ? { appName: filters.appName, platform: filters.platforms[0], appVersion: filters.appVersions[0] }
@@ -340,12 +379,70 @@ export async function getLevelFailRate(input: unknown): Promise<LevelFailRateRes
     },
     metadata: {
       executedAt: now,
-      ...(result.query.result_metadata?.duration ? { durationMs: result.query.result_metadata.duration } : {}),
+      ...(query.result_metadata?.duration ? { durationMs: query.result_metadata.duration } : {}),
     },
   };
 }
 
-export async function recordGameplayAlertDashboardObservation(filtersInput: unknown, response: LevelFailRateResponse) {
+export async function getLevelFailRate(input: unknown): Promise<LevelFailRateResponse> {
+  const filters = normalizedLevelFunnelFilters(input);
+  const settings = await getGameplayAlertSettings();
+  try {
+    const result = await runCountSql(buildLevelFailRateSql(filters), { cacheStrategy: "default", previewRows: 1000 });
+    return completedLevelFailRateResponse(result.query, filters, settings);
+  } catch (error) {
+    if (isUnavailableTelemetryError(error)) return unavailableLevelFailRateResponse(filters, settings);
+    throw error;
+  }
+}
+
+export async function startLevelFailRate(input: unknown): Promise<LevelFailRateRunResponse> {
+  const request = levelFailRateRequestSchema.parse(input);
+  const filters = normalizedLevelFunnelFilters(request);
+  const settings = await getGameplayAlertSettings();
+  try {
+    const submitted = await submitCountSql(buildLevelFailRateSql(filters), { cacheStrategy: request.forceRefresh ? "force" : "default" });
+    if (submitted.query.status === "error") return completedLevelFailRateResponse(submitted.query, filters, settings);
+    if (submitted.query.status === "completed") {
+      const completed = await getCountQuery(submitted.query.job_key, 1000);
+      return completedLevelFailRateResponse(completed.query, filters, settings);
+    }
+    return {
+      status: "running",
+      filters,
+      settings,
+      metadata: { jobKey: submitted.query.job_key, submittedAt: new Date().toISOString() },
+      pollAfterMs: 1500,
+    };
+  } catch (error) {
+    if (isUnavailableTelemetryError(error)) return unavailableLevelFailRateResponse(filters, settings);
+    throw error;
+  }
+}
+
+export async function getLevelFailRateStatus(input: unknown): Promise<LevelFailRateRunResponse> {
+  const request = levelFailRateStatusRequestSchema.parse(input);
+  const filters = normalizedLevelFunnelFilters(request.filters);
+  const settings = await getGameplayAlertSettings();
+  try {
+    const result = await getCountQuery(request.jobKey, 1000);
+    if (result.query.status === "running") {
+      return {
+        status: "running",
+        filters,
+        settings,
+        metadata: { jobKey: request.jobKey, submittedAt: new Date().toISOString() },
+        pollAfterMs: 1500,
+      };
+    }
+    return completedLevelFailRateResponse(result.query, filters, settings);
+  } catch (error) {
+    if (isUnavailableTelemetryError(error)) return unavailableLevelFailRateResponse(filters, settings);
+    throw error;
+  }
+}
+
+export async function recordGameplayAlertDashboardObservation(filtersInput: unknown, response: LevelFailRateRunResponse) {
   const filters = normalizedLevelFunnelFilters(filtersInput);
   if (response.status !== "completed") return;
   await saveGameplayAlertEvaluationRun({
@@ -475,7 +572,7 @@ export function dailyGameplayAlertFilters(today = new Date()) {
   const start = new Date(end);
   start.setUTCDate(start.getUTCDate() - 6);
   const iso = (value: Date) => value.toISOString().slice(0, 10);
-  return techLaunchAppOptions.map((appName) => ({ appName, platform: "android" as const, appVersion: "", startDate: iso(start), endDate: iso(end) }));
+  return defaultSettings.alertTargets.flatMap((target) => target.platforms.map((platform) => ({ appName: target.appName, platform, appVersion: target.appVersion, startDate: iso(start), endDate: iso(end) })));
 }
 
 export function isIsoDate(value: string) {

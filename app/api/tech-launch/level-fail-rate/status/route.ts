@@ -2,21 +2,20 @@ import { NextResponse } from "next/server";
 import { ZodError } from "zod";
 
 import { assertCanUseTechLaunch, jsonError, requireCurrentAppUser } from "@/lib/auth";
-import { levelFailRateRequestSchema, recordGameplayAlertDashboardObservation, startLevelFailRate } from "@/lib/gameplay-alerts";
+import { getLevelFailRateStatus, levelFailRateStatusRequestSchema, recordGameplayAlertDashboardObservation } from "@/lib/gameplay-alerts";
 
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
   try {
     const user = await requireCurrentAppUser(request);
-    const requestBody = levelFailRateRequestSchema.parse(await request.json());
-    const filters = requestBody;
-    await assertCanUseTechLaunch(user, filters.appName);
-    const response = await startLevelFailRate(requestBody);
-    // Observations are useful audit records, but a storage failure must not
-    // make the analyst-facing dashboard unavailable. This path never sends Slack.
+    const requestBody = levelFailRateStatusRequestSchema.parse(await request.json());
+    await assertCanUseTechLaunch(user, requestBody.filters.appName);
+    const response = await getLevelFailRateStatus(requestBody);
+    // Polling may finish a dashboard query. Record it, but never deliver Slack
+    // from an analyst-initiated request.
     try {
-      await recordGameplayAlertDashboardObservation(filters, response);
+      await recordGameplayAlertDashboardObservation(requestBody.filters, response);
     } catch (error) {
       console.warn("Could not save gameplay dashboard observation", error);
     }
