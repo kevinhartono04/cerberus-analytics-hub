@@ -10,6 +10,7 @@ const appOptions = [
   "blockkingdom", "bloomsort", "bubblego", "bubblewordchain", "dotpaint", "hexago", "jelly", "mahjongbloom", "marble",
   "sizzle", "stacksmash", "treasureshot", "tripletile", "wooblast", "woodoku", "wordblast", "wordoku", "wordrush",
 ] as const;
+const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 
 type Filters = {
   appName: string;
@@ -112,6 +113,57 @@ function defaultFilters(): Filters {
   const start = new Date(end);
   start.setDate(start.getDate() - 7);
   return { appName: appOptions[0], platforms: ["android"], appVersions: [], startDate: isoDate(start), endDate: isoDate(end) };
+}
+
+function isAppName(value: string): value is typeof appOptions[number] {
+  return (appOptions as readonly string[]).includes(value);
+}
+
+function isDateValue(value: string) {
+  return datePattern.test(value);
+}
+
+function filtersFromSearchParams(params: URLSearchParams): Filters | null {
+  const hasFilterParam = ["appName", "platform", "appVersion", "startDate", "endDate"].some((key) => params.has(key));
+  if (!hasFilterParam) return null;
+
+  const next = defaultFilters();
+  const appName = params.get("appName");
+  const platforms = [...new Set(params.getAll("platform").map((value) => value.trim().toLowerCase()))];
+  const appVersions = [...new Set(params.getAll("appVersion").map((value) => value.trim()).filter(Boolean))];
+  const startDate = params.get("startDate");
+  const endDate = params.get("endDate");
+  if (appName && !isAppName(appName)) return null;
+  if (appName) next.appName = appName;
+  if (platforms.length) {
+    if (platforms.some((platform) => platform !== "android" && platform !== "ios")) return null;
+    next.platforms = platforms as Filters["platforms"];
+  }
+  next.appVersions = appVersions;
+  if (startDate) {
+    if (!isDateValue(startDate)) return null;
+    next.startDate = startDate;
+  }
+  if (endDate) {
+    if (!isDateValue(endDate)) return null;
+    next.endDate = endDate;
+  }
+  return next.startDate <= next.endDate ? next : null;
+}
+
+function writeFiltersToUrl(filters: Filters, run: boolean) {
+  if (typeof window === "undefined") return;
+  const url = new URL(window.location.href);
+  url.searchParams.set("appName", filters.appName);
+  url.searchParams.delete("platform");
+  filters.platforms.forEach((platform) => url.searchParams.append("platform", platform));
+  url.searchParams.delete("appVersion");
+  filters.appVersions.forEach((appVersion) => url.searchParams.append("appVersion", appVersion));
+  url.searchParams.set("startDate", filters.startDate);
+  url.searchParams.set("endDate", filters.endDate);
+  if (run) url.searchParams.set("run", "1");
+  else url.searchParams.delete("run");
+  window.history.replaceState(null, "", `${url.pathname}?${url.searchParams.toString()}${url.hash}`);
 }
 
 async function responseMessage(response: Response) {
@@ -289,6 +341,9 @@ export default function LevelFunnelDashboard() {
   const [accessError, setAccessError] = useState("");
   const [error, setError] = useState("");
   const queryRequestIdRef = useRef(0);
+  const hasReadUrlRef = useRef(false);
+  const skipNextUrlSyncRef = useRef(false);
+  const [pendingUrlRun, setPendingUrlRun] = useState(false);
 
   const selectableApps = useMemo(() => allowedApps?.length ? appOptions.filter((app) => allowedApps.includes(app)) : appOptions, [allowedApps]);
 
@@ -308,6 +363,18 @@ export default function LevelFunnelDashboard() {
       if (!cancelled) { setAllowedApps([]); setAccessError(reason instanceof Error ? reason.message : "Could not load account access"); }
     });
     return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const urlFilters = filtersFromSearchParams(params);
+    hasReadUrlRef.current = true;
+    skipNextUrlSyncRef.current = true;
+    if (urlFilters) {
+      setFilters(urlFilters);
+      if (params.get("run") === "1") setPendingUrlRun(true);
+    }
   }, []);
 
   useEffect(() => {
@@ -343,6 +410,7 @@ export default function LevelFunnelDashboard() {
     const requestId = queryRequestIdRef.current + 1;
     queryRequestIdRef.current = requestId;
     const filterSnapshot = { ...filters };
+    writeFiltersToUrl(filterSnapshot, true);
     setLoading(true); setError(""); setQueryStatus(forceRefresh ? "Submitting a fresh Count query…" : "Submitting the Count query…");
     try {
       const response = await fetch("/api/tech-launch/level-fail-rate", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...filterSnapshot, forceRefresh }) });
@@ -363,6 +431,21 @@ export default function LevelFunnelDashboard() {
       if (queryRequestIdRef.current === requestId) { setLoading(false); setQueryStatus(""); }
     }
   }
+
+  useEffect(() => {
+    if (!pendingUrlRun || allowedApps === null || !allowedApps.includes(filters.appName)) return;
+    setPendingUrlRun(false);
+    void runCheck();
+  }, [allowedApps, pendingUrlRun]);
+
+  useEffect(() => {
+    if (!hasReadUrlRef.current || pendingUrlRun) return;
+    if (skipNextUrlSyncRef.current) {
+      skipNextUrlSyncRef.current = false;
+      return;
+    }
+    writeFiltersToUrl(filters, false);
+  }, [filters, pendingUrlRun]);
 
   async function saveSettings(value: Pick<GameplayAlertSettings, "normalThreshold" | "hardThreshold" | "minPlayers" | "alertTargets">) {
     const response = await fetch("/api/tech-launch/gameplay-alert-settings", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(value) });

@@ -123,18 +123,43 @@ with source_events as (
     regexp_replace(lower(coalesce(max_by(s.raw_difficulty, s.created_at), '')), '[[:space:]_-]', '') not in ('normal', 'hard', 'superhard', 'veryhard') as used_difficulty_fallback
   from starts s
   group by 1, 2
-), recent_revisions as (
+), recent_revision_metrics as (
   select
     s.level,
     s.revision_key,
-    max_by(s.layout_bank_id, s.created_at) as layout_bank_id,
-    max_by(s.level_id, s.created_at) as level_id,
     count(distinct s.user_id) as recent_players,
-    row_number() over (partition by s.level order by count(distinct s.user_id) desc, max(s.created_at) desc, s.revision_key) as revision_rank
+    max(s.created_at) as revision_last_seen_at
   from starts s
   cross join latest_event l
   where s.created_at >= dateadd(hour, -24, l.last_event_at)
   group by 1, 2
+), revision_banks as (
+  select
+    s.level,
+    s.revision_key,
+    s.layout_bank_id,
+    max(s.level_id) as level_id,
+    min(s.created_at) as bank_first_seen_at,
+    max(s.created_at) as bank_last_seen_at,
+    row_number() over (
+      partition by s.level, s.revision_key
+      order by min(s.created_at) desc, max(s.created_at) desc, s.layout_bank_id desc
+    ) as canonical_bank_rank
+  from starts s
+  group by 1, 2, 3
+), recent_revisions as (
+  select
+    m.level,
+    m.revision_key,
+    b.layout_bank_id,
+    b.level_id,
+    m.recent_players,
+    row_number() over (partition by m.level order by m.recent_players desc, m.revision_last_seen_at desc, m.revision_key) as revision_rank
+  from recent_revision_metrics m
+  join revision_banks b
+    on b.level = m.level
+    and b.revision_key = m.revision_key
+    and b.canonical_bank_rank = 1
 ), active_layouts as (
   select
     r.level,

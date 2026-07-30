@@ -43,6 +43,9 @@ describe("gameplay difficulty alerts", () => {
     expect(sql).toContain("a.layout_share >= 0.7");
     expect(sql).toContain("a.layout_coverage >= 0.95");
     expect(sql).toContain("pending_revision_candidates as");
+    expect(sql).toContain("revision_banks as");
+    expect(sql).toContain("canonical_bank_rank");
+    expect(sql).toContain("order by min(s.created_at) desc, max(s.created_at) desc, s.layout_bank_id desc");
     expect(sql).toContain("prior_layouts as");
     expect(sql).toContain("previous_layout_fail_rate");
     expect(sql).toContain("previous_layout_hash");
