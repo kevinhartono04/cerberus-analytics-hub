@@ -23,16 +23,20 @@ import { normalizedTechLaunchFilters, techLaunchAppOptions, techLaunchFilterSche
 
 const sqlPath = path.join(process.cwd(), "data", "tech_launch_level_fail_rate.sql");
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+export const allAppVersionsAlertScope = "__all_versions__";
 
 export const gameplayAlertTargetSchema = z.object({
   appName: z.enum(techLaunchAppOptions),
   platforms: z.array(z.enum(techLaunchPlatformOptions)).min(1)
     .transform((platforms) => [...new Set(platforms)].sort())
     .pipe(z.array(z.enum(techLaunchPlatformOptions)).min(1).max(techLaunchPlatformOptions.length)),
-  appVersion: z.string().trim().min(1, "Enter an app version").max(80),
+  // An empty value is an intentional "all versions" target, not an invalid
+  // partially configured target.
+  appVersion: z.string().trim().max(80).default(""),
 });
 
 export type GameplayAlertTarget = z.infer<typeof gameplayAlertTargetSchema>;
+export type GameplayAlertCronFilters = TechLaunchFilters & { appVersions: string[] };
 
 export const gameplayAlertSettingsSchema = z.object({
   normalThreshold: z.number().min(0).max(1),
@@ -555,10 +559,10 @@ export async function reconcileGameplayAlerts(filtersInput: unknown) {
   return reconcileGameplayAlertResponse(filters, await getLevelFailRate(filters));
 }
 
-export async function reconcileGameplayAlertsFromQuery(filtersInput: unknown, query: CountQuery) {
+export async function reconcileGameplayAlertsFromQuery(filtersInput: unknown, query: CountQuery, queryFiltersInput: unknown = filtersInput) {
   const filters = normalizedTechLaunchFilters(filtersInput);
   const settings = await getGameplayAlertSettings();
-  return reconcileGameplayAlertResponse(filters, await completedLevelFailRateResponse(query, normalizedLevelFunnelFilters(filters), settings));
+  return reconcileGameplayAlertResponse(filters, await completedLevelFailRateResponse(query, normalizedLevelFunnelFilters(queryFiltersInput), settings));
 }
 
 export async function undeliveredGameplayAlertTransitions(filtersInput: unknown): Promise<GameplayAlertTransition[]> {
@@ -577,7 +581,8 @@ export async function deliverGameplayAlertTransitions(transitions: GameplayAlert
   if (!webhook || !transitions.length) return { delivered: 0, skipped: transitions.length, configured: Boolean(webhook) };
   const lines = transitions.map(({ type, state }) => {
     const label = type === "opened" ? "OPEN" : "RESOLVED";
-    return `*${label}* · ${state.appName} ${state.appVersion} · Level ${state.level} · Layout bank ${state.layoutBankId ?? "legacy"} · ${state.difficultyTier} · ${(state.lastFailRate * 100).toFixed(1)}% fail rate vs ${(state.threshold * 100).toFixed(0)}% · ${state.lastReachedPlayers} players`;
+    const appVersion = state.appVersion === allAppVersionsAlertScope ? "all versions" : state.appVersion;
+    return `*${label}* · ${state.appName} ${appVersion} · Level ${state.level} · Layout bank ${state.layoutBankId ?? "legacy"} · ${state.difficultyTier} · ${(state.lastFailRate * 100).toFixed(1)}% fail rate vs ${(state.threshold * 100).toFixed(0)}% · ${state.lastReachedPlayers} players`;
   });
   const response = await fetch(webhook, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: `Gameplay Difficulty Alerts\n${lines.join("\n")}` }) });
   if (!response.ok) throw new Error(`Slack webhook returned ${response.status}`);
@@ -589,13 +594,22 @@ export async function deliverGameplayAlertTransitions(transitions: GameplayAlert
   return { delivered: transitions.length, skipped: 0, configured: true };
 }
 
-export function gameplayAlertCronFilters(settings: GameplayAlertSettings, today = new Date()) {
+export function gameplayAlertCronFilters(settings: GameplayAlertSettings, today = new Date()): GameplayAlertCronFilters[] {
   const end = new Date(today);
   end.setUTCDate(end.getUTCDate() - 1);
   const start = new Date(end);
   start.setUTCDate(start.getUTCDate() - 6);
   const iso = (value: Date) => value.toISOString().slice(0, 10);
-  return settings.alertTargets.flatMap((target) => target.platforms.map((platform) => ({ appName: target.appName, platform, appVersion: target.appVersion, startDate: iso(start), endDate: iso(end) })));
+  return settings.alertTargets.flatMap((target) => target.platforms.map((platform) => ({
+    appName: target.appName,
+    platform,
+    // State is keyed separately for an all-version evaluation, while the SQL
+    // receives an empty list and therefore omits its version predicate.
+    appVersion: target.appVersion || allAppVersionsAlertScope,
+    appVersions: target.appVersion ? [target.appVersion] : [],
+    startDate: iso(start),
+    endDate: iso(end),
+  })));
 }
 
 export function gameplayAlertEvaluationKey(filters: TechLaunchFilters) {

@@ -28,7 +28,7 @@ vi.mock("@/lib/count-api", () => ({ submitCountSql: mocks.submit, getCountQuery:
 
 import { GET } from "@/app/api/cron/gameplay-alerts/route";
 
-const filters = { appName: "stacksmash", platform: "android", appVersion: "0.2.0", startDate: "2026-07-22", endDate: "2026-07-28" };
+const filters = { appName: "stacksmash", platform: "android", appVersion: "0.2.0", appVersions: ["0.2.0"], startDate: "2026-07-22", endDate: "2026-07-28" };
 
 describe("gameplay alert cron", () => {
   beforeEach(() => {
@@ -63,7 +63,7 @@ describe("gameplay alert cron", () => {
 
     expect(await response.json()).toMatchObject({ targetCount: 1, submittedCount: 0, completedCount: 1, runningCount: 0, failures: [] });
     expect(mocks.submit).not.toHaveBeenCalled();
-    expect(mocks.reconcile).toHaveBeenCalledWith(filters, expect.objectContaining({ job_key: "count-job", status: "completed" }));
+    expect(mocks.reconcile).toHaveBeenCalledWith(filters, expect.objectContaining({ job_key: "count-job", status: "completed" }), { appName: "stacksmash", platforms: ["android"], appVersions: ["0.2.0"], startDate: "2026-07-22", endDate: "2026-07-28" });
     expect(mocks.saveJobs).toHaveBeenCalledWith([expect.objectContaining({ jobKey: "count-job", status: "completed" })]);
   });
 });

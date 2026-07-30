@@ -36,6 +36,13 @@ export async function GET(request: Request) {
   await Promise.all(targets.map(async (filters) => {
     const evaluationKey = gameplayAlertEvaluationKey(filters);
     const label = `${filters.appName} ${filters.platform} ${filters.appVersion}`;
+    const queryFilters = {
+      appName: filters.appName,
+      platforms: [filters.platform],
+      appVersions: filters.appVersions,
+      startDate: filters.startDate,
+      endDate: filters.endDate,
+    };
     let job = existingByKey.get(evaluationKey);
     try {
       if (job?.status === "running") {
@@ -46,7 +53,7 @@ export async function GET(request: Request) {
           return;
         }
         if (current.status === "running") return;
-        const result = await reconcileGameplayAlertsFromQuery(filters, current);
+        const result = await reconcileGameplayAlertsFromQuery(filters, current, queryFilters);
         transitions.push(...result.transitions);
         jobUpdates.push({ ...job, status: "completed", completedAt: new Date().toISOString(), error: undefined });
         completedCount += 1;
@@ -58,7 +65,7 @@ export async function GET(request: Request) {
       // than being repeatedly re-submitted every five minutes.
       if (job) return;
 
-      const submitted = (await submitCountSql(buildLevelFailRateSql(filters), { cacheStrategy: "default" })).query;
+      const submitted = (await submitCountSql(buildLevelFailRateSql(queryFilters), { cacheStrategy: "default" })).query;
       submittedCount += 1;
       job = { evaluationKey, jobKey: submitted.job_key, filters: JSON.stringify(filters), status: "running", submittedAt: new Date().toISOString() };
       if (submitted.status === "error") {
@@ -80,7 +87,7 @@ export async function GET(request: Request) {
         failures.push(`${label}: ${completed.error ?? "Count query failed"}`);
         return;
       }
-      const result = await reconcileGameplayAlertsFromQuery(filters, completed);
+      const result = await reconcileGameplayAlertsFromQuery(filters, completed, queryFilters);
       transitions.push(...result.transitions);
       jobUpdates.push({ ...job, status: "completed", completedAt: new Date().toISOString() });
       completedCount += 1;
