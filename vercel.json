@@ -1,5 +1,0 @@
-{
-  "crons": [
-    { "path": "/api/cron/gameplay-alerts", "schedule": "0 1 * * *" }
-  ]
-}

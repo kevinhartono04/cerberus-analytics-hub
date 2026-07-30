@@ -70,6 +70,16 @@ export const gameplayAlertEvaluationRuns = pgTable("gameplay_alert_evaluation_ru
   transitionCount: integer("transition_count").notNull(),
 });
 
+export const gameplayAlertQueryJobs = pgTable("gameplay_alert_query_jobs", {
+  evaluationKey: text("evaluation_key").primaryKey(),
+  jobKey: text("job_key").notNull(),
+  filters: text("filters").notNull(),
+  status: text("status").notNull(),
+  submittedAt: text("submitted_at").notNull(),
+  completedAt: text("completed_at"),
+  error: text("error"),
+});
+
 export const partnerAccessDomains = pgTable("partner_access_domains", {
   domain: text("domain").primaryKey(),
   enabled: text("enabled").notNull(),

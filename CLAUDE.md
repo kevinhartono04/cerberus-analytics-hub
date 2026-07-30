@@ -92,7 +92,7 @@ Set in Vercel (not all present in `.env.local`):
 - **AI:** `OPENAI_API_KEY`, `OPENAI_MODEL`.
 - **Count / Snowflake:** `COUNT_API_KEY`, `COUNT_PROJECT_KEY`, `COUNT_CONNECTION_KEY`, `COUNT_QUERY_TIMEOUT_MS`, `COUNT_API_BASE_URL` (default `https://api.eu.count.co`); `SNOWFLAKE_*`.
 - **Caching:** `TECH_LAUNCH_CACHE_TTL_SECONDS` (default 900), `TECH_LAUNCH_APP_VERSION_CACHE_TTL_SECONDS` (default 3600), `SPEC_CHECK_CACHE_TTL_SECONDS` (default 900), `SPEC_CHECK_APP_VERSION_CACHE_TTL_SECONDS` (default 3600).
-- **Gameplay alerts:** `CRON_SECRET` (authorizes the Vercel cron request) and `SLACK_GAMEPLAY_ALERT_WEBHOOK_URL` (shared-channel incoming webhook).
+- **Gameplay alerts:** `CRON_SECRET` (authorizes the protected alert endpoint) and `SLACK_GAMEPLAY_ALERT_WEBHOOK_URL` (shared-channel incoming webhook). The daily scheduler is `.github/workflows/gameplay-alerts.yml`; configure its `GAMEPLAY_ALERT_CRON_SECRET` repository secret to the same value as `CRON_SECRET`, and `GAMEPLAY_ALERT_ENDPOINT` to the production `/api/cron/gameplay-alerts` URL.
 
 ## Conventions
 

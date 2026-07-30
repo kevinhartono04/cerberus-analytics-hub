@@ -7,12 +7,15 @@ import { z } from "zod";
 
 import {
   getGameplayAlertSettingsRecord,
+  listGameplayAlertQueryJobs,
   listGameplayAlertStates,
   saveGameplayAlertSettingsRecord,
+  saveGameplayAlertQueryJobRecords,
   saveGameplayAlertStateRecords,
   saveGameplayAlertEvaluationRun,
   markGameplayAlertSlackDelivered,
   type GameplayAlertSettingsRecord,
+  type GameplayAlertQueryJobRecord,
   type GameplayAlertStateRecord,
 } from "@/lib/db";
 import { getCountQuery, runCountSql, submitCountSql, type CountQuery } from "@/lib/count-api";
@@ -482,9 +485,7 @@ function stateFromRecord(record: GameplayAlertStateRecord): GameplayAlertState {
   };
 }
 
-export async function reconcileGameplayAlerts(filtersInput: unknown) {
-  const filters = normalizedTechLaunchFilters(filtersInput);
-  const response = await getLevelFailRate(filters);
+async function reconcileGameplayAlertResponse(filters: TechLaunchFilters, response: LevelFailRateResponse) {
   const now = new Date().toISOString();
   const existing = new Map((await listGameplayAlertStates(filters)).map((record) => [record.alertKey, stateFromRecord(record)]));
   if (response.status !== "completed") {
@@ -549,6 +550,28 @@ export async function reconcileGameplayAlerts(filtersInput: unknown) {
   return { response, transitions };
 }
 
+export async function reconcileGameplayAlerts(filtersInput: unknown) {
+  const filters = normalizedTechLaunchFilters(filtersInput);
+  return reconcileGameplayAlertResponse(filters, await getLevelFailRate(filters));
+}
+
+export async function reconcileGameplayAlertsFromQuery(filtersInput: unknown, query: CountQuery) {
+  const filters = normalizedTechLaunchFilters(filtersInput);
+  const settings = await getGameplayAlertSettings();
+  return reconcileGameplayAlertResponse(filters, await completedLevelFailRateResponse(query, normalizedLevelFunnelFilters(filters), settings));
+}
+
+export async function undeliveredGameplayAlertTransitions(filtersInput: unknown): Promise<GameplayAlertTransition[]> {
+  const filters = normalizedTechLaunchFilters(filtersInput);
+  const transitions: GameplayAlertTransition[] = [];
+  for (const record of await listGameplayAlertStates(filters)) {
+    const state = stateFromRecord(record);
+    if (state.status === "open" && !state.slackOpenDeliveredAt) transitions.push({ type: "opened", state });
+    if (state.status === "resolved" && state.slackOpenDeliveredAt && !state.slackResolvedDeliveredAt) transitions.push({ type: "resolved", state });
+  }
+  return transitions;
+}
+
 export async function deliverGameplayAlertTransitions(transitions: GameplayAlertTransition[]) {
   const webhook = process.env.SLACK_GAMEPLAY_ALERT_WEBHOOK_URL?.trim();
   if (!webhook || !transitions.length) return { delivered: 0, skipped: transitions.length, configured: Boolean(webhook) };
@@ -566,13 +589,21 @@ export async function deliverGameplayAlertTransitions(transitions: GameplayAlert
   return { delivered: transitions.length, skipped: 0, configured: true };
 }
 
-export function dailyGameplayAlertFilters(today = new Date()) {
+export function gameplayAlertCronFilters(settings: GameplayAlertSettings, today = new Date()) {
   const end = new Date(today);
   end.setUTCDate(end.getUTCDate() - 1);
   const start = new Date(end);
   start.setUTCDate(start.getUTCDate() - 6);
   const iso = (value: Date) => value.toISOString().slice(0, 10);
-  return defaultSettings.alertTargets.flatMap((target) => target.platforms.map((platform) => ({ appName: target.appName, platform, appVersion: target.appVersion, startDate: iso(start), endDate: iso(end) })));
+  return settings.alertTargets.flatMap((target) => target.platforms.map((platform) => ({ appName: target.appName, platform, appVersion: target.appVersion, startDate: iso(start), endDate: iso(end) })));
+}
+
+export function gameplayAlertEvaluationKey(filters: TechLaunchFilters) {
+  return [filters.appName, filters.platform, filters.appVersion, filters.startDate, filters.endDate].join(":");
+}
+
+export function dailyGameplayAlertFilters(today = new Date()) {
+  return gameplayAlertCronFilters(defaultSettings, today);
 }
 
 export function isIsoDate(value: string) {

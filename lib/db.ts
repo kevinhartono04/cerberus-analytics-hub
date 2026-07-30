@@ -280,6 +280,17 @@ async function ensureGameplayAlertTables() {
           source TEXT NOT NULL DEFAULT 'cron'
         )
       `;
+      await transaction`
+        CREATE TABLE IF NOT EXISTS gameplay_alert_query_jobs (
+          evaluation_key TEXT PRIMARY KEY NOT NULL,
+          job_key TEXT NOT NULL,
+          filters TEXT NOT NULL,
+          status TEXT NOT NULL,
+          submitted_at TEXT NOT NULL,
+          completed_at TEXT,
+          error TEXT
+        )
+      `;
       await transaction`ALTER TABLE gameplay_alert_evaluation_runs ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'cron'`;
     }).then(() => undefined).catch((error) => { gameplayAlertTablesReady = null; throw error; });
   }
@@ -304,6 +315,10 @@ function ensureSqliteGameplayAlertTables() {
     CREATE TABLE IF NOT EXISTS gameplay_alert_evaluation_runs (
       id TEXT PRIMARY KEY NOT NULL, evaluated_at TEXT NOT NULL, filters TEXT NOT NULL, result TEXT NOT NULL,
       transition_count INTEGER NOT NULL, source TEXT NOT NULL DEFAULT 'cron'
+    );
+    CREATE TABLE IF NOT EXISTS gameplay_alert_query_jobs (
+      evaluation_key TEXT PRIMARY KEY NOT NULL, job_key TEXT NOT NULL, filters TEXT NOT NULL, status TEXT NOT NULL,
+      submitted_at TEXT NOT NULL, completed_at TEXT, error TEXT
     );
   `);
   if (!sqliteColumnExists("gameplay_alert_settings", "alert_targets")) {
@@ -1115,6 +1130,16 @@ export type GameplayAlertSettingsRecord = GameplayAlertSettings & { updatedAt: s
 
 export type GameplayAlertStateRecord = GameplayAlertState;
 
+export type GameplayAlertQueryJobRecord = {
+  evaluationKey: string;
+  jobKey: string;
+  filters: string;
+  status: "running" | "completed" | "error";
+  submittedAt: string;
+  completedAt?: string;
+  error?: string;
+};
+
 function rowToGameplayAlertSettings(row: Record<string, unknown>): GameplayAlertSettingsRecord {
   let alertTargets: GameplayAlertTarget[] = [];
   try {
@@ -1143,6 +1168,16 @@ function rowToGameplayAlertState(row: Record<string, unknown>): GameplayAlertSta
   };
 }
 
+function rowToGameplayAlertQueryJob(row: Record<string, unknown>): GameplayAlertQueryJobRecord {
+  const status = asString(row.status);
+  return {
+    evaluationKey: asString(row.evaluation_key), jobKey: asString(row.job_key), filters: asString(row.filters),
+    status: status === "completed" || status === "error" ? status : "running",
+    submittedAt: asString(row.submitted_at), ...(asString(row.completed_at) ? { completedAt: asString(row.completed_at) } : {}),
+    ...(asString(row.error) ? { error: asString(row.error) } : {}),
+  };
+}
+
 export async function getGameplayAlertSettingsRecord(): Promise<GameplayAlertSettingsRecord | null> {
   if (shouldUseLocalSqlite()) {
     ensureSqliteGameplayAlertTables();
@@ -1162,6 +1197,32 @@ export async function saveGameplayAlertSettingsRecord(record: GameplayAlertSetti
   }
   const sql = await ensureGameplayAlertTables();
   await sql`INSERT INTO gameplay_alert_settings (id, normal_threshold, hard_threshold, min_players, alert_targets, updated_at, updated_by) VALUES ('global', ${record.normalThreshold}, ${record.hardThreshold}, ${record.minPlayers}, ${JSON.stringify(record.alertTargets)}, ${record.updatedAt}, ${record.updatedBy}) ON CONFLICT(id) DO UPDATE SET normal_threshold = excluded.normal_threshold, hard_threshold = excluded.hard_threshold, min_players = excluded.min_players, alert_targets = excluded.alert_targets, updated_at = excluded.updated_at, updated_by = excluded.updated_by`;
+}
+
+export async function listGameplayAlertQueryJobs(evaluationKeys: string[]): Promise<GameplayAlertQueryJobRecord[]> {
+  if (!evaluationKeys.length) return [];
+  if (shouldUseLocalSqlite()) {
+    ensureSqliteGameplayAlertTables();
+    return sqliteJsonRows<Record<string, unknown>>(`SELECT * FROM gameplay_alert_query_jobs WHERE evaluation_key IN (${evaluationKeys.map(sqliteLiteral).join(", ")})`).map(rowToGameplayAlertQueryJob);
+  }
+  const sql = await ensureGameplayAlertTables();
+  const rows = await sql<Record<string, unknown>[]>`SELECT * FROM gameplay_alert_query_jobs WHERE evaluation_key IN ${sql(evaluationKeys)}`;
+  return rows.map(rowToGameplayAlertQueryJob);
+}
+
+export async function saveGameplayAlertQueryJobRecords(records: GameplayAlertQueryJobRecord[]) {
+  if (!records.length) return;
+  if (shouldUseLocalSqlite()) {
+    ensureSqliteGameplayAlertTables();
+    for (const record of records) {
+      sqliteExec(`INSERT INTO gameplay_alert_query_jobs (evaluation_key, job_key, filters, status, submitted_at, completed_at, error) VALUES (${sqliteLiteral(record.evaluationKey)}, ${sqliteLiteral(record.jobKey)}, ${sqliteLiteral(record.filters)}, ${sqliteLiteral(record.status)}, ${sqliteLiteral(record.submittedAt)}, ${record.completedAt ? sqliteLiteral(record.completedAt) : "NULL"}, ${record.error ? sqliteLiteral(record.error) : "NULL"}) ON CONFLICT(evaluation_key) DO UPDATE SET job_key = excluded.job_key, filters = excluded.filters, status = excluded.status, submitted_at = excluded.submitted_at, completed_at = excluded.completed_at, error = excluded.error`);
+    }
+    return;
+  }
+  const sql = await ensureGameplayAlertTables();
+  for (const record of records) {
+    await sql`INSERT INTO gameplay_alert_query_jobs (evaluation_key, job_key, filters, status, submitted_at, completed_at, error) VALUES (${record.evaluationKey}, ${record.jobKey}, ${record.filters}, ${record.status}, ${record.submittedAt}, ${record.completedAt ?? null}, ${record.error ?? null}) ON CONFLICT(evaluation_key) DO UPDATE SET job_key = excluded.job_key, filters = excluded.filters, status = excluded.status, submitted_at = excluded.submitted_at, completed_at = excluded.completed_at, error = excluded.error`;
+  }
 }
 
 export async function listGameplayAlertStates(filters: { appName: string; platform: string; appVersion: string }): Promise<GameplayAlertStateRecord[]> {

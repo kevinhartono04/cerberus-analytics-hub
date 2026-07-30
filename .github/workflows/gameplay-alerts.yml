@@ -1,0 +1,62 @@
+name: Gameplay alerts
+
+on:
+  schedule:
+    # Daily at 01:07 UTC. Avoid the top of the hour, when scheduled GitHub
+    # Actions can be delayed by higher platform load.
+    - cron: "7 1 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: gameplay-alert-poll
+  cancel-in-progress: false
+
+jobs:
+  evaluate:
+    name: Submit and poll gameplay alerts
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GAMEPLAY_ALERT_ENDPOINT: ${{ secrets.GAMEPLAY_ALERT_ENDPOINT }}
+      GAMEPLAY_ALERT_CRON_SECRET: ${{ secrets.GAMEPLAY_ALERT_CRON_SECRET }}
+    steps:
+      - name: Submit Count jobs and wait for completion
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "$GAMEPLAY_ALERT_ENDPOINT" || -z "$GAMEPLAY_ALERT_CRON_SECRET" ]]; then
+            echo "Missing GAMEPLAY_ALERT_ENDPOINT or GAMEPLAY_ALERT_CRON_SECRET repository secret."
+            exit 1
+          fi
+
+          for attempt in {1..20}; do
+            response="$(curl --silent --show-error --fail-with-body \
+              --connect-timeout 15 \
+              --max-time 45 \
+              --retry 2 \
+              --retry-all-errors \
+              -H "Authorization: Bearer $GAMEPLAY_ALERT_CRON_SECRET" \
+              "$GAMEPLAY_ALERT_ENDPOINT")"
+
+            echo "$response" | jq .
+            failures="$(jq -r '.failures | length' <<<"$response")"
+            running="$(jq -r '.runningCount // 0' <<<"$response")"
+
+            if [[ "$failures" != "0" ]]; then
+              echo "Gameplay alert evaluation returned failures."
+              exit 1
+            fi
+            if [[ "$running" == "0" ]]; then
+              echo "Gameplay alert evaluation completed."
+              exit 0
+            fi
+
+            echo "Count jobs still running (attempt $attempt/20); checking again in 45 seconds."
+            sleep 45
+          done
+
+          echo "Count jobs did not finish within the 15-minute polling window."
+          exit 1
