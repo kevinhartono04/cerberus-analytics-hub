@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { allAppVersionsAlertScope, buildLevelFailRateSql, dailyGameplayAlertFilters, gameplayAlertCronFilters, gameplayAlertSettingsInputSchema, parseLevelFailRateRows } from "@/lib/gameplay-alerts";
+import { allAppVersionsAlertScope, allPlatformsAlertScope, buildLevelFailRateSql, dailyGameplayAlertFilters, gameplayAlertCronFilters, gameplayAlertSettingsInputSchema, parseLevelFailRateRows } from "@/lib/gameplay-alerts";
 
 const filters = {
   appName: "wordblast",
@@ -22,15 +22,14 @@ describe("gameplay difficulty alerts", () => {
     }).alertTargets).toEqual([{ appName: "stacksmash", platforms: ["android", "ios"], appVersion: "0.2.0" }]);
 
     expect(dailyGameplayAlertFilters(new Date("2026-07-29T12:00:00.000Z"))).toEqual([
-      { appName: "stacksmash", platform: "android", appVersion: "0.2.0", appVersions: ["0.2.0"], startDate: "2026-07-22", endDate: "2026-07-28" },
-      { appName: "stacksmash", platform: "ios", appVersion: "0.2.0", appVersions: ["0.2.0"], startDate: "2026-07-22", endDate: "2026-07-28" },
+      { appName: "stacksmash", platform: allPlatformsAlertScope, platforms: ["android", "ios"], appVersion: "0.2.0", appVersions: ["0.2.0"], startDate: "2026-07-22", endDate: "2026-07-28" },
     ]);
   });
 
   it("treats a blank alert-target version as an all-version aggregate without sharing version-specific state", () => {
     const filters = gameplayAlertCronFilters({ normalThreshold: 0.5, hardThreshold: 0.7, minPlayers: 50, alertTargets: [{ appName: "stacksmash", platforms: ["android"], appVersion: "" }] }, new Date("2026-07-29T12:00:00.000Z"));
 
-    expect(filters).toEqual([expect.objectContaining({ appVersion: allAppVersionsAlertScope, appVersions: [] })]);
+    expect(filters).toEqual([expect.objectContaining({ platform: "android", platforms: ["android"], appVersion: allAppVersionsAlertScope, appVersions: [] })]);
     expect(buildLevelFailRateSql({ ...filters[0], platforms: ["android"] })).toContain("1 = 1 -- modifiable parameter");
   });
 

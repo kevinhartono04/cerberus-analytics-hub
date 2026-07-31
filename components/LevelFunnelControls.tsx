@@ -1,7 +1,7 @@
 "use client";
 
 import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight, RefreshCw, XCircle } from "lucide-react";
-import { useRef, useState } from "react";
+import React, { useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 type DateRange = { startDate: string; endDate: string };

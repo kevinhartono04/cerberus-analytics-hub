@@ -28,7 +28,7 @@ vi.mock("@/lib/count-api", () => ({ submitCountSql: mocks.submit, getCountQuery:
 
 import { GET } from "@/app/api/cron/gameplay-alerts/route";
 
-const filters = { appName: "stacksmash", platform: "android", appVersion: "0.2.0", appVersions: ["0.2.0"], startDate: "2026-07-22", endDate: "2026-07-28" };
+const filters = { appName: "stacksmash", platform: "android", platforms: ["android"], appVersion: "0.2.0", appVersions: ["0.2.0"], startDate: "2026-07-22", endDate: "2026-07-28" };
 
 describe("gameplay alert cron", () => {
   beforeEach(() => {

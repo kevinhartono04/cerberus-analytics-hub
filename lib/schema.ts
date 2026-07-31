@@ -59,6 +59,7 @@ export const gameplayAlertStates = pgTable("gameplay_alert_states", {
   lastReachedPlayers: integer("last_reached_players").notNull(),
   threshold: text("threshold").notNull(),
   slackOpenDeliveredAt: text("slack_open_delivered_at"),
+  slackPendingDeliveredAt: text("slack_pending_delivered_at"),
   slackResolvedDeliveredAt: text("slack_resolved_delivered_at"),
 });
 

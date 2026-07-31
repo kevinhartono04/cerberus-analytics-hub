@@ -17,6 +17,7 @@ import {
   RefreshCw,
   SlidersHorizontal,
   XCircle,
+  X,
 } from "lucide-react";
 import React, { FormEvent, ReactNode, useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -139,6 +140,15 @@ type ReadinessPendingResponse = {
 
 type ReadinessApiResponse = ReadinessResponse | ReadinessPendingResponse;
 
+type PendingReadinessJob = {
+  jobKey: string;
+  filters: Filters;
+  submittedAt: string;
+  pollAfterMs: number;
+  forceRefresh: boolean;
+  label: "baseline" | "comparison";
+};
+
 type AppVersionOption = {
   appVersion: string;
   sampleCount: number;
@@ -171,9 +181,11 @@ type TechLaunchSessionSnapshot = {
   comparisonFilters?: ComparisonFilters;
   comparisonData?: ReadinessResponse | null;
   statusText: string;
+  pendingJobs?: PendingReadinessJob[];
 };
 
 const techLaunchSessionKey = "cerberus.tech-launch.snapshot.v1";
+const slowQueryAfterMs = 45_000;
 
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 const techLabelClass = "mb-2 block font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500";
@@ -234,7 +246,7 @@ function defaultFilters(): Filters {
   const start = new Date(end);
   start.setDate(start.getDate() - 7);
   return {
-    appName: "wordblast",
+    appName: "stacksmash",
     platform: "android",
     appVersion: "",
     startDate: isoDate(start),
@@ -252,6 +264,42 @@ function isPlatform(value: string): value is Filters["platform"] {
 
 function isDateValue(value: string) {
   return datePattern.test(value);
+}
+
+function isReadinessFilters(value: unknown): value is Filters {
+  if (!value || typeof value !== "object") return false;
+  const filters = value as Partial<Filters>;
+  return isAppName(filters.appName ?? "")
+    && isPlatform(filters.platform ?? "")
+    && typeof filters.appVersion === "string"
+    && typeof filters.startDate === "string" && isDateValue(filters.startDate)
+    && typeof filters.endDate === "string" && isDateValue(filters.endDate)
+    && filters.startDate <= filters.endDate;
+}
+
+function isPendingReadinessJob(value: unknown): value is PendingReadinessJob {
+  if (!value || typeof value !== "object") return false;
+  const job = value as Partial<PendingReadinessJob>;
+  return typeof job.jobKey === "string" && Boolean(job.jobKey.trim())
+    && isReadinessFilters(job.filters)
+    && typeof job.submittedAt === "string" && Number.isFinite(Date.parse(job.submittedAt))
+    && typeof job.pollAfterMs === "number" && Number.isFinite(job.pollAfterMs) && job.pollAfterMs >= 0
+    && typeof job.forceRefresh === "boolean"
+    && (job.label === "baseline" || job.label === "comparison");
+}
+
+function pendingReadinessJobs(value: unknown): PendingReadinessJob[] {
+  return Array.isArray(value) ? value.filter(isPendingReadinessJob) : [];
+}
+
+function formatElapsedTime(elapsedMs: number) {
+  const seconds = Math.max(0, Math.floor(elapsedMs / 1000));
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const remainingSeconds = seconds % 60;
+  return hours
+    ? `${hours}:${String(minutes).padStart(2, "0")}:${String(remainingSeconds).padStart(2, "0")}`
+    : `${minutes}:${String(remainingSeconds).padStart(2, "0")}`;
 }
 
 type DashboardSearchState = {
@@ -875,6 +923,8 @@ export default function TechLaunchDashboard() {
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [statusText, setStatusText] = useState("");
+  const [pendingJobs, setPendingJobs] = useState<PendingReadinessJob[]>([]);
+  const [queryElapsedMs, setQueryElapsedMs] = useState(0);
   const [versionOptions, setVersionOptions] = useState<AppVersionOption[]>([]);
   const [isLoadingVersions, setIsLoadingVersions] = useState(false);
   const [versionError, setVersionError] = useState("");
@@ -887,6 +937,7 @@ export default function TechLaunchDashboard() {
   const [pendingUrlRun, setPendingUrlRun] = useState(false);
   const [isSessionStateReady, setIsSessionStateReady] = useState(false);
   const requestIdRef = useRef(0);
+  const hasResumedPendingJobsRef = useRef(false);
   const versionRequestIdRef = useRef(0);
   const comparisonVersionRequestIdRef = useRef(0);
   const hasReadUrlRef = useRef(false);
@@ -919,8 +970,22 @@ export default function TechLaunchDashboard() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!pendingJobs.length) {
+      setQueryElapsedMs(0);
+      return;
+    }
+    const updateElapsed = () => setQueryElapsedMs(Math.max(...pendingJobs.map((job) => Math.max(0, Date.now() - Date.parse(job.submittedAt)))));
+    updateElapsed();
+    const intervalId = window.setInterval(updateElapsed, 1000);
+    return () => window.clearInterval(intervalId);
+  }, [pendingJobs]);
+
+  useEffect(() => () => { requestIdRef.current += 1; }, []);
+
   function updateFilters(patch: Partial<Filters>) {
     requestIdRef.current += 1;
+    setPendingJobs([]);
     setIsLoading(false);
     setData(null);
     setComparisonData(null);
@@ -931,6 +996,7 @@ export default function TechLaunchDashboard() {
 
   function updateComparisonFilters(patch: Partial<ComparisonFilters>) {
     requestIdRef.current += 1;
+    setPendingJobs([]);
     setIsLoading(false);
     setComparisonData(null);
     setError("");
@@ -963,42 +1029,78 @@ export default function TechLaunchDashboard() {
   }
 
   async function pollReadiness(
-    jobKey: string,
-    pollFilters: Filters,
-    firstDelayMs: number,
+    initialJob: PendingReadinessJob,
     requestId: number,
-    forceRefresh: boolean,
   ): Promise<ReadinessResponse | null> {
-    let delayMs = firstDelayMs;
+    let job = initialJob;
     while (requestIdRef.current === requestId) {
-      setStatusText(compareEnabled ? "Comparison queries are running; Google Play API metrics will load next..." : "Count query is running; Google Play API metrics will load next...");
-      await wait(delayMs);
+      setStatusText(`${job.label === "comparison" ? "Comparison" : "Baseline"} Count job ${job.jobKey} is running.`);
+      await wait(job.pollAfterMs);
       if (requestIdRef.current !== requestId) return null;
 
       const result = await postReadiness("/api/tech-launch/readiness/status", {
-        jobKey,
-        filters: pollFilters,
-        forceRefresh,
+        jobKey: job.jobKey,
+        filters: job.filters,
+        forceRefresh: job.forceRefresh,
       });
       if (result.status === "completed") {
         if (requestIdRef.current !== requestId) return null;
+        setPendingJobs((current) => current.filter((entry) => entry.jobKey !== job.jobKey));
         return result;
       }
-      delayMs = result.pollAfterMs;
+      job = { ...job, pollAfterMs: result.pollAfterMs };
+      setPendingJobs((current) => current.map((entry) => entry.jobKey === job.jobKey ? job : entry));
     }
     return null;
   }
 
-  async function resolveReadiness(filterSnapshot: Filters, requestId: number, forceRefresh: boolean): Promise<ReadinessResponse | null> {
+  async function resolveReadiness(filterSnapshot: Filters, requestId: number, forceRefresh: boolean, label: PendingReadinessJob["label"]): Promise<ReadinessResponse | null> {
     const result = await postReadiness("/api/tech-launch/readiness", { ...filterSnapshot, forceRefresh });
     if (result.status === "completed") return requestIdRef.current === requestId ? result : null;
-    return pollReadiness(result.metadata.jobKey, result.filters, result.pollAfterMs, requestId, forceRefresh);
+    const job: PendingReadinessJob = { jobKey: result.metadata.jobKey, filters: result.filters, submittedAt: result.metadata.submittedAt, pollAfterMs: result.pollAfterMs, forceRefresh, label };
+    setPendingJobs((current) => [...current.filter((entry) => entry.label !== label), job]);
+    return pollReadiness(job, requestId);
+  }
+
+  async function resumePendingJobs(jobs = pendingJobs) {
+    if (!jobs.length || !allowedApps || jobs.some((job) => !allowedApps.includes(job.filters.appName))) return;
+    const requestId = requestIdRef.current + 1;
+    requestIdRef.current = requestId;
+    setIsLoading(true); setError(""); setStatusText("Resuming saved Count job…");
+    setPendingJobs(jobs);
+    try {
+      const results = await Promise.all(jobs.map(async (job) => ({ job, result: await pollReadiness(job, requestId) })));
+      if (requestIdRef.current !== requestId) return;
+      const baseline = results.find((entry) => entry.job.label === "baseline")?.result;
+      const comparison = results.find((entry) => entry.job.label === "comparison")?.result ?? null;
+      if (!baseline || (jobs.some((job) => job.label === "comparison") && !comparison)) return;
+      setData(baseline);
+      setComparisonData(comparison);
+      setStatusText(jobs.some((job) => job.label === "comparison") ? "Comparison complete" : baseline.cache.hit ? "Loaded from cache" : "Query complete");
+    } catch (err) {
+      if (requestIdRef.current === requestId) {
+        setError(err instanceof Error ? err.message : "Could not resume Launch Readiness polling");
+        setStatusText("Could not reach Count. The current job is saved so you can resume polling.");
+      }
+    } finally {
+      if (requestIdRef.current === requestId) setIsLoading(false);
+    }
+  }
+
+  function stopWaitingForJobs() {
+    if (!pendingJobs.length) return;
+    requestIdRef.current += 1;
+    setPendingJobs([]);
+    setIsLoading(false);
+    setError("");
+    setStatusText("Stopped waiting for the Count job. It may continue running in Count.");
   }
 
   async function loadReadiness(forceRefresh = false, options: { updateUrlRun?: boolean } = {}) {
     if (!allowedApps?.includes(filters.appName)) return;
     const requestId = requestIdRef.current + 1;
     requestIdRef.current = requestId;
+    setPendingJobs([]);
     const filterSnapshot = { ...filters };
     const comparisonSnapshot: Filters = { ...filters, ...comparisonFilters };
     if (compareEnabled && !allowedApps.includes(comparisonSnapshot.appName)) return;
@@ -1012,8 +1114,8 @@ export default function TechLaunchDashboard() {
     );
     try {
       const results = await Promise.all([
-        resolveReadiness(filterSnapshot, requestId, forceRefresh),
-        compareEnabled ? resolveReadiness(comparisonSnapshot, requestId, forceRefresh) : Promise.resolve(null),
+        resolveReadiness(filterSnapshot, requestId, forceRefresh, "baseline"),
+        compareEnabled ? resolveReadiness(comparisonSnapshot, requestId, forceRefresh, "comparison") : Promise.resolve(null),
       ]);
       if (requestIdRef.current !== requestId || !results[0] || (compareEnabled && !results[1])) return;
       setData(results[0]);
@@ -1022,7 +1124,7 @@ export default function TechLaunchDashboard() {
     } catch (err) {
       if (requestIdRef.current === requestId) {
         setError(err instanceof Error ? err.message : "Could not load Launch Readiness data");
-        setStatusText("");
+        setStatusText("Could not reach Count. The current job is saved so you can resume polling.");
       }
     } finally {
       if (requestIdRef.current === requestId) setIsLoading(false);
@@ -1040,6 +1142,7 @@ export default function TechLaunchDashboard() {
       setCompareEnabled(urlFilters.compareEnabled);
       setComparisonView(urlFilters.comparisonView);
       setComparisonFilters(urlFilters.comparisonFilters);
+      setPendingJobs(pendingReadinessJobs(sessionSnapshot?.pendingJobs));
       if (new URLSearchParams(window.location.search).get("run") === "1") setPendingUrlRun(true);
     } else if (sessionSnapshot) {
       setFilters(sessionSnapshot.filters);
@@ -1049,14 +1152,23 @@ export default function TechLaunchDashboard() {
       setComparisonFilters(sessionSnapshot.comparisonFilters ?? { appName: sessionSnapshot.filters.appName, appVersion: "" });
       setComparisonData(sessionSnapshot.comparisonData ?? null);
       setStatusText(sessionSnapshot.statusText);
+      setPendingJobs(pendingReadinessJobs(sessionSnapshot.pendingJobs));
     }
     setIsSessionStateReady(true);
   }, []);
 
   useEffect(() => {
     if (!isSessionStateReady) return;
-    writeDashboardSession<TechLaunchSessionSnapshot>(techLaunchSessionKey, { filters, data, compareEnabled, comparisonView, comparisonFilters, comparisonData, statusText });
-  }, [compareEnabled, comparisonData, comparisonFilters, comparisonView, data, filters, isSessionStateReady, statusText]);
+    writeDashboardSession<TechLaunchSessionSnapshot>(techLaunchSessionKey, { filters, data, compareEnabled, comparisonView, comparisonFilters, comparisonData, statusText, ...(pendingJobs.length ? { pendingJobs } : {}) });
+  }, [compareEnabled, comparisonData, comparisonFilters, comparisonView, data, filters, isSessionStateReady, pendingJobs, statusText]);
+
+  useEffect(() => {
+    if (hasResumedPendingJobsRef.current || !isSessionStateReady || allowedApps === null) return;
+    if (!pendingJobs.length) { hasResumedPendingJobsRef.current = true; return; }
+    if (pendingJobs.some((job) => !allowedApps.includes(job.filters.appName))) { setPendingJobs([]); hasResumedPendingJobsRef.current = true; return; }
+    hasResumedPendingJobsRef.current = true;
+    void resumePendingJobs(pendingJobs);
+  }, [allowedApps, isSessionStateReady, pendingJobs]);
 
   useEffect(() => {
     if (!hasReadUrlRef.current) return;
@@ -1161,6 +1273,7 @@ export default function TechLaunchDashboard() {
       allowedApps?.includes(filters.appName) &&
       (!compareEnabled || (hasTypedComparisonVersion && !isSameComparison && allowedApps?.includes(comparisonFilters.appName))),
   );
+  const slowQuery = Boolean(pendingJobs.length && queryElapsedMs >= slowQueryAfterMs);
   const comparisonRows = useMemo<ComparisonMetricRow[]>(
     () => (data && comparisonData ? createMetricComparison(data.rows, comparisonData.rows) : []),
     [comparisonData, data],
@@ -1177,9 +1290,10 @@ export default function TechLaunchDashboard() {
       !allowedApps?.includes(filters.appName) ||
       (compareEnabled && (!hasTypedComparisonVersion || isSameComparison || !allowedApps?.includes(comparisonFilters.appName)))
     ) return;
+    if (pendingJobs.length) { setPendingUrlRun(false); return; }
     setPendingUrlRun(false);
     void loadReadiness(false, { updateUrlRun: false });
-  }, [allowedApps, compareEnabled, comparisonFilters.appName, filters.appName, hasTypedComparisonVersion, hasTypedVersion, isSameComparison, pendingUrlRun]);
+  }, [allowedApps, compareEnabled, comparisonFilters.appName, filters.appName, hasTypedComparisonVersion, hasTypedVersion, isSameComparison, pendingJobs, pendingUrlRun]);
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1374,6 +1488,13 @@ export default function TechLaunchDashboard() {
               Refresh
             </button>
           </div>
+          {pendingJobs.length ? <div role="status" className={`mt-4 rounded-lg border px-3 py-2 text-xs ${slowQuery ? "border-amber/40 bg-amber/10 text-amber" : "border-cobalt/30 bg-cobalt/10 text-slate-300"}`}>
+            <div className="flex flex-wrap items-center justify-between gap-2"><span className="font-semibold">{slowQuery ? "Slow Count query — still running" : "Count query running"}</span><div className="flex items-center gap-2"><span className="font-mono">Elapsed: {formatElapsedTime(queryElapsedMs)}</span><button type="button" onClick={stopWaitingForJobs} title="Stops polling in this dashboard; the Count job may continue running." className="focus-ring inline-flex items-center gap-1 rounded border border-rose/45 bg-rose/10 px-2 py-1 text-[11px] font-semibold text-rose hover:bg-rose/20"><X className="h-3.5 w-3.5" aria-hidden="true" />Stop waiting</button></div></div>
+            <div className="mt-1 space-y-0.5 font-mono text-[11px] text-slate-400">{pendingJobs.map((job) => <p key={job.jobKey}>{job.label === "comparison" ? "Comparison" : "Baseline"} Count job key: <span className="select-all text-slate-200">{job.jobKey}</span></p>)}</div>
+            {slowQuery ? <p className="mt-2 text-[11px] leading-5 text-amber">This query is taking longer than usual, but Count is still processing it. You can leave this page and return later; this job will be resumed instead of submitted again.</p> : <p className="mt-1 text-[11px] text-slate-500">The readiness result will appear automatically when Count finishes.</p>}
+            {!isLoading ? <button type="button" onClick={() => void resumePendingJobs()} className="focus-ring mt-2 rounded border border-current/40 px-2 py-1 text-[11px] font-semibold hover:bg-white/5">Resume polling</button> : null}
+          </div> : null}
+          {statusText.startsWith("Stopped waiting") ? <p className="mt-3 text-xs font-medium text-amber">{statusText}</p> : null}
           {compareEnabled ? (
             <section className="mt-4 border-t border-line/60 pt-4">
               <div className="flex flex-wrap items-start gap-[14px]">

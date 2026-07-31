@@ -35,10 +35,10 @@ export async function GET(request: Request) {
 
   await Promise.all(targets.map(async (filters) => {
     const evaluationKey = gameplayAlertEvaluationKey(filters);
-    const label = `${filters.appName} ${filters.platform} ${filters.appVersion}`;
+    const label = `${filters.appName} ${filters.platform === "__all_platforms__" ? "all platforms" : filters.platform} ${filters.appVersion}`;
     const queryFilters = {
       appName: filters.appName,
-      platforms: [filters.platform],
+      platforms: filters.platforms,
       appVersions: filters.appVersions,
       startDate: filters.startDate,
       endDate: filters.endDate,

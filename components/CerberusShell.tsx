@@ -177,7 +177,7 @@ export default function CerberusShell<T extends string>({
   onToggleCollapsed?: () => void;
   user?: ShellUser;
   contentClassName?: string;
-  activeLaunchSection?: "technical" | "level-funnel";
+  activeLaunchSection?: "technical" | "level-funnel" | "game-monitoring";
   children: ReactNode;
 }) {
   const hasExplicitUser = user !== undefined;
@@ -281,6 +281,7 @@ export default function CerberusShell<T extends string>({
                         <div className="ml-8 mt-1 flex flex-col gap-1 border-l border-line/70 pl-3 max-md:hidden">
                           <a href="/tech-launch" aria-current={activeLaunchSection === "technical" ? "page" : undefined} className={`focus-ring rounded-md px-2 py-1.5 text-xs font-semibold transition-colors ${activeLaunchSection === "technical" ? "bg-cobalt/10 text-cobalt" : "text-slate-500 hover:bg-sage hover:text-slate-200"}`}>Technical Readiness</a>
                           <a href="/tech-launch/level-funnel" aria-current={activeLaunchSection === "level-funnel" ? "page" : undefined} className={`focus-ring rounded-md px-2 py-1.5 text-xs font-semibold transition-colors ${activeLaunchSection === "level-funnel" ? "bg-cobalt/10 text-cobalt" : "text-slate-500 hover:bg-sage hover:text-slate-200"}`}>Level Funnel Check</a>
+                          <a href="/tech-launch/game-monitoring" aria-current={activeLaunchSection === "game-monitoring" ? "page" : undefined} className={`focus-ring rounded-md px-2 py-1.5 text-xs font-semibold transition-colors ${activeLaunchSection === "game-monitoring" ? "bg-cobalt/10 text-cobalt" : "text-slate-500 hover:bg-sage hover:text-slate-200"}`}>Game Monitoring</a>
                         </div>
                       ) : null}
                     </div>

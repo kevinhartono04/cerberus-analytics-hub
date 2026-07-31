@@ -264,12 +264,14 @@ async function ensureGameplayAlertTables() {
           last_reached_players INTEGER NOT NULL,
           threshold DOUBLE PRECISION NOT NULL,
           slack_open_delivered_at TEXT,
+          slack_pending_delivered_at TEXT,
           slack_resolved_delivered_at TEXT
         )
       `;
       await transaction`ALTER TABLE gameplay_alert_states ADD COLUMN IF NOT EXISTS layout_bank_id TEXT`;
       await transaction`ALTER TABLE gameplay_alert_states ADD COLUMN IF NOT EXISTS layout_hash TEXT`;
       await transaction`ALTER TABLE gameplay_alert_states ADD COLUMN IF NOT EXISTS superseded_at TEXT`;
+      await transaction`ALTER TABLE gameplay_alert_states ADD COLUMN IF NOT EXISTS slack_pending_delivered_at TEXT`;
       await transaction`
         CREATE TABLE IF NOT EXISTS gameplay_alert_evaluation_runs (
           id TEXT PRIMARY KEY NOT NULL,
@@ -310,7 +312,7 @@ function ensureSqliteGameplayAlertTables() {
       alert_key TEXT PRIMARY KEY NOT NULL, app_name TEXT NOT NULL, platform TEXT NOT NULL, app_version TEXT NOT NULL,
       level INTEGER NOT NULL, layout_bank_id TEXT, layout_hash TEXT, difficulty_tier TEXT NOT NULL, status TEXT NOT NULL, first_seen_at TEXT NOT NULL,
       last_seen_at TEXT NOT NULL, resolved_at TEXT, superseded_at TEXT, last_fail_rate REAL NOT NULL, last_reached_players INTEGER NOT NULL,
-      threshold REAL NOT NULL, slack_open_delivered_at TEXT, slack_resolved_delivered_at TEXT
+      threshold REAL NOT NULL, slack_open_delivered_at TEXT, slack_pending_delivered_at TEXT, slack_resolved_delivered_at TEXT
     );
     CREATE TABLE IF NOT EXISTS gameplay_alert_evaluation_runs (
       id TEXT PRIMARY KEY NOT NULL, evaluated_at TEXT NOT NULL, filters TEXT NOT NULL, result TEXT NOT NULL,
@@ -328,6 +330,7 @@ function ensureSqliteGameplayAlertTables() {
   if (!sqliteColumnExists("gameplay_alert_states", "layout_bank_id")) sqliteExec("ALTER TABLE gameplay_alert_states ADD COLUMN layout_bank_id TEXT");
   if (!sqliteColumnExists("gameplay_alert_states", "layout_hash")) sqliteExec("ALTER TABLE gameplay_alert_states ADD COLUMN layout_hash TEXT");
   if (!sqliteColumnExists("gameplay_alert_states", "superseded_at")) sqliteExec("ALTER TABLE gameplay_alert_states ADD COLUMN superseded_at TEXT");
+  if (!sqliteColumnExists("gameplay_alert_states", "slack_pending_delivered_at")) sqliteExec("ALTER TABLE gameplay_alert_states ADD COLUMN slack_pending_delivered_at TEXT");
   if (!sqliteColumnExists("gameplay_alert_evaluation_runs", "source")) sqliteExec("ALTER TABLE gameplay_alert_evaluation_runs ADD COLUMN source TEXT NOT NULL DEFAULT 'cron'");
 }
 
@@ -1159,11 +1162,12 @@ function rowToGameplayAlertState(row: Record<string, unknown>): GameplayAlertSta
   return {
     alertKey: asString(row.alert_key), appName: asString(row.app_name), platform: asString(row.platform), appVersion: asString(row.app_version),
     level: Number(row.level), ...(asString(row.layout_bank_id) ? { layoutBankId: asString(row.layout_bank_id) } : {}), ...(asString(row.layout_hash) ? { layoutHash: asString(row.layout_hash) } : {}), difficultyTier: asString(row.difficulty_tier) === "hard" ? "hard" : "normal",
-    status: asString(row.status) === "resolved" || asString(row.status) === "superseded" ? asString(row.status) as "resolved" | "superseded" : "open", firstSeenAt: asString(row.first_seen_at),
+    status: asString(row.status) === "pending" || asString(row.status) === "resolved" || asString(row.status) === "superseded" ? asString(row.status) as "pending" | "resolved" | "superseded" : "open", firstSeenAt: asString(row.first_seen_at),
     lastSeenAt: asString(row.last_seen_at), ...(asString(row.resolved_at) ? { resolvedAt: asString(row.resolved_at) } : {}),
     ...(asString(row.superseded_at) ? { supersededAt: asString(row.superseded_at) } : {}),
     lastFailRate: Number(row.last_fail_rate), lastReachedPlayers: Number(row.last_reached_players), threshold: Number(row.threshold),
     ...(asString(row.slack_open_delivered_at) ? { slackOpenDeliveredAt: asString(row.slack_open_delivered_at) } : {}),
+    ...(asString(row.slack_pending_delivered_at) ? { slackPendingDeliveredAt: asString(row.slack_pending_delivered_at) } : {}),
     ...(asString(row.slack_resolved_delivered_at) ? { slackResolvedDeliveredAt: asString(row.slack_resolved_delivered_at) } : {}),
   };
 }
@@ -1240,13 +1244,13 @@ export async function saveGameplayAlertStateRecords(records: GameplayAlertStateR
   if (shouldUseLocalSqlite()) {
     ensureSqliteGameplayAlertTables();
     for (const record of records) {
-      sqliteExec(`INSERT INTO gameplay_alert_states (alert_key, app_name, platform, app_version, level, layout_bank_id, layout_hash, difficulty_tier, status, first_seen_at, last_seen_at, resolved_at, superseded_at, last_fail_rate, last_reached_players, threshold, slack_open_delivered_at, slack_resolved_delivered_at) VALUES (${sqliteLiteral(record.alertKey)}, ${sqliteLiteral(record.appName)}, ${sqliteLiteral(record.platform)}, ${sqliteLiteral(record.appVersion)}, ${record.level}, ${record.layoutBankId ? sqliteLiteral(record.layoutBankId) : "NULL"}, ${record.layoutHash ? sqliteLiteral(record.layoutHash) : "NULL"}, ${sqliteLiteral(record.difficultyTier)}, ${sqliteLiteral(record.status)}, ${sqliteLiteral(record.firstSeenAt)}, ${sqliteLiteral(record.lastSeenAt)}, ${record.resolvedAt ? sqliteLiteral(record.resolvedAt) : "NULL"}, ${record.supersededAt ? sqliteLiteral(record.supersededAt) : "NULL"}, ${record.lastFailRate}, ${record.lastReachedPlayers}, ${record.threshold}, ${record.slackOpenDeliveredAt ? sqliteLiteral(record.slackOpenDeliveredAt) : "NULL"}, ${record.slackResolvedDeliveredAt ? sqliteLiteral(record.slackResolvedDeliveredAt) : "NULL"}) ON CONFLICT(alert_key) DO UPDATE SET layout_bank_id = excluded.layout_bank_id, layout_hash = excluded.layout_hash, status = excluded.status, last_seen_at = excluded.last_seen_at, resolved_at = excluded.resolved_at, superseded_at = excluded.superseded_at, last_fail_rate = excluded.last_fail_rate, last_reached_players = excluded.last_reached_players, threshold = excluded.threshold, slack_open_delivered_at = excluded.slack_open_delivered_at, slack_resolved_delivered_at = excluded.slack_resolved_delivered_at`);
+      sqliteExec(`INSERT INTO gameplay_alert_states (alert_key, app_name, platform, app_version, level, layout_bank_id, layout_hash, difficulty_tier, status, first_seen_at, last_seen_at, resolved_at, superseded_at, last_fail_rate, last_reached_players, threshold, slack_open_delivered_at, slack_pending_delivered_at, slack_resolved_delivered_at) VALUES (${sqliteLiteral(record.alertKey)}, ${sqliteLiteral(record.appName)}, ${sqliteLiteral(record.platform)}, ${sqliteLiteral(record.appVersion)}, ${record.level}, ${record.layoutBankId ? sqliteLiteral(record.layoutBankId) : "NULL"}, ${record.layoutHash ? sqliteLiteral(record.layoutHash) : "NULL"}, ${sqliteLiteral(record.difficultyTier)}, ${sqliteLiteral(record.status)}, ${sqliteLiteral(record.firstSeenAt)}, ${sqliteLiteral(record.lastSeenAt)}, ${record.resolvedAt ? sqliteLiteral(record.resolvedAt) : "NULL"}, ${record.supersededAt ? sqliteLiteral(record.supersededAt) : "NULL"}, ${record.lastFailRate}, ${record.lastReachedPlayers}, ${record.threshold}, ${record.slackOpenDeliveredAt ? sqliteLiteral(record.slackOpenDeliveredAt) : "NULL"}, ${record.slackPendingDeliveredAt ? sqliteLiteral(record.slackPendingDeliveredAt) : "NULL"}, ${record.slackResolvedDeliveredAt ? sqliteLiteral(record.slackResolvedDeliveredAt) : "NULL"}) ON CONFLICT(alert_key) DO UPDATE SET layout_bank_id = excluded.layout_bank_id, layout_hash = excluded.layout_hash, status = excluded.status, last_seen_at = excluded.last_seen_at, resolved_at = excluded.resolved_at, superseded_at = excluded.superseded_at, last_fail_rate = excluded.last_fail_rate, last_reached_players = excluded.last_reached_players, threshold = excluded.threshold, slack_open_delivered_at = excluded.slack_open_delivered_at, slack_pending_delivered_at = excluded.slack_pending_delivered_at, slack_resolved_delivered_at = excluded.slack_resolved_delivered_at`);
     }
     return;
   }
   const sql = await ensureGameplayAlertTables();
   for (const record of records) {
-    await sql`INSERT INTO gameplay_alert_states (alert_key, app_name, platform, app_version, level, layout_bank_id, layout_hash, difficulty_tier, status, first_seen_at, last_seen_at, resolved_at, superseded_at, last_fail_rate, last_reached_players, threshold, slack_open_delivered_at, slack_resolved_delivered_at) VALUES (${record.alertKey}, ${record.appName}, ${record.platform}, ${record.appVersion}, ${record.level}, ${record.layoutBankId ?? null}, ${record.layoutHash ?? null}, ${record.difficultyTier}, ${record.status}, ${record.firstSeenAt}, ${record.lastSeenAt}, ${record.resolvedAt ?? null}, ${record.supersededAt ?? null}, ${record.lastFailRate}, ${record.lastReachedPlayers}, ${record.threshold}, ${record.slackOpenDeliveredAt ?? null}, ${record.slackResolvedDeliveredAt ?? null}) ON CONFLICT(alert_key) DO UPDATE SET layout_bank_id = excluded.layout_bank_id, layout_hash = excluded.layout_hash, status = excluded.status, last_seen_at = excluded.last_seen_at, resolved_at = excluded.resolved_at, superseded_at = excluded.superseded_at, last_fail_rate = excluded.last_fail_rate, last_reached_players = excluded.last_reached_players, threshold = excluded.threshold, slack_open_delivered_at = excluded.slack_open_delivered_at, slack_resolved_delivered_at = excluded.slack_resolved_delivered_at`;
+    await sql`INSERT INTO gameplay_alert_states (alert_key, app_name, platform, app_version, level, layout_bank_id, layout_hash, difficulty_tier, status, first_seen_at, last_seen_at, resolved_at, superseded_at, last_fail_rate, last_reached_players, threshold, slack_open_delivered_at, slack_pending_delivered_at, slack_resolved_delivered_at) VALUES (${record.alertKey}, ${record.appName}, ${record.platform}, ${record.appVersion}, ${record.level}, ${record.layoutBankId ?? null}, ${record.layoutHash ?? null}, ${record.difficultyTier}, ${record.status}, ${record.firstSeenAt}, ${record.lastSeenAt}, ${record.resolvedAt ?? null}, ${record.supersededAt ?? null}, ${record.lastFailRate}, ${record.lastReachedPlayers}, ${record.threshold}, ${record.slackOpenDeliveredAt ?? null}, ${record.slackPendingDeliveredAt ?? null}, ${record.slackResolvedDeliveredAt ?? null}) ON CONFLICT(alert_key) DO UPDATE SET layout_bank_id = excluded.layout_bank_id, layout_hash = excluded.layout_hash, status = excluded.status, last_seen_at = excluded.last_seen_at, resolved_at = excluded.resolved_at, superseded_at = excluded.superseded_at, last_fail_rate = excluded.last_fail_rate, last_reached_players = excluded.last_reached_players, threshold = excluded.threshold, slack_open_delivered_at = excluded.slack_open_delivered_at, slack_pending_delivered_at = excluded.slack_pending_delivered_at, slack_resolved_delivered_at = excluded.slack_resolved_delivered_at`;
   }
 }
 
@@ -1260,9 +1264,9 @@ export async function saveGameplayAlertEvaluationRun(input: { id: string; evalua
   await sql`INSERT INTO gameplay_alert_evaluation_runs (id, evaluated_at, filters, result, transition_count, source) VALUES (${input.id}, ${input.evaluatedAt}, ${input.filters}, ${input.result}, ${input.transitionCount}, ${input.source ?? "cron"})`;
 }
 
-export async function markGameplayAlertSlackDelivered(alertKeys: string[], type: "opened" | "resolved", deliveredAt: string) {
+export async function markGameplayAlertSlackDelivered(alertKeys: string[], type: "opened" | "pending" | "resolved", deliveredAt: string) {
   if (!alertKeys.length) return;
-  const column = type === "opened" ? "slack_open_delivered_at" : "slack_resolved_delivered_at";
+  const column = type === "opened" ? "slack_open_delivered_at" : type === "pending" ? "slack_pending_delivered_at" : "slack_resolved_delivered_at";
   if (shouldUseLocalSqlite()) {
     ensureSqliteGameplayAlertTables();
     for (const key of alertKeys) sqliteExec(`UPDATE gameplay_alert_states SET ${column} = ${sqliteLiteral(deliveredAt)} WHERE alert_key = ${sqliteLiteral(key)}`);
@@ -1271,6 +1275,7 @@ export async function markGameplayAlertSlackDelivered(alertKeys: string[], type:
   const sql = await ensureGameplayAlertTables();
   for (const key of alertKeys) {
     if (type === "opened") await sql`UPDATE gameplay_alert_states SET slack_open_delivered_at = ${deliveredAt} WHERE alert_key = ${key}`;
+    else if (type === "pending") await sql`UPDATE gameplay_alert_states SET slack_pending_delivered_at = ${deliveredAt} WHERE alert_key = ${key}`;
     else await sql`UPDATE gameplay_alert_states SET slack_resolved_delivered_at = ${deliveredAt} WHERE alert_key = ${key}`;
   }
 }

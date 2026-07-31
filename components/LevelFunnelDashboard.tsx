@@ -1,7 +1,7 @@
 "use client";
 
-import { AlertTriangle, CheckCircle2, RefreshCw, XCircle } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { AlertTriangle, CheckCircle2, RefreshCw, X, XCircle } from "lucide-react";
+import React, { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import CerberusShell from "@/components/CerberusShell";
 import { FunnelDateRangePicker, FunnelFilterDropdown, FunnelMultiSelect, FunnelVersionMultiSelect } from "@/components/LevelFunnelControls";
@@ -11,6 +11,8 @@ const appOptions = [
   "sizzle", "stacksmash", "treasureshot", "tripletile", "wooblast", "woodoku", "wordblast", "wordoku", "wordrush",
 ] as const;
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+const levelFunnelPendingJobStorageKey = "tech-launch:level-funnel:pending-count-job";
+const slowQueryAfterMs = 45_000;
 
 type Filters = {
   appName: string;
@@ -97,6 +99,13 @@ type LevelFailRatePendingResponse = {
 
 type LevelFailRateRunResponse = LevelFailRateResponse | LevelFailRatePendingResponse;
 
+type PendingLevelFunnelJob = {
+  jobKey: string;
+  filters: Filters;
+  submittedAt: string;
+  pollAfterMs: number;
+};
+
 function isoDate(date: Date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -112,7 +121,7 @@ function defaultFilters(): Filters {
   const end = new Date();
   const start = new Date(end);
   start.setDate(start.getDate() - 7);
-  return { appName: appOptions[0], platforms: ["android"], appVersions: [], startDate: isoDate(start), endDate: isoDate(end) };
+  return { appName: "stacksmash", platforms: ["android", "ios"], appVersions: [], startDate: isoDate(start), endDate: isoDate(end) };
 }
 
 function isAppName(value: string): value is typeof appOptions[number] {
@@ -121,6 +130,62 @@ function isAppName(value: string): value is typeof appOptions[number] {
 
 function isDateValue(value: string) {
   return datePattern.test(value);
+}
+
+function isPendingLevelFunnelJob(value: unknown): value is PendingLevelFunnelJob {
+  if (!value || typeof value !== "object") return false;
+  const job = value as Partial<PendingLevelFunnelJob>;
+  const filters = job.filters;
+  if (!filters) return false;
+  return typeof job.jobKey === "string" && Boolean(job.jobKey.trim())
+    && typeof job.submittedAt === "string" && Number.isFinite(Date.parse(job.submittedAt))
+    && typeof job.pollAfterMs === "number" && Number.isFinite(job.pollAfterMs) && job.pollAfterMs >= 0
+    && isAppName(filters.appName ?? "")
+    && Array.isArray(filters.platforms) && filters.platforms.length > 0 && filters.platforms.every((platform) => platform === "android" || platform === "ios")
+    && Array.isArray(filters.appVersions) && filters.appVersions.every((version) => typeof version === "string")
+    && typeof filters.startDate === "string" && isDateValue(filters.startDate)
+    && typeof filters.endDate === "string" && isDateValue(filters.endDate)
+    && filters.startDate <= filters.endDate;
+}
+
+function readPendingLevelFunnelJob(): PendingLevelFunnelJob | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const stored = window.sessionStorage.getItem(levelFunnelPendingJobStorageKey);
+    if (!stored) return null;
+    const job: unknown = JSON.parse(stored);
+    if (isPendingLevelFunnelJob(job)) return job;
+  } catch {
+    // Storage can be unavailable in a private browser context. The live job
+    // remains safe in Count; only the convenience of a later resume is lost.
+  }
+  return null;
+}
+
+function persistPendingLevelFunnelJob(job: PendingLevelFunnelJob) {
+  try {
+    window.sessionStorage.setItem(levelFunnelPendingJobStorageKey, JSON.stringify(job));
+  } catch {
+    // Keep polling even if this browser cannot persist session state.
+  }
+}
+
+function clearPendingLevelFunnelJob() {
+  try {
+    window.sessionStorage.removeItem(levelFunnelPendingJobStorageKey);
+  } catch {
+    // Nothing else to clean up when storage is unavailable.
+  }
+}
+
+function formatElapsedTime(elapsedMs: number) {
+  const seconds = Math.max(0, Math.floor(elapsedMs / 1000));
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const remainingSeconds = seconds % 60;
+  return hours
+    ? `${hours}:${String(minutes).padStart(2, "0")}:${String(remainingSeconds).padStart(2, "0")}`
+    : `${minutes}:${String(remainingSeconds).padStart(2, "0")}`;
 }
 
 function filtersFromSearchParams(params: URLSearchParams): Filters | null {
@@ -338,9 +403,12 @@ export default function LevelFunnelDashboard() {
   const [data, setData] = useState<LevelFailRateResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [queryStatus, setQueryStatus] = useState("");
+  const [pendingJob, setPendingJob] = useState<PendingLevelFunnelJob | null>(() => readPendingLevelFunnelJob());
+  const [queryElapsedMs, setQueryElapsedMs] = useState(0);
   const [accessError, setAccessError] = useState("");
   const [error, setError] = useState("");
   const queryRequestIdRef = useRef(0);
+  const hasResumedPendingJobRef = useRef(false);
   const hasReadUrlRef = useRef(false);
   const skipNextUrlSyncRef = useRef(false);
   const [pendingUrlRun, setPendingUrlRun] = useState(false);
@@ -378,6 +446,19 @@ export default function LevelFunnelDashboard() {
   }, []);
 
   useEffect(() => {
+    if (!pendingJob) {
+      setQueryElapsedMs(0);
+      return;
+    }
+    const updateElapsed = () => setQueryElapsedMs(Math.max(0, Date.now() - Date.parse(pendingJob.submittedAt)));
+    updateElapsed();
+    const intervalId = window.setInterval(updateElapsed, 1000);
+    return () => window.clearInterval(intervalId);
+  }, [pendingJob?.jobKey, pendingJob?.submittedAt]);
+
+  useEffect(() => () => { queryRequestIdRef.current += 1; }, []);
+
+  useEffect(() => {
     if (allowedApps && !allowedApps.includes(filters.appName)) return;
     let cancelled = false;
     setVersionsLoading(true);
@@ -400,9 +481,67 @@ export default function LevelFunnelDashboard() {
 
   function updateFilters(patch: Partial<Filters>) {
     queryRequestIdRef.current += 1;
+    clearPendingLevelFunnelJob();
+    setPendingJob(null);
     setFilters((current) => ({ ...current, ...patch }));
     setData(null);
     setError(""); setQueryStatus("");
+  }
+
+  function discardPendingJob() {
+    clearPendingLevelFunnelJob();
+    setPendingJob(null);
+    setQueryStatus("");
+  }
+
+  function stopWaitingForJob() {
+    if (!pendingJob) return;
+    queryRequestIdRef.current += 1;
+    discardPendingJob();
+    setLoading(false);
+    setError("");
+    setQueryStatus("Stopped waiting for the Count job. It may continue running in Count.");
+  }
+
+  async function pollPendingJob(initialJob: PendingLevelFunnelJob, requestId: number) {
+    let job = initialJob;
+    while (queryRequestIdRef.current === requestId) {
+      setQueryStatus(`Count job ${job.jobKey} is running.`);
+      await wait(job.pollAfterMs);
+      if (queryRequestIdRef.current !== requestId) return false;
+      const statusResponse = await fetch("/api/tech-launch/level-fail-rate/status", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jobKey: job.jobKey, filters: job.filters }) });
+      if (!statusResponse.ok) throw new Error(await responseMessage(statusResponse));
+      const result = (await statusResponse.json()) as LevelFailRateRunResponse;
+      if (result.status !== "running") {
+        if (queryRequestIdRef.current !== requestId) return false;
+        setData(result);
+        discardPendingJob();
+        return true;
+      }
+      job = { ...job, pollAfterMs: result.pollAfterMs };
+      setPendingJob(job);
+      persistPendingLevelFunnelJob(job);
+    }
+    return false;
+  }
+
+  async function resumePendingJob(job = pendingJob) {
+    if (!job || !allowedApps?.includes(job.filters.appName)) return;
+    const requestId = queryRequestIdRef.current + 1;
+    queryRequestIdRef.current = requestId;
+    setLoading(true); setError(""); setQueryStatus(`Resuming Count job ${job.jobKey}…`);
+    setPendingJob(job);
+    persistPendingLevelFunnelJob(job);
+    try {
+      await pollPendingJob(job, requestId);
+    } catch (reason) {
+      if (queryRequestIdRef.current === requestId) {
+        setError(reason instanceof Error ? reason.message : "Could not resume the level funnel check");
+        setQueryStatus(`Could not reach Count. Job ${job.jobKey} is saved so you can resume polling.`);
+      }
+    } finally {
+      if (queryRequestIdRef.current === requestId) setLoading(false);
+    }
   }
 
   async function runCheck(forceRefresh = false) {
@@ -410,33 +549,51 @@ export default function LevelFunnelDashboard() {
     const requestId = queryRequestIdRef.current + 1;
     queryRequestIdRef.current = requestId;
     const filterSnapshot = { ...filters };
+    discardPendingJob();
     writeFiltersToUrl(filterSnapshot, true);
     setLoading(true); setError(""); setQueryStatus(forceRefresh ? "Submitting a fresh Count query…" : "Submitting the Count query…");
     try {
       const response = await fetch("/api/tech-launch/level-fail-rate", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...filterSnapshot, forceRefresh }) });
       if (!response.ok) throw new Error(await responseMessage(response));
       let result = (await response.json()) as LevelFailRateRunResponse;
-      while (result.status === "running" && queryRequestIdRef.current === requestId) {
-        setQueryStatus("Count query is running. This page will keep checking until the result is ready…");
-        await wait(result.pollAfterMs);
-        if (queryRequestIdRef.current !== requestId) return;
-        const statusResponse = await fetch("/api/tech-launch/level-fail-rate/status", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jobKey: result.metadata.jobKey, filters: result.filters }) });
-        if (!statusResponse.ok) throw new Error(await responseMessage(statusResponse));
-        result = (await statusResponse.json()) as LevelFailRateRunResponse;
+      if (result.status === "running") {
+        const job: PendingLevelFunnelJob = { jobKey: result.metadata.jobKey, filters: result.filters, submittedAt: result.metadata.submittedAt, pollAfterMs: result.pollAfterMs };
+        setPendingJob(job);
+        persistPendingLevelFunnelJob(job);
+        await pollPendingJob(job, requestId);
+        return;
       }
-      if (queryRequestIdRef.current === requestId && result.status !== "running") setData(result);
+      if (queryRequestIdRef.current === requestId) { setData(result); setQueryStatus(""); }
     } catch (reason) {
-      if (queryRequestIdRef.current === requestId) setError(reason instanceof Error ? reason.message : "Could not run level funnel check");
+      if (queryRequestIdRef.current === requestId) {
+        setError(reason instanceof Error ? reason.message : "Could not run level funnel check");
+        setQueryStatus(pendingJob ? `Could not reach Count. The current job is saved so you can resume polling.` : "");
+      }
     } finally {
-      if (queryRequestIdRef.current === requestId) { setLoading(false); setQueryStatus(""); }
+      if (queryRequestIdRef.current === requestId) setLoading(false);
     }
   }
 
   useEffect(() => {
+    if (hasResumedPendingJobRef.current || allowedApps === null) return;
+    const savedJob = readPendingLevelFunnelJob();
+    if (!savedJob) { hasResumedPendingJobRef.current = true; return; }
+    if (!allowedApps.includes(savedJob.filters.appName)) { discardPendingJob(); hasResumedPendingJobRef.current = true; return; }
+    hasResumedPendingJobRef.current = true;
+    setFilters(savedJob.filters);
+    writeFiltersToUrl(savedJob.filters, true);
+    void resumePendingJob(savedJob);
+  }, [allowedApps]);
+
+  useEffect(() => {
     if (!pendingUrlRun || allowedApps === null || !allowedApps.includes(filters.appName)) return;
+    // A persisted job takes precedence over a stale `run=1` URL marker. The
+    // marker describes intent to run, whereas the saved Count key lets us
+    // continue the already-billed query instead of submitting a duplicate.
+    if (pendingJob) { setPendingUrlRun(false); return; }
     setPendingUrlRun(false);
     void runCheck();
-  }, [allowedApps, pendingUrlRun]);
+  }, [allowedApps, pendingJob, pendingUrlRun]);
 
   useEffect(() => {
     if (!hasReadUrlRef.current || pendingUrlRun) return;
@@ -461,6 +618,7 @@ export default function LevelFunnelDashboard() {
 
   const breachCount = data?.summary.breachCount ?? 0;
   const alertUnavailable = data?.status === "unavailable";
+  const slowQuery = Boolean(pendingJob && queryElapsedMs >= slowQueryAfterMs);
   return (
     <CerberusShell currentProduct="tech-launch" activeLaunchSection="level-funnel" collapsed={sidebarCollapsed} onToggleCollapsed={() => setSidebarCollapsed((collapsed) => !collapsed)} contentClassName="max-w-[1320px]">
       <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
@@ -479,7 +637,13 @@ export default function LevelFunnelDashboard() {
           <button type="button" onClick={() => void runCheck(true)} disabled={loading || !allowedApps?.length} className="focus-ring mt-[18px] inline-flex h-10 items-center gap-2 rounded-[8px] border border-line/70 bg-[#0a111e] px-4 text-sm font-semibold text-slate-300 hover:bg-sage disabled:opacity-60"><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />Refresh</button>
         </div>
         <p className="mt-4 border-t border-line/60 pt-4 text-xs text-slate-500">A new level hash pauses only that changed level while it is adopted; unchanged levels continue normally across bank changes.</p>
-        {queryStatus ? <p className="mt-2 text-xs font-medium text-cobalt">{queryStatus}</p> : null}
+        {pendingJob ? <div role="status" className={`mt-3 rounded-lg border px-3 py-2 text-xs ${slowQuery ? "border-amber/40 bg-amber/10 text-amber" : "border-cobalt/30 bg-cobalt/10 text-slate-300"}`}>
+          <div className="flex flex-wrap items-center justify-between gap-2"><span className="font-semibold">{slowQuery ? "Slow Count query — still running" : "Count query running"}</span><div className="flex items-center gap-2"><span className="font-mono">Elapsed: {formatElapsedTime(queryElapsedMs)}</span><button type="button" onClick={stopWaitingForJob} title="Stops polling in this dashboard; the Count job may continue running." className="focus-ring inline-flex items-center gap-1 rounded border border-rose/45 bg-rose/10 px-2 py-1 text-[11px] font-semibold text-rose hover:bg-rose/20"><X className="h-3.5 w-3.5" aria-hidden="true" />Stop waiting</button></div></div>
+          <p className="mt-1 font-mono text-[11px] text-slate-400">Count job key: <span className="select-all text-slate-200">{pendingJob.jobKey}</span></p>
+          {slowQuery ? <p className="mt-2 text-[11px] leading-5 text-amber">This query is taking longer than usual, but Count is still processing it. You can leave this page and return later; this job will be resumed instead of submitted again.</p> : <p className="mt-1 text-[11px] text-slate-500">The result will appear automatically when Count finishes.</p>}
+          {!loading ? <button type="button" onClick={() => void resumePendingJob()} className="focus-ring mt-2 rounded border border-current/40 px-2 py-1 text-[11px] font-semibold hover:bg-white/5">Resume polling</button> : null}
+        </div> : null}
+        {queryStatus && !pendingJob ? <p className="mt-2 text-xs font-medium text-cobalt">{queryStatus}</p> : null}
       </form>
 
       {error ? <div className="mb-5 rounded-[10px] border border-rose/30 bg-rose/10 px-4 py-3 text-sm font-semibold text-rose">{error}</div> : null}

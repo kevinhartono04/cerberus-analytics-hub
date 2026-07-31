@@ -1,0 +1,93 @@
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import React from "react";
+import type { ReactNode } from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("@/components/CerberusShell", () => ({ default: ({ children }: { children: ReactNode }) => <main>{children}</main> }));
+
+import LevelFunnelDashboard from "@/components/LevelFunnelDashboard";
+
+const filters = { appName: "stacksmash", platforms: ["android"], appVersions: ["0.2.0"], startDate: "2026-07-22", endDate: "2026-07-28" };
+const pendingJobStorageKey = "tech-launch:level-funnel:pending-count-job";
+
+function jsonResponse(value: unknown) {
+  return new Response(JSON.stringify(value), { status: 200, headers: { "content-type": "application/json" } });
+}
+
+function unavailableResult() {
+  return {
+    status: "unavailable",
+    filters,
+    settings: { normalThreshold: 0.5, hardThreshold: 0.7, minPlayers: 50, alertTargets: [] },
+    points: [],
+    summary: { breachCount: 0, eligibleLevelCount: 0, unavailableReason: "No telemetry" },
+    metadata: { executedAt: "2026-07-31T00:00:00.000Z" },
+  };
+}
+
+describe("LevelFunnelDashboard Count polling", () => {
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  beforeEach(() => {
+    window.history.replaceState(null, "", "/tech-launch/level-funnel");
+    window.sessionStorage.clear();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === "/api/me") return Promise.resolve(jsonResponse({ authenticated: true, user: { role: "viewer" }, access: { techLaunchApps: ["stacksmash"] } }));
+        if (url === "/api/tech-launch/app-versions") return Promise.resolve(jsonResponse({ versions: [{ appVersion: "0.2.0", sampleCount: 100 }] }));
+        return Promise.reject(new Error(`Unexpected request: ${url}`));
+      }),
+    );
+  });
+
+  it("shows the Count job key, elapsed time, and a slow-query state while Count continues", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/me") return Promise.resolve(jsonResponse({ authenticated: true, user: { role: "viewer" }, access: { techLaunchApps: ["stacksmash"] } }));
+      if (url === "/api/tech-launch/app-versions") return Promise.resolve(jsonResponse({ versions: [{ appVersion: "0.2.0", sampleCount: 100 }] }));
+      if (url === "/api/tech-launch/level-fail-rate") return Promise.resolve(jsonResponse({ status: "running", filters, metadata: { jobKey: "count-slow-42", submittedAt: new Date(Date.now() - 60_000).toISOString() }, pollAfterMs: 0 }));
+      if (url === "/api/tech-launch/level-fail-rate/status") return new Promise<Response>(() => {});
+      return Promise.reject(new Error(`Unexpected request: ${url}`));
+    });
+
+    render(<LevelFunnelDashboard />);
+    fireEvent.click(await screen.findByRole("button", { name: /^run$/i }));
+
+    expect(await screen.findByText(/slow Count query/i)).toBeInTheDocument();
+    expect(screen.getByText("count-slow-42")).toBeInTheDocument();
+    expect(screen.getByText(/Elapsed: 1:0/)).toBeInTheDocument();
+    expect(screen.getByText(/leave this page and return later/i)).toBeInTheDocument();
+    expect(window.sessionStorage.getItem(pendingJobStorageKey)).toContain("count-slow-42");
+    fireEvent.click(screen.getByRole("button", { name: /stop waiting/i }));
+    expect(await screen.findByText(/stopped waiting for the Count job/i)).toBeInTheDocument();
+    expect(window.sessionStorage.getItem(pendingJobStorageKey)).toBeNull();
+  });
+
+  it("resumes a saved Count job instead of submitting another query", async () => {
+    window.history.replaceState(null, "", "/tech-launch/level-funnel?appName=stacksmash&platform=android&appVersion=0.2.0&startDate=2026-07-22&endDate=2026-07-28&run=1");
+    window.sessionStorage.setItem(pendingJobStorageKey, JSON.stringify({ jobKey: "count-resume-7", filters, submittedAt: new Date().toISOString(), pollAfterMs: 0 }));
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/me") return Promise.resolve(jsonResponse({ authenticated: true, user: { role: "viewer" }, access: { techLaunchApps: ["stacksmash"] } }));
+      if (url === "/api/tech-launch/app-versions") return Promise.resolve(jsonResponse({ versions: [{ appVersion: "0.2.0", sampleCount: 100 }] }));
+      if (url === "/api/tech-launch/level-fail-rate/status") return Promise.resolve(jsonResponse(unavailableResult()));
+      return Promise.reject(new Error(`Unexpected request: ${url}`));
+    });
+
+    render(<LevelFunnelDashboard />);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "/api/tech-launch/level-fail-rate/status",
+      expect.objectContaining({ body: JSON.stringify({ jobKey: "count-resume-7", filters }) }),
+    ));
+    expect(fetchMock.mock.calls.some(([url]) => url === "/api/tech-launch/level-fail-rate")).toBe(false);
+    expect(window.sessionStorage.getItem(pendingJobStorageKey)).toBeNull();
+  });
+});

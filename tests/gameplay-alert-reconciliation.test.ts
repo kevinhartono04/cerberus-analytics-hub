@@ -82,12 +82,12 @@ describe("layout-bank gameplay alert reconciliation", () => {
 
     const result = await reconcileGameplayAlerts(filters);
 
-    expect(result.transitions).toEqual([]);
+    expect(result.transitions).toEqual([expect.objectContaining({ type: "pending", state: expect.objectContaining({ status: "pending" }) })]);
     expect(result.response.points[0]).toMatchObject({
       layoutUpdatePending: true,
       previousBankAssessment: { layoutBankId: "bank-a", difficultyTier: "normal", failRate: 0.8, reachedPlayers: 100, threshold: 0.5 },
       previousAlert: { layoutBankId: "bank-a", failRate: 0.8, reachedPlayers: 100, threshold: 0.5 },
     });
-    expect(mocks.saveStates).toHaveBeenCalledWith([expect.objectContaining({ status: "open", layoutBankId: "bank-a", lastSeenAt: expect.any(String) })]);
+    expect(mocks.saveStates).toHaveBeenCalledWith([expect.objectContaining({ status: "pending", layoutBankId: "bank-a", lastSeenAt: expect.any(String) })]);
   });
 });

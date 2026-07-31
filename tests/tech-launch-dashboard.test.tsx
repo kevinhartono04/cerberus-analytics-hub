@@ -11,6 +11,20 @@ function jsonResponse(value: unknown) {
   return new Response(JSON.stringify(value), { status: 200, headers: { "content-type": "application/json" } });
 }
 
+const readinessSessionKey = "cerberus.tech-launch.snapshot.v1";
+const readinessFilters = { appName: "wordblast", platform: "android", appVersion: "4.19.0", startDate: "2026-07-01", endDate: "2026-07-07" };
+
+function completedReadiness() {
+  return {
+    status: "completed",
+    filters: readinessFilters,
+    rows: [],
+    summary: { overallVerdict: "insufficient data", metricCount: 0, greenCount: 0, yellowCount: 0, redCount: 0, insufficientCount: 0, totalSamples: 0 },
+    metadata: { executedAt: "2026-07-31T00:00:00.000Z" },
+    cache: { hit: false, key: "readiness", expiresAt: "2026-07-31T01:00:00.000Z" },
+  };
+}
+
 describe("TechLaunchDashboard comparison mode", () => {
   afterEach(() => {
     cleanup();
@@ -80,5 +94,48 @@ describe("TechLaunchDashboard comparison mode", () => {
     fireEvent.change(screen.getByLabelText("Compare version"), { target: { value: "4.19.0" } });
     expect(screen.getByText("Choose a different app or version")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^run$/i })).toBeDisabled();
+  });
+
+  it("shows a clear slow Count state with elapsed time and its job key", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/me") return Promise.resolve(jsonResponse({ authenticated: true, access: { accountType: "internal", techLaunchApps: ["wordblast"] } }));
+      if (url === "/api/tech-launch/app-versions") return Promise.resolve(jsonResponse({ versions: [{ appVersion: "4.19.0", sampleCount: 200, firstSeen: "2026-07-01", lastSeen: "2026-07-09" }], cache: { hit: false, key: "versions", expiresAt: "2026-07-10T00:00:00.000Z" } }));
+      if (url === "/api/tech-launch/readiness") return Promise.resolve(jsonResponse({ status: "running", filters: readinessFilters, metadata: { jobKey: "readiness-slow-42", submittedAt: new Date(Date.now() - 60_000).toISOString() }, cache: { hit: false, key: "readiness" }, pollAfterMs: 0 }));
+      if (url === "/api/tech-launch/readiness/status") return new Promise<Response>(() => {});
+      return Promise.reject(new Error(`Unexpected request: ${url}`));
+    });
+
+    render(<TechLaunchDashboard />);
+    fireEvent.change(await screen.findByRole("combobox", { name: /version/i }), { target: { value: "4.19.0" } });
+    fireEvent.click(screen.getByRole("button", { name: /^run$/i }));
+
+    expect(await screen.findByText(/slow Count query/i)).toBeInTheDocument();
+    expect(screen.getByText("readiness-slow-42")).toBeInTheDocument();
+    expect(screen.getByText(/Elapsed: 1:0/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /stop waiting/i }));
+    expect(await screen.findByText(/stopped waiting for the Count job/i)).toBeInTheDocument();
+  });
+
+  it("resumes a saved readiness job instead of submitting another Count query", async () => {
+    window.history.replaceState(null, "", "/tech-launch?appName=wordblast&platform=android&appVersion=4.19.0&startDate=2026-07-01&endDate=2026-07-07&run=1");
+    window.sessionStorage.setItem(readinessSessionKey, JSON.stringify({ filters: readinessFilters, data: null, comparisonFilters: { appName: "wordblast", appVersion: "" }, statusText: "", pendingJobs: [{ jobKey: "readiness-resume-7", filters: readinessFilters, submittedAt: new Date().toISOString(), pollAfterMs: 0, forceRefresh: false, label: "baseline" }] }));
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/me") return Promise.resolve(jsonResponse({ authenticated: true, access: { accountType: "internal", techLaunchApps: ["wordblast"] } }));
+      if (url === "/api/tech-launch/app-versions") return Promise.resolve(jsonResponse({ versions: [{ appVersion: "4.19.0", sampleCount: 200, firstSeen: "2026-07-01", lastSeen: "2026-07-09" }], cache: { hit: false, key: "versions", expiresAt: "2026-07-10T00:00:00.000Z" } }));
+      if (url === "/api/tech-launch/readiness/status") return Promise.resolve(jsonResponse(completedReadiness()));
+      return Promise.reject(new Error(`Unexpected request: ${url}`));
+    });
+
+    render(<TechLaunchDashboard />);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "/api/tech-launch/readiness/status",
+      expect.objectContaining({ body: JSON.stringify({ jobKey: "readiness-resume-7", filters: readinessFilters, forceRefresh: false }) }),
+    ));
+    expect(fetchMock.mock.calls.some(([url]) => url === "/api/tech-launch/readiness")).toBe(false);
   });
 });

@@ -24,6 +24,7 @@ import { normalizedTechLaunchFilters, techLaunchAppIds, techLaunchAppOptions, te
 const sqlPath = path.join(process.cwd(), "data", "tech_launch_level_fail_rate.sql");
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 export const allAppVersionsAlertScope = "__all_versions__";
+export const allPlatformsAlertScope = "__all_platforms__";
 
 export const gameplayAlertTargetSchema = z.object({
   appName: z.enum(techLaunchAppOptions),
@@ -36,7 +37,13 @@ export const gameplayAlertTargetSchema = z.object({
 });
 
 export type GameplayAlertTarget = z.infer<typeof gameplayAlertTargetSchema>;
-export type GameplayAlertCronFilters = TechLaunchFilters & { appVersions: string[] };
+type GameplayAlertStateScope = { appName: string; platform: string; appVersion: string };
+export type GameplayAlertCronFilters = GameplayAlertStateScope & {
+  platforms: Array<"android" | "ios">;
+  appVersions: string[];
+  startDate: string;
+  endDate: string;
+};
 
 export const gameplayAlertSettingsSchema = z.object({
   normalThreshold: z.number().min(0).max(1),
@@ -165,7 +172,7 @@ export type GameplayAlertState = {
   layoutBankId?: string;
   layoutHash?: string;
   difficultyTier: "normal" | "hard";
-  status: "open" | "resolved" | "superseded";
+  status: "open" | "pending" | "resolved" | "superseded";
   firstSeenAt: string;
   lastSeenAt: string;
   resolvedAt?: string;
@@ -174,11 +181,12 @@ export type GameplayAlertState = {
   lastReachedPlayers: number;
   threshold: number;
   slackOpenDeliveredAt?: string;
+  slackPendingDeliveredAt?: string;
   slackResolvedDeliveredAt?: string;
 };
 
 export type GameplayAlertTransition = {
-  type: "opened" | "resolved";
+  type: "opened" | "pending" | "resolved";
   state: GameplayAlertState;
 };
 
@@ -463,7 +471,16 @@ export async function recordGameplayAlertDashboardObservation(filtersInput: unkn
   });
 }
 
-export function levelAlertKey(point: Pick<LevelFailRatePoint, "level" | "layoutBankId" | "layoutHash" | "difficultyTier">, filters: TechLaunchFilters) {
+function gameplayAlertStateScope(input: unknown): GameplayAlertStateScope {
+  const source = input && typeof input === "object" ? input as Record<string, unknown> : {};
+  const appName = String(source.appName ?? "").trim();
+  const platform = String(source.platform ?? "").trim();
+  const appVersion = String(source.appVersion ?? "").trim();
+  if (!appName || !platform || !appVersion) throw new Error("Gameplay alert state scope is incomplete");
+  return { appName, platform, appVersion };
+}
+
+export function levelAlertKey(point: Pick<LevelFailRatePoint, "level" | "layoutBankId" | "layoutHash" | "difficultyTier">, filters: GameplayAlertStateScope) {
   return `${filters.appName}:${filters.platform}:${filters.appVersion}:${point.level}:${point.layoutHash ?? `bank:${point.layoutBankId}`}:${point.difficultyTier}`;
 }
 
@@ -477,7 +494,7 @@ function stateFromRecord(record: GameplayAlertStateRecord): GameplayAlertState {
     ...(record.layoutBankId ? { layoutBankId: record.layoutBankId } : {}),
     ...(record.layoutHash ? { layoutHash: record.layoutHash } : {}),
     difficultyTier: record.difficultyTier === "hard" ? "hard" : "normal",
-    status: record.status === "resolved" || record.status === "superseded" ? record.status : "open",
+    status: record.status === "pending" || record.status === "resolved" || record.status === "superseded" ? record.status : "open",
     firstSeenAt: record.firstSeenAt,
     lastSeenAt: record.lastSeenAt,
     ...(record.resolvedAt ? { resolvedAt: record.resolvedAt } : {}),
@@ -486,11 +503,12 @@ function stateFromRecord(record: GameplayAlertStateRecord): GameplayAlertState {
     lastReachedPlayers: record.lastReachedPlayers,
     threshold: record.threshold,
     ...(record.slackOpenDeliveredAt ? { slackOpenDeliveredAt: record.slackOpenDeliveredAt } : {}),
+    ...(record.slackPendingDeliveredAt ? { slackPendingDeliveredAt: record.slackPendingDeliveredAt } : {}),
     ...(record.slackResolvedDeliveredAt ? { slackResolvedDeliveredAt: record.slackResolvedDeliveredAt } : {}),
   };
 }
 
-async function reconcileGameplayAlertResponse(filters: TechLaunchFilters, response: LevelFailRateResponse) {
+async function reconcileGameplayAlertResponse(filters: GameplayAlertStateScope, response: LevelFailRateResponse) {
   const now = new Date().toISOString();
   const existing = new Map((await listGameplayAlertStates(filters)).map((record) => [record.alertKey, stateFromRecord(record)]));
   if (response.status !== "completed") {
@@ -525,12 +543,14 @@ async function reconcileGameplayAlertResponse(filters: TechLaunchFilters, respon
   }
 
   for (const [key, previous] of existing) {
-    if (previous.status !== "open" || current.has(key)) continue;
+    if (current.has(key) || (previous.status !== "open" && previous.status !== "pending")) continue;
     if (pendingLayoutByLevel.has(previous.level)) {
-      // A newly observed bank may still be a small portion of traffic. Keep
-      // the prior alert state quiet until that bank either matures or vanishes,
-      // rather than resolving it or opening another notification mid-rollout.
-      next.push({ ...previous, lastSeenAt: now });
+      // Match the funnel: a new revision means the old-bank breach is no
+      // longer an open alert. Retain it only as a pending recheck until the
+      // current revision has enough stable, adopted traffic.
+      const state = { ...previous, status: "pending" as const, lastSeenAt: now };
+      next.push(state);
+      if (previous.status === "open" && previous.slackOpenDeliveredAt && !previous.slackPendingDeliveredAt) transitions.push({ type: "pending", state });
       continue;
     }
     const activeLayout = activeLayoutByLevel.get(previous.level);
@@ -561,17 +581,18 @@ export async function reconcileGameplayAlerts(filtersInput: unknown) {
 }
 
 export async function reconcileGameplayAlertsFromQuery(filtersInput: unknown, query: CountQuery, queryFiltersInput: unknown = filtersInput) {
-  const filters = normalizedTechLaunchFilters(filtersInput);
+  const filters = gameplayAlertStateScope(filtersInput);
   const settings = await getGameplayAlertSettings();
   return reconcileGameplayAlertResponse(filters, await completedLevelFailRateResponse(query, normalizedLevelFunnelFilters(queryFiltersInput), settings));
 }
 
 export async function undeliveredGameplayAlertTransitions(filtersInput: unknown): Promise<GameplayAlertTransition[]> {
-  const filters = normalizedTechLaunchFilters(filtersInput);
+  const filters = gameplayAlertStateScope(filtersInput);
   const transitions: GameplayAlertTransition[] = [];
   for (const record of await listGameplayAlertStates(filters)) {
     const state = stateFromRecord(record);
     if (state.status === "open" && !state.slackOpenDeliveredAt) transitions.push({ type: "opened", state });
+    if (state.status === "pending" && state.slackOpenDeliveredAt && !state.slackPendingDeliveredAt) transitions.push({ type: "pending", state });
     if (state.status === "resolved" && state.slackOpenDeliveredAt && !state.slackResolvedDeliveredAt) transitions.push({ type: "resolved", state });
   }
   return transitions;
@@ -581,15 +602,18 @@ export async function deliverGameplayAlertTransitions(transitions: GameplayAlert
   const webhook = process.env.SLACK_GAMEPLAY_ALERT_WEBHOOK_URL?.trim();
   if (!webhook || !transitions.length) return { delivered: 0, skipped: transitions.length, configured: Boolean(webhook) };
   const lines = transitions.map(({ type, state }) => {
-    const label = type === "opened" ? "OPEN" : "RESOLVED";
+    const label = type === "opened" ? "OPEN" : type === "pending" ? "PENDING RECHECK" : "RESOLVED";
     const appVersion = state.appVersion === allAppVersionsAlertScope ? "all versions" : state.appVersion;
-    return `*${label}* · ${state.appName} ${appVersion} · Level ${state.level} · Layout bank ${state.layoutBankId ?? "legacy"} · ${state.difficultyTier} · ${(state.lastFailRate * 100).toFixed(1)}% fail rate vs ${(state.threshold * 100).toFixed(0)}% · ${state.lastReachedPlayers} players`;
+    const platform = state.platform === allPlatformsAlertScope ? "all platforms" : state.platform;
+    const statusDetail = type === "pending" ? "new layout revision is warming up" : `${(state.lastFailRate * 100).toFixed(1)}% fail rate vs ${(state.threshold * 100).toFixed(0)}%`;
+    return `*${label}* · ${state.appName} ${platform} · ${appVersion} · Level ${state.level} · Layout bank ${state.layoutBankId ?? "legacy"} · ${state.difficultyTier} · ${statusDetail} · ${state.lastReachedPlayers} players`;
   });
   const response = await fetch(webhook, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: `Gameplay Difficulty Alerts\n${lines.join("\n")}` }) });
   if (!response.ok) throw new Error(`Slack webhook returned ${response.status}`);
   const deliveredAt = new Date().toISOString();
   await Promise.all([
     markGameplayAlertSlackDelivered(transitions.filter((transition) => transition.type === "opened").map((transition) => transition.state.alertKey), "opened", deliveredAt),
+    markGameplayAlertSlackDelivered(transitions.filter((transition) => transition.type === "pending").map((transition) => transition.state.alertKey), "pending", deliveredAt),
     markGameplayAlertSlackDelivered(transitions.filter((transition) => transition.type === "resolved").map((transition) => transition.state.alertKey), "resolved", deliveredAt),
   ]);
   return { delivered: transitions.length, skipped: 0, configured: true };
@@ -601,19 +625,20 @@ export function gameplayAlertCronFilters(settings: GameplayAlertSettings, today 
   const start = new Date(end);
   start.setUTCDate(start.getUTCDate() - 6);
   const iso = (value: Date) => value.toISOString().slice(0, 10);
-  return settings.alertTargets.flatMap((target) => target.platforms.map((platform) => ({
+  return settings.alertTargets.map((target) => ({
     appName: target.appName,
-    platform,
-    // State is keyed separately for an all-version evaluation, while the SQL
-    // receives an empty list and therefore omits its version predicate.
+    // Keep the state identity aligned with the aggregate query. A target that
+    // includes both platforms is one alert scope, not two duplicated alerts.
+    platform: target.platforms.length === 1 ? target.platforms[0] : allPlatformsAlertScope,
+    platforms: target.platforms,
     appVersion: target.appVersion || allAppVersionsAlertScope,
     appVersions: target.appVersion ? [target.appVersion] : [],
     startDate: iso(start),
     endDate: iso(end),
-  })));
+  }));
 }
 
-export function gameplayAlertEvaluationKey(filters: TechLaunchFilters) {
+export function gameplayAlertEvaluationKey(filters: GameplayAlertStateScope & Pick<LevelFunnelFilters, "startDate" | "endDate">) {
   return [filters.appName, filters.platform, filters.appVersion, filters.startDate, filters.endDate].join(":");
 }
 
