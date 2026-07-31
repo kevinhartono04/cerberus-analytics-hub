@@ -19,7 +19,7 @@ import {
   type GameplayAlertStateRecord,
 } from "@/lib/db";
 import { getCountQuery, runCountSql, submitCountSql, type CountQuery } from "@/lib/count-api";
-import { normalizedTechLaunchFilters, techLaunchAppOptions, techLaunchFilterSchema, techLaunchPlatformOptions, type TechLaunchFilters } from "@/lib/tech-launch";
+import { normalizedTechLaunchFilters, techLaunchAppIds, techLaunchAppOptions, techLaunchFilterSchema, techLaunchPlatformOptions, type TechLaunchFilters } from "@/lib/tech-launch";
 
 const sqlPath = path.join(process.cwd(), "data", "tech_launch_level_fail_rate.sql");
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
@@ -212,14 +212,15 @@ function replaceRequired(sql: string, pattern: RegExp, replacement: string) {
 
 export function buildLevelFailRateSql(filtersInput: unknown) {
   const filters = normalizedLevelFunnelFilters(filtersInput);
+  const appId = techLaunchAppIds[filters.appName];
   let sql = readBaseSql();
-  sql = replaceRequired(sql, /app_name\s*=\s*'[^']*'\s*-- modifiable parameter/, `app_name = ${sqlLiteral(filters.appName)} -- modifiable parameter`);
+  sql = replaceRequired(sql, /ep\.app_id\s*=\s*\d+\s*-- modifiable parameter/, `ep.app_id = ${appId} -- modifiable parameter`);
   sql = replaceRequired(sql, /ep\.platform\s+in\s*\([^)]*\)\s*-- modifiable parameter/, `ep.platform in (${sqlList(filters.platforms)}) -- modifiable parameter`);
   sql = replaceRequired(sql, /ep\.app_version\s+in\s*\([^)]*\)\s*-- modifiable parameter/, filters.appVersions.length ? `ep.app_version in (${sqlList(filters.appVersions)}) -- modifiable parameter` : "1 = 1 -- modifiable parameter");
   sql = replaceRequired(
     sql,
-    /ep\.created_at::date\s+between\s+current_date\(\)\s*-\s*7\s+and\s+current_date\(\)\s*-- modifiable parameter/i,
-    `ep.created_at::date between ${sqlDateLiteral(filters.startDate)} and ${sqlDateLiteral(filters.endDate)} -- modifiable parameter`,
+    /ep\.created_at\s*>=\s*current_date\(\)\s*-\s*7\s*-- modifiable parameter\s*and\s+ep\.created_at\s*<\s*dateadd\(day,\s*1,\s*current_date\(\)\)\s*-- modifiable parameter/i,
+    `ep.created_at >= ${sqlDateLiteral(filters.startDate)} -- modifiable parameter\n    and ep.created_at < DATEADD(day, 1, ${sqlDateLiteral(filters.endDate)}) -- modifiable parameter`,
   );
   return sql;
 }

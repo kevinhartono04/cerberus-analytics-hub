@@ -58,10 +58,12 @@ describe("gameplay difficulty alerts", () => {
     expect(sql).toContain("previous_layout_hash");
     expect(sql).toContain("and r.recent_players >= 5");
     expect(sql).toContain("and r.recent_players / nullif(t.total_recent_players, 0)::float >= 0.01");
-    expect(sql).toContain("app_name = 'wordblast' -- modifiable parameter");
+    expect(sql).toContain("ep.app_id = 122 -- modifiable parameter");
     expect(sql).toContain("ep.platform in ('android') -- modifiable parameter");
     expect(sql).toContain("ep.app_version in ('1.0.0') -- modifiable parameter");
-    expect(sql).toContain("ep.created_at::date between TO_DATE('2026-07-01') and TO_DATE('2026-07-07') -- modifiable parameter");
+    expect(sql).toContain("ep.created_at >= TO_DATE('2026-07-01') -- modifiable parameter");
+    expect(sql).toContain("ep.created_at < DATEADD(day, 1, TO_DATE('2026-07-07')) -- modifiable parameter");
+    expect(sql).not.toContain("created_at::date between");
     expect(sql).toContain("count(distinct s.user_id) as reached_players");
 
     const allVersionSql = buildLevelFailRateSql({ ...filters, platforms: ["android", "ios"], appVersions: [], platform: undefined, appVersion: undefined });

@@ -32,6 +32,29 @@ export const techLaunchAppOptions = [
   "bubblewordchain",
 ] as const;
 
+// App names are the user-facing filter contract; query builders resolve them
+// to immutable source IDs before generating SQL so Snowflake can prune early.
+export const techLaunchAppIds: Record<(typeof techLaunchAppOptions)[number], number> = {
+  hexago: 18,
+  marble: 22,
+  tripletile: 9,
+  wooblast: 28,
+  woodoku: 4,
+  blockkingdom: 117,
+  bubblego: 23,
+  mahjongbloom: 119,
+  wordblast: 122,
+  wordoku: 3013,
+  jelly: 125,
+  bloomsort: 3003,
+  wordrush: 3001,
+  sizzle: 3004,
+  stacksmash: 3011,
+  treasureshot: 3012,
+  dotpaint: 3005,
+  bubblewordchain: 3006,
+};
+
 export const techLaunchPlatformOptions = ["android", "ios"] as const;
 
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
@@ -183,11 +206,12 @@ function replaceRequired(sql: string, pattern: RegExp, replacement: string) {
 
 export function buildTechLaunchSql(filtersInput: unknown) {
   const filters = techLaunchFilterSchema.parse(filtersInput);
+  const appId = techLaunchAppIds[filters.appName];
   let sql = readBaseSql();
   sql = replaceRequired(
     sql,
-    /app_name\s*=\s*'[^']*'\s*-- modifiable parameter/,
-    `app_name = ${sqlLiteral(filters.appName)} -- modifiable parameter`,
+    /ep\.app_id\s*=\s*\d+\s*-- modifiable parameter/,
+    `ep.app_id = ${appId} -- modifiable parameter`,
   );
   sql = replaceRequired(
     sql,
@@ -196,8 +220,8 @@ export function buildTechLaunchSql(filtersInput: unknown) {
   );
   sql = replaceRequired(
     sql,
-    /ep\.created_at(?:::date)?\s+between\s+current_date\(\)\s*-\s*7\s+and\s+current_date\(\)\s*-- modifiable parameter/i,
-    `ep.created_at::date between ${sqlDateLiteral(filters.startDate)} and ${sqlDateLiteral(filters.endDate)} -- modifiable parameter`,
+    /ep\.created_at\s*>=\s*current_date\(\)\s*-\s*7\s*-- modifiable parameter\s*and\s+ep\.created_at\s*<\s*dateadd\(day,\s*1,\s*current_date\(\)\)\s*-- modifiable parameter/i,
+    `ep.created_at >= ${sqlDateLiteral(filters.startDate)} -- modifiable parameter\n    and ep.created_at < DATEADD(day, 1, ${sqlDateLiteral(filters.endDate)}) -- modifiable parameter`,
   );
   sql = replaceRequired(
     sql,
@@ -209,32 +233,11 @@ export function buildTechLaunchSql(filtersInput: unknown) {
 
 export function buildTechLaunchAppVersionsSql(filtersInput: unknown) {
   const filters = normalizedTechLaunchAppVersionFilters(filtersInput);
+  const appId = techLaunchAppIds[filters.appName];
   return `
 with events as (
   select
-    case
-      when ep.app_id = 18 then 'hexago'
-      when ep.app_id = 22 then 'marble'
-      when ep.app_id = 9 then 'tripletile'
-      when ep.app_id = 28 then 'wooblast'
-      when ep.app_id = 4 then 'woodoku'
-      when ep.app_id = 117 then 'blockkingdom'
-      when ep.app_id = 23 then 'bubblego'
-      when ep.app_id = 119 then 'mahjongbloom'
-      when ep.app_id = 122 then 'wordblast'
-      when ep.app_id = 3013 then 'wordoku'
-      when ep.app_id = 125 then 'jelly'
-      when ep.app_id = 3003 then 'bloomsort'
-      when ep.app_id = 3001 then 'wordrush'
-      when ep.app_id = 3004 then 'sizzle'
-      when ep.app_id = 3011 then 'stacksmash'
-      when ep.app_id = 3012 then 'treasureshot'
-      when ep.app_id = 3005 then 'dotpaint'
-      when ep.app_id = 3006 then 'bubblewordchain'
-      else null
-    end as app_name,
     ep.app_version,
-    ep.platform,
     ep.created_at::date as event_date
   from (
       select * from tds_db.raw.ludios_telemetry_events_production where app_id in (3001, 3003, 3004, 3005, 3006, 3011, 3012, 3013)
@@ -242,8 +245,10 @@ with events as (
       select * from tds_db.raw.telemetry_events_production where app_id in (18,22,117,122)
   ) ep
   where
-    ep.platform = ${sqlLiteral(filters.platform)}
-    and ep.created_at::date between ${sqlDateLiteral(filters.startDate)} and ${sqlDateLiteral(filters.endDate)}
+    ep.app_id = ${appId}
+    and ep.platform = ${sqlLiteral(filters.platform)}
+    and ep.created_at >= ${sqlDateLiteral(filters.startDate)}
+    and ep.created_at < DATEADD(day, 1, ${sqlDateLiteral(filters.endDate)})
 )
 select
   app_version,
@@ -252,8 +257,7 @@ select
   max(event_date)::varchar as last_seen
 from events
 where
-  app_name = ${sqlLiteral(filters.appName)}
-  and app_version is not null
+  app_version is not null
   and app_version <> ''
 group by 1
 order by last_seen desc, sample_count desc, app_version desc

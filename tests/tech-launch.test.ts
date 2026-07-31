@@ -6,6 +6,7 @@ import {
   parseTechLaunchAppVersions,
   parseTechLaunchRows,
   summarizeTechLaunchRows,
+  techLaunchAppIds,
   techLaunchCacheKey,
 } from "@/lib/tech-launch";
 
@@ -21,10 +22,12 @@ describe("Tech Launch readiness helpers", () => {
   it("substitutes SQL filters with escaped literals", () => {
     const sql = buildTechLaunchSql({ ...filters, appVersion: "1.0.0-canary" });
 
-    expect(sql).toContain("app_name = 'wordblast' -- modifiable parameter");
+    expect(sql).toContain("ep.app_id = 122 -- modifiable parameter");
     expect(sql).toContain("ep.platform = 'android' -- modifiable parameter");
-    expect(sql).toContain("ep.created_at::date between TO_DATE('2026-06-25') and TO_DATE('2026-07-02') -- modifiable parameter");
+    expect(sql).toContain("ep.created_at >= TO_DATE('2026-06-25') -- modifiable parameter");
+    expect(sql).toContain("ep.created_at < DATEADD(day, 1, TO_DATE('2026-07-02')) -- modifiable parameter");
     expect(sql).toContain("app_version = '1.0.0-canary' -- modifiable parameter");
+    expect(sql).not.toContain("created_at::date between");
   });
 
   it("calculates launch statistics from raw telemetry events", () => {
@@ -45,33 +48,22 @@ describe("Tech Launch readiness helpers", () => {
     const sql = buildTechLaunchAppVersionsSql(filters);
 
     expect(sql).toContain("ep.platform = 'android'");
-    expect(sql).toContain("ep.created_at::date between TO_DATE('2026-06-25') and TO_DATE('2026-07-02')");
-    expect(sql).toContain("app_name = 'wordblast'");
+    expect(sql).toContain("ep.app_id = 122");
+    expect(sql).toContain("ep.created_at >= TO_DATE('2026-06-25')");
+    expect(sql).toContain("ep.created_at < DATEADD(day, 1, TO_DATE('2026-07-02'))");
     expect(sql).toContain("order by last_seen desc, sample_count desc, app_version desc");
   });
 
-  it("includes StackSmash in the telemetry app-version lookup", () => {
+  it("uses the canonical app ID for the telemetry app-version lookup", () => {
     const sql = buildTechLaunchAppVersionsSql({ ...filters, appName: "stacksmash" });
 
-    expect(sql).toContain("when ep.app_id = 3011 then 'stacksmash'");
-    expect(sql).toContain("app_id in (3001, 3003, 3004, 3005, 3006, 3011, 3012, 3013)");
-    expect(sql).toContain("app_name = 'stacksmash'");
+    expect(techLaunchAppIds.stacksmash).toBe(3011);
+    expect(sql).toContain("ep.app_id = 3011");
   });
 
-  it("includes Wordoku in the telemetry app-version lookup", () => {
-    const sql = buildTechLaunchAppVersionsSql({ ...filters, appName: "wordoku" });
-
-    expect(sql).toContain("when ep.app_id = 3013 then 'wordoku'");
-    expect(sql).toContain("app_id in (3001, 3003, 3004, 3005, 3006, 3011, 3012, 3013)");
-    expect(sql).toContain("app_name = 'wordoku'");
-  });
-
-  it("includes TreasureShot in the telemetry app-version lookup", () => {
-    const sql = buildTechLaunchAppVersionsSql({ ...filters, appName: "treasureshot" });
-
-    expect(sql).toContain("when ep.app_id = 3012 then 'treasureshot'");
-    expect(sql).toContain("app_id in (3001, 3003, 3004, 3005, 3006, 3011, 3012, 3013)");
-    expect(sql).toContain("app_name = 'treasureshot'");
+  it("keeps less-common app names in the same canonical map", () => {
+    expect(techLaunchAppIds.wordoku).toBe(3013);
+    expect(techLaunchAppIds.treasureshot).toBe(3012);
   });
 
   it("parses app version Count CSV previews", () => {

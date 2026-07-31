@@ -1,26 +1,5 @@
 with source_events as (
   select
-    case
-      when ep.app_id = 18 then 'hexago'
-      when ep.app_id = 22 then 'marble'
-      when ep.app_id = 9 then 'tripletile'
-      when ep.app_id = 28 then 'wooblast'
-      when ep.app_id = 4 then 'woodoku'
-      when ep.app_id = 117 then 'blockkingdom'
-      when ep.app_id = 23 then 'bubblego'
-      when ep.app_id = 119 then 'mahjongbloom'
-      when ep.app_id = 122 then 'wordblast'
-      when ep.app_id = 3013 then 'wordoku'
-      when ep.app_id = 125 then 'jelly'
-      when ep.app_id = 3003 then 'bloomsort'
-      when ep.app_id = 3001 then 'wordrush'
-      when ep.app_id = 3004 then 'sizzle'
-      when ep.app_id = 3011 then 'stacksmash'
-      when ep.app_id = 3012 then 'treasureshot'
-      when ep.app_id = 3005 then 'dotpaint'
-      when ep.app_id = 3006 then 'bubblewordchain'
-      else null
-    end as app_name,
     ep.app_version,
     ep.platform,
     ep.name,
@@ -31,6 +10,20 @@ with source_events as (
     union all
     select * from tds_db.raw.telemetry_events_production where app_id in (18, 22, 117, 122)
   ) ep
+  where ep.app_id = 122 -- modifiable parameter
+    and ep.platform = 'android' -- modifiable parameter
+    and ep.name in (
+      'Telemetry_FPS_Average',
+      'Telemetry_FPS_Stability',
+      'Telemetry_First_Load_Time',
+      'Telemetry_Runtime_Memory_Use',
+      'Telemetry_Subsequent_Load_Time',
+      'Telemetry_Battery_Consumption',
+      'Telemetry_ThermalState'
+    )
+    and ep.created_at >= current_date() - 7 -- modifiable parameter
+    and ep.created_at < dateadd(day, 1, current_date()) -- modifiable parameter
+    and ep.app_version = '1.0.0' -- modifiable parameter
 ), telemetry_events as (
   select
     name,
@@ -42,20 +35,6 @@ with source_events as (
       else payload:value_float::float
     end as value
   from source_events ep
-  where
-    app_name = 'wordblast' -- modifiable parameter
-    and ep.platform = 'android' -- modifiable parameter
-    and ep.name in (
-      'Telemetry_FPS_Average',
-      'Telemetry_FPS_Stability',
-      'Telemetry_First_Load_Time',
-      'Telemetry_Runtime_Memory_Use',
-      'Telemetry_Subsequent_Load_Time',
-      'Telemetry_Battery_Consumption',
-      'Telemetry_ThermalState'
-    )
-    and ep.created_at::date between current_date() - 7 and current_date() -- modifiable parameter
-    and ep.app_version = '1.0.0' -- modifiable parameter
 ), valid_events as (
   select name, value
   from telemetry_events

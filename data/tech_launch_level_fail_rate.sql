@@ -1,24 +1,5 @@
 with source_events as (
   select
-    case
-      when ep.app_id = 18 then 'hexago'
-      when ep.app_id = 22 then 'marble'
-      when ep.app_id = 9 then 'tripletile'
-      when ep.app_id = 28 then 'wooblast'
-      when ep.app_id = 4 then 'woodoku'
-      when ep.app_id = 117 then 'blockkingdom'
-      when ep.app_id = 23 then 'bubblego'
-      when ep.app_id = 119 then 'mahjongbloom'
-      when ep.app_id = 122 then 'wordblast'
-      when ep.app_id = 125 then 'jelly'
-      when ep.app_id = 3003 then 'bloomsort'
-      when ep.app_id = 3001 then 'wordrush'
-      when ep.app_id = 3004 then 'sizzle'
-      when ep.app_id = 3011 then 'stacksmash'
-      when ep.app_id = 3005 then 'dotpaint'
-      when ep.app_id = 3006 then 'bubblewordchain'
-      else null
-    end as app_name,
     ep.app_version,
     ep.platform,
     ep.name,
@@ -27,6 +8,13 @@ with source_events as (
     ep.argument_value,
     ep.payload
   from PUBLIC.EVENTS_PRODUCTION_LUDIOS_UNION ep
+  where ep.app_id = 122 -- modifiable parameter
+    and ep.platform in ('android') -- modifiable parameter
+    and ep.app_version in ('1.0.0') -- modifiable parameter
+    and ep.created_at >= current_date() - 7 -- modifiable parameter
+    and ep.created_at < dateadd(day, 1, current_date()) -- modifiable parameter
+    and ep.name in ('Game_Start', 'Game_End')
+    and ep.user_id is not null
 ), gameplay_events as (
   select
     user_id::string as user_id,
@@ -40,12 +28,6 @@ with source_events as (
     nullif(trim(coalesce(payload:difficulty::string, '')), '') as raw_difficulty,
     lower(trim(coalesce(argument_value::string, payload:game_end_reason::string, payload:reason::string, ''))) as outcome
   from source_events ep
-  where app_name = 'wordblast' -- modifiable parameter
-    and ep.platform in ('android') -- modifiable parameter
-    and ep.app_version in ('1.0.0') -- modifiable parameter
-    and ep.created_at::date between current_date() - 7 and current_date() -- modifiable parameter
-    and ep.name in ('Game_Start', 'Game_End')
-    and user_id is not null
 ), end_round_hashes as (
   select
     e.user_id,
