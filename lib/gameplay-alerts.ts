@@ -104,6 +104,7 @@ export const levelFailRatePointSchema = z.object({
   layoutShare: z.number().min(0).max(1),
   layoutCoverage: z.number().min(0).max(1),
   layoutAgeHours: z.number().nonnegative(),
+  hasRecentActivity: z.boolean(),
   layoutStable: z.boolean(),
   layoutUpdatePending: z.boolean(),
   pendingLayoutBankId: z.string().optional(),
@@ -261,6 +262,7 @@ export function parseLevelFailRateRows(resultPreview: string | undefined, settin
       const layoutShare = Math.min(1, Math.max(0, toNumber(rowValue(row, "layout_share"))));
       const layoutCoverage = Math.min(1, Math.max(0, toNumber(rowValue(row, "layout_coverage"))));
       const layoutAgeHours = Math.max(0, toNumber(rowValue(row, "layout_age_hours")));
+      const hasRecentActivity = toBoolean(rowValue(row, "has_recent_activity"));
       const layoutStable = toBoolean(rowValue(row, "layout_is_stable"));
       const layoutUpdatePending = toBoolean(rowValue(row, "layout_update_pending"));
       const pendingLayoutBankId = String(rowValue(row, "pending_layout_bank_id") ?? "").trim();
@@ -284,6 +286,7 @@ export function parseLevelFailRateRows(resultPreview: string | undefined, settin
         layoutShare,
         layoutCoverage,
         layoutAgeHours,
+        hasRecentActivity,
         layoutStable,
         layoutUpdatePending,
         ...(pendingLayoutBankId ? { pendingLayoutBankId, ...(pendingLayoutHash ? { pendingLayoutHash } : {}), pendingLayoutShare, pendingLayoutRecentPlayers, pendingLayoutAgeHours } : {}),

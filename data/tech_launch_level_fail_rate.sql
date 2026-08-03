@@ -85,11 +85,10 @@ with source_events as (
 ), recent_start_totals as (
   select
     s.level,
-    count(distinct s.user_id) as total_recent_players,
-    count(distinct s.user_id) as layout_covered_recent_players
+    count(distinct case when s.created_at >= dateadd(hour, -24, l.last_event_at) then s.user_id end) as total_recent_players,
+    count(distinct case when s.created_at >= dateadd(hour, -24, l.last_event_at) then s.user_id end) as layout_covered_recent_players
   from starts s
   cross join latest_event l
-  where s.created_at >= dateadd(hour, -24, l.last_event_at)
   group by 1
 ), revision_history as (
   select
@@ -105,15 +104,14 @@ with source_events as (
     regexp_replace(lower(coalesce(max_by(s.raw_difficulty, s.created_at), '')), '[[:space:]_-]', '') not in ('normal', 'hard', 'superhard', 'veryhard') as used_difficulty_fallback
   from starts s
   group by 1, 2
-), recent_revision_metrics as (
+), revision_metrics as (
   select
     s.level,
     s.revision_key,
-    count(distinct s.user_id) as recent_players,
+    count(distinct case when s.created_at >= dateadd(hour, -24, l.last_event_at) then s.user_id end) as recent_players,
     max(s.created_at) as revision_last_seen_at
   from starts s
   cross join latest_event l
-  where s.created_at >= dateadd(hour, -24, l.last_event_at)
   group by 1, 2
 ), revision_banks as (
   select
@@ -129,15 +127,18 @@ with source_events as (
     ) as canonical_bank_rank
   from starts s
   group by 1, 2, 3
-), recent_revisions as (
+), active_revisions as (
   select
     m.level,
     m.revision_key,
     b.layout_bank_id,
     b.level_id,
     m.recent_players,
-    row_number() over (partition by m.level order by m.recent_players desc, m.revision_last_seen_at desc, m.revision_key) as revision_rank
-  from recent_revision_metrics m
+    row_number() over (
+      partition by m.level
+      order by case when m.recent_players > 0 then 1 else 0 end desc, m.recent_players desc, m.revision_last_seen_at desc, m.revision_key
+    ) as revision_rank
+  from revision_metrics m
   join revision_banks b
     on b.level = m.level
     and b.revision_key = m.revision_key
@@ -154,7 +155,7 @@ with source_events as (
     t.layout_covered_recent_players,
     r.recent_players / nullif(t.total_recent_players, 0)::float as layout_share,
     t.layout_covered_recent_players / nullif(t.total_recent_players, 0)::float as layout_coverage
-  from recent_revisions r
+  from active_revisions r
   join recent_start_totals t using (level)
   join revision_history h on h.level = r.level and h.revision_key = r.revision_key
   where r.revision_rank = 1
@@ -169,7 +170,7 @@ with source_events as (
     h.revision_first_seen_at as pending_revision_first_seen_at,
     datediff(hour, h.revision_first_seen_at, l.last_event_at) as pending_layout_age_hours,
     row_number() over (partition by r.level order by r.recent_players desc, h.revision_first_seen_at desc, r.revision_key) as pending_revision_rank
-  from recent_revisions r
+  from active_revisions r
   join recent_start_totals t using (level)
   join revision_history h on h.level = r.level and h.revision_key = r.revision_key
   cross join latest_event l
@@ -257,6 +258,7 @@ select
   coalesce(f.failed_players, 0) / nullif(h.reached_players, 0)::float as fail_rate,
   a.layout_share,
   a.layout_coverage,
+  a.recent_players > 0 as has_recent_activity,
   datediff(hour, h.revision_first_seen_at, l.last_event_at) as layout_age_hours,
   coalesce(p.pending_revision_key is not null, false) as layout_update_pending,
   p.pending_layout_bank_id,
@@ -270,7 +272,8 @@ select
   pa.previous_layout_reached_players,
   coalesce(pf.previous_layout_failed_players, 0) as previous_layout_failed_players,
   coalesce(pf.previous_layout_failed_players, 0) / nullif(pa.previous_layout_reached_players, 0)::float as previous_layout_fail_rate,
-  a.layout_share >= 0.7
+  a.recent_players > 0
+    and a.layout_share >= 0.7
     and a.layout_coverage >= 0.95
     and datediff(hour, h.revision_first_seen_at, l.last_event_at) >= 24 as layout_is_stable
 from revision_history h

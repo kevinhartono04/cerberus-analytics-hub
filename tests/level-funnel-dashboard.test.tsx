@@ -91,7 +91,14 @@ describe("LevelFunnelDashboard Count polling", () => {
     expect(window.sessionStorage.getItem(pendingJobStorageKey)).toBeNull();
   });
 
-  it("forces a fresh query when Run is used for a window ending today", async () => {
+  it("forces a fresh query when Run is used for a window that includes today", async () => {
+    const formatDate = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+    const today = new Date();
+    const start = new Date(today); start.setDate(start.getDate() - 7);
+    const end = new Date(today); end.setDate(end.getDate() + 1);
+    const startDate = formatDate(start);
+    const endDate = formatDate(end);
+    window.history.replaceState(null, "", `/tech-launch/level-funnel?appName=stacksmash&platform=android&appVersion=0.2.0&startDate=${startDate}&endDate=${endDate}`);
     const fetchMock = vi.mocked(fetch);
     fetchMock.mockImplementation((input: RequestInfo | URL) => {
       const url = String(input);
@@ -102,6 +109,7 @@ describe("LevelFunnelDashboard Count polling", () => {
     });
 
     render(<LevelFunnelDashboard />);
+    await screen.findByText(endDate, { exact: false });
     fireEvent.click(await screen.findByRole("button", { name: /^run$/i }));
 
     await waitFor(() => {

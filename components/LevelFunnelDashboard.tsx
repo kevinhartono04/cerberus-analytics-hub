@@ -51,6 +51,7 @@ type LevelFailRatePoint = {
   layoutShare: number;
   layoutCoverage: number;
   layoutAgeHours: number;
+  hasRecentActivity: boolean;
   layoutStable: boolean;
   layoutUpdatePending: boolean;
   pendingLayoutBankId?: string;
@@ -373,7 +374,7 @@ function FailRateChart({ data, loading }: { data: LevelFailRateResponse; loading
             {points.map((point) => {
               const selected = pointKey(point) === selectedPointKey;
               const previous = point.previousBankAssessment ?? point.previousAlert;
-              return <g key={pointKey(point)}>{selected ? <><line x1={x(point.level)} x2={x(point.level)} y1="28" y2="185" stroke="#fbbf24" strokeDasharray="3 3" /><circle cx={x(point.level)} cy={y(point.failRate)} r="10" fill="none" stroke="#fbbf24" strokeWidth="2.5" /></> : null}<circle cx={x(point.level)} cy={y(point.failRate)} r={selected ? "6" : "5"} fill={previous ? "#fbbf24" : point.breached ? "#fb7185" : point.eligible ? "#60a5fa" : "#64748b"} onMouseEnter={() => setHoveredPointKey(pointKey(point))} onMouseLeave={() => setHoveredPointKey((current) => current === pointKey(point) ? null : current)} style={{ cursor: "pointer" }}><title>Level {point.level}{point.levelId ? ` (ID ${point.levelId})` : ""}; current bank {point.layoutBankId}: {percent(point.failRate)} fail rate; threshold {percent(point.threshold)}; {point.reachedPlayers} players reached; {point.failedPlayers} failed; {Math.round(point.layoutShare * 100)}% current-layout share; {Math.round(point.layoutAgeHours)}h active{previous ? `; previous bank ${previous.layoutBankId ?? "legacy"}: ${percent(previous.failRate)} breach, now warming bank ${point.pendingLayoutBankId}` : point.layoutUpdatePending ? `; new layout bank ${point.pendingLayoutBankId} is warming up` : ""}{!point.layoutStable ? "; migration or warm-up pending" : ""}{point.usedDifficultyFallback ? "; difficulty fallback used" : ""}</title></circle></g>;
+              return <g key={pointKey(point)}>{selected ? <><line x1={x(point.level)} x2={x(point.level)} y1="28" y2="185" stroke="#fbbf24" strokeDasharray="3 3" /><circle cx={x(point.level)} cy={y(point.failRate)} r="10" fill="none" stroke="#fbbf24" strokeWidth="2.5" /></> : null}<circle cx={x(point.level)} cy={y(point.failRate)} r={selected ? "6" : "5"} fill={previous ? "#fbbf24" : point.breached ? "#fb7185" : point.eligible ? "#60a5fa" : "#64748b"} onMouseEnter={() => setHoveredPointKey(pointKey(point))} onMouseLeave={() => setHoveredPointKey((current) => current === pointKey(point) ? null : current)} style={{ cursor: "pointer" }}><title>Level {point.level}{point.levelId ? ` (ID ${point.levelId})` : ""}; current bank {point.layoutBankId}: {percent(point.failRate)} fail rate; threshold {percent(point.threshold)}; {point.reachedPlayers} players reached; {point.failedPlayers} failed; {Math.round(point.layoutShare * 100)}% current-layout share; {Math.round(point.layoutAgeHours)}h active{previous ? `; previous bank ${previous.layoutBankId ?? "legacy"}: ${percent(previous.failRate)} breach, now warming bank ${point.pendingLayoutBankId}` : point.layoutUpdatePending ? `; new layout bank ${point.pendingLayoutBankId} is warming up` : ""}{!point.hasRecentActivity ? "; no starts in the latest 24h; shown from the last observed layout" : !point.layoutStable ? "; migration or warm-up pending" : ""}{point.usedDifficultyFallback ? "; difficulty fallback used" : ""}</title></circle></g>;
             })}
             {hoveredPoint ? <g pointerEvents="none"><rect x={hoveredTooltipX} y={hoveredTooltipY} width="142" height={hoveredPrevious ? "53" : "37"} rx="6" fill="#0d1424" stroke="#475569" /><text x={hoveredTooltipX + 8} y={hoveredTooltipY + 15} fill="#e2e8f0" fontSize="11" fontWeight="700">Level {hoveredPoint.level}</text><text x={hoveredTooltipX + 8} y={hoveredTooltipY + 30} fill="#94a3b8" fontSize="10">Current: {percent(hoveredPoint.failRate)} · bank {hoveredPoint.layoutBankId}</text>{hoveredPrevious ? <text x={hoveredTooltipX + 8} y={hoveredTooltipY + 45} fill="#fbbf24" fontSize="10">Previous: {percent(hoveredPrevious.failRate)} · bank {hoveredPrevious.layoutBankId ?? "legacy"}</text> : null}</g> : null}
           </svg>
@@ -549,9 +550,11 @@ export default function LevelFunnelDashboard() {
     const requestId = queryRequestIdRef.current + 1;
     queryRequestIdRef.current = requestId;
     const filterSnapshot = { ...filters };
-    // A window ending today is still receiving telemetry. Never let the normal
-    // Run action reuse a Count result that may predate those events.
-    const shouldForceRefresh = forceRefresh || filterSnapshot.endDate === isoDate(new Date());
+    // Any window that includes today is still receiving telemetry. Never let
+    // the normal Run action reuse a Count result that may predate those events.
+    const today = isoDate(new Date());
+    const isLiveWindow = filterSnapshot.startDate <= today && filterSnapshot.endDate >= today;
+    const shouldForceRefresh = forceRefresh || isLiveWindow;
     discardPendingJob();
     writeFiltersToUrl(filterSnapshot, true);
     setLoading(true); setError(""); setQueryStatus(shouldForceRefresh ? "Submitting a fresh Count query…" : "Submitting the Count query…");
@@ -639,7 +642,7 @@ export default function LevelFunnelDashboard() {
           <button type="submit" disabled={loading || !allowedApps?.length} className="focus-ring mt-[18px] inline-flex h-10 items-center justify-center gap-2 rounded-[8px] bg-cobalt px-4 text-sm font-bold text-white hover:bg-cobalt/90 disabled:cursor-not-allowed disabled:opacity-50">{loading ? <RefreshCw className="h-4 w-4 animate-spin" /> : null}{loading ? "Running…" : "Run"}</button>
           <button type="button" onClick={() => void runCheck(true)} disabled={loading || !allowedApps?.length} className="focus-ring mt-[18px] inline-flex h-10 items-center gap-2 rounded-[8px] border border-line/70 bg-[#0a111e] px-4 text-sm font-semibold text-slate-300 hover:bg-sage disabled:opacity-60"><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />Refresh</button>
         </div>
-        <p className="mt-4 border-t border-line/60 pt-4 text-xs text-slate-500">A new level hash pauses only that changed level while it is adopted; unchanged levels continue normally across bank changes. Windows ending today always run fresh.</p>
+        <p className="mt-4 border-t border-line/60 pt-4 text-xs text-slate-500">A new level hash pauses only that changed level while it is adopted; unchanged levels continue normally across bank changes. Windows that include today always run fresh.</p>
         {pendingJob ? <div role="status" className={`mt-3 rounded-lg border px-3 py-2 text-xs ${slowQuery ? "border-amber/40 bg-amber/10 text-amber" : "border-cobalt/30 bg-cobalt/10 text-slate-300"}`}>
           <div className="flex flex-wrap items-center justify-between gap-2"><span className="font-semibold">{slowQuery ? "Slow Count query — still running" : "Count query running"}</span><div className="flex items-center gap-2"><span className="font-mono">Elapsed: {formatElapsedTime(queryElapsedMs)}</span><button type="button" onClick={stopWaitingForJob} title="Stops polling in this dashboard; the Count job may continue running." className="focus-ring inline-flex items-center gap-1 rounded border border-rose/45 bg-rose/10 px-2 py-1 text-[11px] font-semibold text-rose hover:bg-rose/20"><X className="h-3.5 w-3.5" aria-hidden="true" />Stop waiting</button></div></div>
           <p className="mt-1 font-mono text-[11px] text-slate-400">Count job key: <span className="select-all text-slate-200">{pendingJob.jobKey}</span></p>

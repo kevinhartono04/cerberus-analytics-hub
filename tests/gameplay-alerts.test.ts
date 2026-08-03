@@ -48,6 +48,10 @@ describe("gameplay difficulty alerts", () => {
     expect(sql).toContain("in ('normal', 'hard', 'superhard', 'veryhard') as used_difficulty_fallback");
     expect(sql).toContain("a.layout_share >= 0.7");
     expect(sql).toContain("a.layout_coverage >= 0.95");
+    expect(sql).toContain("revision_metrics as");
+    expect(sql).toContain("active_revisions as");
+    expect(sql).toContain("case when m.recent_players > 0 then 1 else 0 end desc");
+    expect(sql).toContain("a.recent_players > 0 as has_recent_activity");
     expect(sql).toContain("pending_revision_candidates as");
     expect(sql).toContain("revision_banks as");
     expect(sql).toContain("canonical_bank_rank");
@@ -72,15 +76,16 @@ describe("gameplay difficulty alerts", () => {
 
   it("applies tier thresholds, fallback classification, and the minimum-player rule", () => {
     const points = parseLevelFailRateRows([
-      "level,layout_bank_id,difficulty_tier,used_difficulty_fallback,reached_players,failed_players,fail_rate,layout_share,layout_coverage,layout_age_hours,layout_is_stable",
-      "10,layout-a,normal,true,49,30,0.6122,1,1,48,true",
-      "11,layout-b,hard,false,50,35,0.7,0.8,1,48,true",
-      "12,layout-c,normal,false,100,49,0.49,0.6,1,48,false",
+      "level,layout_bank_id,difficulty_tier,used_difficulty_fallback,reached_players,failed_players,fail_rate,layout_share,layout_coverage,layout_age_hours,has_recent_activity,layout_is_stable",
+      "10,layout-a,normal,true,49,30,0.6122,1,1,48,true,true",
+      "11,layout-b,hard,false,50,35,0.7,0.8,1,48,true,true",
+      "12,layout-c,normal,false,100,49,0.49,0.6,1,48,false,false",
     ].join("\n"), settings);
 
     expect(points[0]).toMatchObject({ level: 10, layoutBankId: "layout-a", eligible: false, breached: false, usedDifficultyFallback: true, threshold: 0.5 });
     expect(points[1]).toMatchObject({ level: 11, layoutBankId: "layout-b", difficultyTier: "hard", eligible: true, breached: true, threshold: 0.7 });
     expect(points[2]).toMatchObject({ level: 12, layoutBankId: "layout-c", layoutStable: false, eligible: false, breached: false, threshold: 0.5 });
+    expect(points[2]).toMatchObject({ hasRecentActivity: false });
   });
 
   it("does not let malformed values create invalid alert points", () => {
