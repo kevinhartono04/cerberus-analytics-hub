@@ -290,10 +290,12 @@ async function ensureGameplayAlertTables() {
           status TEXT NOT NULL,
           submitted_at TEXT NOT NULL,
           completed_at TEXT,
+          slack_status_delivered_at TEXT,
           error TEXT
         )
       `;
       await transaction`ALTER TABLE gameplay_alert_evaluation_runs ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'cron'`;
+      await transaction`ALTER TABLE gameplay_alert_query_jobs ADD COLUMN IF NOT EXISTS slack_status_delivered_at TEXT`;
     }).then(() => undefined).catch((error) => { gameplayAlertTablesReady = null; throw error; });
   }
   await gameplayAlertTablesReady;
@@ -320,7 +322,7 @@ function ensureSqliteGameplayAlertTables() {
     );
     CREATE TABLE IF NOT EXISTS gameplay_alert_query_jobs (
       evaluation_key TEXT PRIMARY KEY NOT NULL, job_key TEXT NOT NULL, filters TEXT NOT NULL, status TEXT NOT NULL,
-      submitted_at TEXT NOT NULL, completed_at TEXT, error TEXT
+      submitted_at TEXT NOT NULL, completed_at TEXT, slack_status_delivered_at TEXT, error TEXT
     );
   `);
   if (!sqliteColumnExists("gameplay_alert_settings", "alert_targets")) {
@@ -332,6 +334,7 @@ function ensureSqliteGameplayAlertTables() {
   if (!sqliteColumnExists("gameplay_alert_states", "superseded_at")) sqliteExec("ALTER TABLE gameplay_alert_states ADD COLUMN superseded_at TEXT");
   if (!sqliteColumnExists("gameplay_alert_states", "slack_pending_delivered_at")) sqliteExec("ALTER TABLE gameplay_alert_states ADD COLUMN slack_pending_delivered_at TEXT");
   if (!sqliteColumnExists("gameplay_alert_evaluation_runs", "source")) sqliteExec("ALTER TABLE gameplay_alert_evaluation_runs ADD COLUMN source TEXT NOT NULL DEFAULT 'cron'");
+  if (!sqliteColumnExists("gameplay_alert_query_jobs", "slack_status_delivered_at")) sqliteExec("ALTER TABLE gameplay_alert_query_jobs ADD COLUMN slack_status_delivered_at TEXT");
 }
 
 async function ensurePartnerAccessTables() {
@@ -1140,6 +1143,8 @@ export type GameplayAlertQueryJobRecord = {
   status: "running" | "completed" | "error";
   submittedAt: string;
   completedAt?: string;
+  /** The daily current-open Slack status has been delivered for this evaluation. */
+  slackStatusDeliveredAt?: string;
   error?: string;
 };
 
@@ -1178,6 +1183,7 @@ function rowToGameplayAlertQueryJob(row: Record<string, unknown>): GameplayAlert
     evaluationKey: asString(row.evaluation_key), jobKey: asString(row.job_key), filters: asString(row.filters),
     status: status === "completed" || status === "error" ? status : "running",
     submittedAt: asString(row.submitted_at), ...(asString(row.completed_at) ? { completedAt: asString(row.completed_at) } : {}),
+    ...(asString(row.slack_status_delivered_at) ? { slackStatusDeliveredAt: asString(row.slack_status_delivered_at) } : {}),
     ...(asString(row.error) ? { error: asString(row.error) } : {}),
   };
 }
@@ -1219,13 +1225,26 @@ export async function saveGameplayAlertQueryJobRecords(records: GameplayAlertQue
   if (shouldUseLocalSqlite()) {
     ensureSqliteGameplayAlertTables();
     for (const record of records) {
-      sqliteExec(`INSERT INTO gameplay_alert_query_jobs (evaluation_key, job_key, filters, status, submitted_at, completed_at, error) VALUES (${sqliteLiteral(record.evaluationKey)}, ${sqliteLiteral(record.jobKey)}, ${sqliteLiteral(record.filters)}, ${sqliteLiteral(record.status)}, ${sqliteLiteral(record.submittedAt)}, ${record.completedAt ? sqliteLiteral(record.completedAt) : "NULL"}, ${record.error ? sqliteLiteral(record.error) : "NULL"}) ON CONFLICT(evaluation_key) DO UPDATE SET job_key = excluded.job_key, filters = excluded.filters, status = excluded.status, submitted_at = excluded.submitted_at, completed_at = excluded.completed_at, error = excluded.error`);
+      sqliteExec(`INSERT INTO gameplay_alert_query_jobs (evaluation_key, job_key, filters, status, submitted_at, completed_at, slack_status_delivered_at, error) VALUES (${sqliteLiteral(record.evaluationKey)}, ${sqliteLiteral(record.jobKey)}, ${sqliteLiteral(record.filters)}, ${sqliteLiteral(record.status)}, ${sqliteLiteral(record.submittedAt)}, ${record.completedAt ? sqliteLiteral(record.completedAt) : "NULL"}, ${record.slackStatusDeliveredAt ? sqliteLiteral(record.slackStatusDeliveredAt) : "NULL"}, ${record.error ? sqliteLiteral(record.error) : "NULL"}) ON CONFLICT(evaluation_key) DO UPDATE SET job_key = excluded.job_key, filters = excluded.filters, status = excluded.status, submitted_at = excluded.submitted_at, completed_at = excluded.completed_at, slack_status_delivered_at = excluded.slack_status_delivered_at, error = excluded.error`);
     }
     return;
   }
   const sql = await ensureGameplayAlertTables();
   for (const record of records) {
-    await sql`INSERT INTO gameplay_alert_query_jobs (evaluation_key, job_key, filters, status, submitted_at, completed_at, error) VALUES (${record.evaluationKey}, ${record.jobKey}, ${record.filters}, ${record.status}, ${record.submittedAt}, ${record.completedAt ?? null}, ${record.error ?? null}) ON CONFLICT(evaluation_key) DO UPDATE SET job_key = excluded.job_key, filters = excluded.filters, status = excluded.status, submitted_at = excluded.submitted_at, completed_at = excluded.completed_at, error = excluded.error`;
+    await sql`INSERT INTO gameplay_alert_query_jobs (evaluation_key, job_key, filters, status, submitted_at, completed_at, slack_status_delivered_at, error) VALUES (${record.evaluationKey}, ${record.jobKey}, ${record.filters}, ${record.status}, ${record.submittedAt}, ${record.completedAt ?? null}, ${record.slackStatusDeliveredAt ?? null}, ${record.error ?? null}) ON CONFLICT(evaluation_key) DO UPDATE SET job_key = excluded.job_key, filters = excluded.filters, status = excluded.status, submitted_at = excluded.submitted_at, completed_at = excluded.completed_at, slack_status_delivered_at = excluded.slack_status_delivered_at, error = excluded.error`;
+  }
+}
+
+export async function markGameplayAlertQueryJobsSlackStatusDelivered(evaluationKeys: string[], deliveredAt: string) {
+  if (!evaluationKeys.length) return;
+  if (shouldUseLocalSqlite()) {
+    ensureSqliteGameplayAlertTables();
+    for (const key of evaluationKeys) sqliteExec(`UPDATE gameplay_alert_query_jobs SET slack_status_delivered_at = ${sqliteLiteral(deliveredAt)} WHERE evaluation_key = ${sqliteLiteral(key)}`);
+    return;
+  }
+  const sql = await ensureGameplayAlertTables();
+  for (const key of evaluationKeys) {
+    await sql`UPDATE gameplay_alert_query_jobs SET slack_status_delivered_at = ${deliveredAt} WHERE evaluation_key = ${key}`;
   }
 }
 

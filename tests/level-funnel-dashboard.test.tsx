@@ -90,4 +90,24 @@ describe("LevelFunnelDashboard Count polling", () => {
     expect(fetchMock.mock.calls.some(([url]) => url === "/api/tech-launch/level-fail-rate")).toBe(false);
     expect(window.sessionStorage.getItem(pendingJobStorageKey)).toBeNull();
   });
+
+  it("forces a fresh query when Run is used for a window ending today", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/me") return Promise.resolve(jsonResponse({ authenticated: true, user: { role: "viewer" }, access: { techLaunchApps: ["stacksmash"] } }));
+      if (url === "/api/tech-launch/app-versions") return Promise.resolve(jsonResponse({ versions: [{ appVersion: "0.2.0", sampleCount: 100 }] }));
+      if (url === "/api/tech-launch/level-fail-rate") return Promise.resolve(jsonResponse(unavailableResult()));
+      return Promise.reject(new Error(`Unexpected request: ${url}`));
+    });
+
+    render(<LevelFunnelDashboard />);
+    fireEvent.click(await screen.findByRole("button", { name: /^run$/i }));
+
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find(([input]) => String(input) === "/api/tech-launch/level-fail-rate");
+      expect(call).toBeDefined();
+      expect(JSON.parse(String((call?.[1] as RequestInit).body))).toMatchObject({ forceRefresh: true });
+    });
+  });
 });

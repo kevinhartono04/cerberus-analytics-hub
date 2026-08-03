@@ -5,11 +5,13 @@ const mocks = vi.hoisted(() => ({
   cronFilters: vi.fn(),
   evaluationKey: vi.fn(),
   reconcile: vi.fn(),
+  openStates: vi.fn(),
   undelivered: vi.fn(),
   deliver: vi.fn(),
   buildSql: vi.fn(),
   listJobs: vi.fn(),
   saveJobs: vi.fn(),
+  markStatusDelivered: vi.fn(),
   submit: vi.fn(),
   getQuery: vi.fn(),
 }));
@@ -19,11 +21,12 @@ vi.mock("@/lib/gameplay-alerts", () => ({
   gameplayAlertCronFilters: mocks.cronFilters,
   gameplayAlertEvaluationKey: mocks.evaluationKey,
   reconcileGameplayAlertsFromQuery: mocks.reconcile,
+  openGameplayAlertStates: mocks.openStates,
   undeliveredGameplayAlertTransitions: mocks.undelivered,
   deliverGameplayAlertTransitions: mocks.deliver,
   buildLevelFailRateSql: mocks.buildSql,
 }));
-vi.mock("@/lib/db", () => ({ listGameplayAlertQueryJobs: mocks.listJobs, saveGameplayAlertQueryJobRecords: mocks.saveJobs }));
+vi.mock("@/lib/db", () => ({ listGameplayAlertQueryJobs: mocks.listJobs, saveGameplayAlertQueryJobRecords: mocks.saveJobs, markGameplayAlertQueryJobsSlackStatusDelivered: mocks.markStatusDelivered }));
 vi.mock("@/lib/count-api", () => ({ submitCountSql: mocks.submit, getCountQuery: mocks.getQuery }));
 
 import { GET } from "@/app/api/cron/gameplay-alerts/route";
@@ -39,9 +42,11 @@ describe("gameplay alert cron", () => {
     mocks.buildSql.mockReset().mockReturnValue("select 1");
     mocks.listJobs.mockReset().mockResolvedValue([]);
     mocks.saveJobs.mockReset().mockResolvedValue(undefined);
+    mocks.markStatusDelivered.mockReset().mockResolvedValue(undefined);
     mocks.submit.mockReset().mockResolvedValue({ query: { job_key: "count-job", status: "running" } });
     mocks.getQuery.mockReset();
     mocks.reconcile.mockReset().mockResolvedValue({ transitions: [] });
+    mocks.openStates.mockReset().mockResolvedValue([]);
     mocks.undelivered.mockReset().mockResolvedValue([]);
     mocks.deliver.mockReset().mockResolvedValue({ delivered: 0, skipped: 0, configured: true });
   });
@@ -65,5 +70,28 @@ describe("gameplay alert cron", () => {
     expect(mocks.submit).not.toHaveBeenCalled();
     expect(mocks.reconcile).toHaveBeenCalledWith(filters, expect.objectContaining({ job_key: "count-job", status: "completed" }), { appName: "stacksmash", platforms: ["android"], appVersions: ["0.2.0"], startDate: "2026-07-22", endDate: "2026-07-28" });
     expect(mocks.saveJobs).toHaveBeenCalledWith([expect.objectContaining({ jobKey: "count-job", status: "completed" })]);
+    expect(mocks.markStatusDelivered).toHaveBeenCalledWith(["stacksmash:android:0.2.0:2026-07-22:2026-07-28"], expect.any(String));
+  });
+
+  it("posts every currently open level once for the completed daily evaluation", async () => {
+    mocks.listJobs.mockResolvedValue([{ evaluationKey: "stacksmash:android:0.2.0:2026-07-22:2026-07-28", jobKey: "count-job", filters: JSON.stringify(filters), status: "completed", submittedAt: "2026-07-29T00:00:00.000Z" }]);
+    mocks.openStates.mockResolvedValue([{ alertKey: "open-240", status: "open", appName: "stacksmash", platform: "android", appVersion: "0.2.0", level: 240, difficultyTier: "normal", firstSeenAt: "2026-07-22T00:00:00.000Z", lastSeenAt: "2026-07-28T00:00:00.000Z", lastFailRate: 0.404, lastReachedPlayers: 23_400, threshold: 0.4 }]);
+
+    const response = await GET(new Request("https://example.com/api/cron/gameplay-alerts", { headers: { authorization: "Bearer test-secret" } }));
+
+    expect(await response.json()).toMatchObject({ runningCount: 0, dailyOpenCount: 1, failures: [] });
+    expect(mocks.deliver).toHaveBeenCalledWith([expect.objectContaining({ type: "daily-open", state: expect.objectContaining({ alertKey: "open-240", level: 240 }) })]);
+    expect(mocks.markStatusDelivered).toHaveBeenCalledWith(["stacksmash:android:0.2.0:2026-07-22:2026-07-28"], expect.any(String));
+  });
+
+  it("leaves the daily status eligible for retry when Slack is not configured", async () => {
+    mocks.listJobs.mockResolvedValue([{ evaluationKey: "stacksmash:android:0.2.0:2026-07-22:2026-07-28", jobKey: "count-job", filters: JSON.stringify(filters), status: "completed", submittedAt: "2026-07-29T00:00:00.000Z" }]);
+    mocks.openStates.mockResolvedValue([{ alertKey: "open-240", status: "open", appName: "stacksmash", platform: "android", appVersion: "0.2.0", level: 240, difficultyTier: "normal", firstSeenAt: "2026-07-22T00:00:00.000Z", lastSeenAt: "2026-07-28T00:00:00.000Z", lastFailRate: 0.404, lastReachedPlayers: 23_400, threshold: 0.4 }]);
+    mocks.deliver.mockResolvedValue({ delivered: 0, skipped: 1, configured: false });
+
+    const response = await GET(new Request("https://example.com/api/cron/gameplay-alerts", { headers: { authorization: "Bearer test-secret" } }));
+
+    expect(await response.json()).toMatchObject({ dailyOpenCount: 1, delivery: { configured: false }, failures: [] });
+    expect(mocks.markStatusDelivered).not.toHaveBeenCalled();
   });
 });

@@ -549,11 +549,14 @@ export default function LevelFunnelDashboard() {
     const requestId = queryRequestIdRef.current + 1;
     queryRequestIdRef.current = requestId;
     const filterSnapshot = { ...filters };
+    // A window ending today is still receiving telemetry. Never let the normal
+    // Run action reuse a Count result that may predate those events.
+    const shouldForceRefresh = forceRefresh || filterSnapshot.endDate === isoDate(new Date());
     discardPendingJob();
     writeFiltersToUrl(filterSnapshot, true);
-    setLoading(true); setError(""); setQueryStatus(forceRefresh ? "Submitting a fresh Count query…" : "Submitting the Count query…");
+    setLoading(true); setError(""); setQueryStatus(shouldForceRefresh ? "Submitting a fresh Count query…" : "Submitting the Count query…");
     try {
-      const response = await fetch("/api/tech-launch/level-fail-rate", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...filterSnapshot, forceRefresh }) });
+      const response = await fetch("/api/tech-launch/level-fail-rate", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...filterSnapshot, forceRefresh: shouldForceRefresh }) });
       if (!response.ok) throw new Error(await responseMessage(response));
       let result = (await response.json()) as LevelFailRateRunResponse;
       if (result.status === "running") {
@@ -636,7 +639,7 @@ export default function LevelFunnelDashboard() {
           <button type="submit" disabled={loading || !allowedApps?.length} className="focus-ring mt-[18px] inline-flex h-10 items-center justify-center gap-2 rounded-[8px] bg-cobalt px-4 text-sm font-bold text-white hover:bg-cobalt/90 disabled:cursor-not-allowed disabled:opacity-50">{loading ? <RefreshCw className="h-4 w-4 animate-spin" /> : null}{loading ? "Running…" : "Run"}</button>
           <button type="button" onClick={() => void runCheck(true)} disabled={loading || !allowedApps?.length} className="focus-ring mt-[18px] inline-flex h-10 items-center gap-2 rounded-[8px] border border-line/70 bg-[#0a111e] px-4 text-sm font-semibold text-slate-300 hover:bg-sage disabled:opacity-60"><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />Refresh</button>
         </div>
-        <p className="mt-4 border-t border-line/60 pt-4 text-xs text-slate-500">A new level hash pauses only that changed level while it is adopted; unchanged levels continue normally across bank changes.</p>
+        <p className="mt-4 border-t border-line/60 pt-4 text-xs text-slate-500">A new level hash pauses only that changed level while it is adopted; unchanged levels continue normally across bank changes. Windows ending today always run fresh.</p>
         {pendingJob ? <div role="status" className={`mt-3 rounded-lg border px-3 py-2 text-xs ${slowQuery ? "border-amber/40 bg-amber/10 text-amber" : "border-cobalt/30 bg-cobalt/10 text-slate-300"}`}>
           <div className="flex flex-wrap items-center justify-between gap-2"><span className="font-semibold">{slowQuery ? "Slow Count query — still running" : "Count query running"}</span><div className="flex items-center gap-2"><span className="font-mono">Elapsed: {formatElapsedTime(queryElapsedMs)}</span><button type="button" onClick={stopWaitingForJob} title="Stops polling in this dashboard; the Count job may continue running." className="focus-ring inline-flex items-center gap-1 rounded border border-rose/45 bg-rose/10 px-2 py-1 text-[11px] font-semibold text-rose hover:bg-rose/20"><X className="h-3.5 w-3.5" aria-hidden="true" />Stop waiting</button></div></div>
           <p className="mt-1 font-mono text-[11px] text-slate-400">Count job key: <span className="select-all text-slate-200">{pendingJob.jobKey}</span></p>

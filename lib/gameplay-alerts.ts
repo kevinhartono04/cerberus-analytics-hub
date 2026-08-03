@@ -186,7 +186,7 @@ export type GameplayAlertState = {
 };
 
 export type GameplayAlertTransition = {
-  type: "opened" | "pending" | "resolved";
+  type: "opened" | "daily-open" | "pending" | "resolved";
   state: GameplayAlertState;
 };
 
@@ -598,21 +598,33 @@ export async function undeliveredGameplayAlertTransitions(filtersInput: unknown)
   return transitions;
 }
 
+/**
+ * Current status alerts deliberately come from the state reconciled by the
+ * completed Count query, rather than from a fresh dashboard query. That keeps
+ * the daily Slack digest tied to one auditable evaluation and avoids a second
+ * moving-data calculation during the GitHub Actions polling loop.
+ */
+export async function openGameplayAlertStates(filtersInput: unknown): Promise<GameplayAlertState[]> {
+  const filters = gameplayAlertStateScope(filtersInput);
+  return (await listGameplayAlertStates(filters)).map(stateFromRecord).filter((state) => state.status === "open");
+}
+
 export async function deliverGameplayAlertTransitions(transitions: GameplayAlertTransition[]) {
   const webhook = process.env.SLACK_GAMEPLAY_ALERT_WEBHOOK_URL?.trim();
   if (!webhook || !transitions.length) return { delivered: 0, skipped: transitions.length, configured: Boolean(webhook) };
   const lines = transitions.map(({ type, state }) => {
-    const label = type === "opened" ? "OPEN" : type === "pending" ? "PENDING RECHECK" : "RESOLVED";
+    const label = type === "daily-open" ? "CURRENT OPEN" : type === "opened" ? "OPEN" : type === "pending" ? "PENDING RECHECK" : "RESOLVED";
     const appVersion = state.appVersion === allAppVersionsAlertScope ? "all versions" : state.appVersion;
     const platform = state.platform === allPlatformsAlertScope ? "all platforms" : state.platform;
     const statusDetail = type === "pending" ? "new layout revision is warming up" : `${(state.lastFailRate * 100).toFixed(1)}% fail rate vs ${(state.threshold * 100).toFixed(0)}%`;
-    return `*${label}* · ${state.appName} ${platform} · ${appVersion} · Level ${state.level} · Layout bank ${state.layoutBankId ?? "legacy"} · ${state.difficultyTier} · ${statusDetail} · ${state.lastReachedPlayers} players`;
+    const revision = state.layoutHash ? ` · revision ${state.layoutHash}` : "";
+    return `*${label}* · ${state.appName} ${platform} · ${appVersion} · Level ${state.level} · Layout bank ${state.layoutBankId ?? "legacy"}${revision} · ${state.difficultyTier} · ${statusDetail} · ${state.lastReachedPlayers} players`;
   });
   const response = await fetch(webhook, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: `Gameplay Difficulty Alerts\n${lines.join("\n")}` }) });
   if (!response.ok) throw new Error(`Slack webhook returned ${response.status}`);
   const deliveredAt = new Date().toISOString();
   await Promise.all([
-    markGameplayAlertSlackDelivered(transitions.filter((transition) => transition.type === "opened").map((transition) => transition.state.alertKey), "opened", deliveredAt),
+    markGameplayAlertSlackDelivered(transitions.filter((transition) => transition.type === "opened" || transition.type === "daily-open").map((transition) => transition.state.alertKey), "opened", deliveredAt),
     markGameplayAlertSlackDelivered(transitions.filter((transition) => transition.type === "pending").map((transition) => transition.state.alertKey), "pending", deliveredAt),
     markGameplayAlertSlackDelivered(transitions.filter((transition) => transition.type === "resolved").map((transition) => transition.state.alertKey), "resolved", deliveredAt),
   ]);
@@ -621,7 +633,6 @@ export async function deliverGameplayAlertTransitions(transitions: GameplayAlert
 
 export function gameplayAlertCronFilters(settings: GameplayAlertSettings, today = new Date()): GameplayAlertCronFilters[] {
   const end = new Date(today);
-  end.setUTCDate(end.getUTCDate() - 1);
   const start = new Date(end);
   start.setUTCDate(start.getUTCDate() - 6);
   const iso = (value: Date) => value.toISOString().slice(0, 10);

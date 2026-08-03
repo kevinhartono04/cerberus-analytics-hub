@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
 
 import { getCountQuery, submitCountSql } from "@/lib/count-api";
-import { listGameplayAlertQueryJobs, saveGameplayAlertQueryJobRecords, type GameplayAlertQueryJobRecord } from "@/lib/db";
+import { listGameplayAlertQueryJobs, markGameplayAlertQueryJobsSlackStatusDelivered, saveGameplayAlertQueryJobRecords, type GameplayAlertQueryJobRecord } from "@/lib/db";
 import {
   buildLevelFailRateSql,
   deliverGameplayAlertTransitions,
   gameplayAlertCronFilters,
   gameplayAlertEvaluationKey,
   getGameplayAlertSettings,
+  openGameplayAlertStates,
   reconcileGameplayAlertsFromQuery,
   type GameplayAlertTransition,
   undeliveredGameplayAlertTransitions,
@@ -29,6 +30,7 @@ export async function GET(request: Request) {
   const existingByKey = new Map((await listGameplayAlertQueryJobs(targets.map(gameplayAlertEvaluationKey))).map((job) => [job.evaluationKey, job]));
   const failures: string[] = [];
   const transitions: GameplayAlertTransition[] = [];
+  const dailyStatusTargets: Array<{ evaluationKey: string; filters: typeof targets[number] }> = [];
   const jobUpdates: GameplayAlertQueryJobRecord[] = [];
   let submittedCount = 0;
   let completedCount = 0;
@@ -56,14 +58,20 @@ export async function GET(request: Request) {
         const result = await reconcileGameplayAlertsFromQuery(filters, current, queryFilters);
         transitions.push(...result.transitions);
         jobUpdates.push({ ...job, status: "completed", completedAt: new Date().toISOString(), error: undefined });
+        if (!job.slackStatusDeliveredAt) dailyStatusTargets.push({ evaluationKey, filters });
         completedCount += 1;
         return;
       }
 
-      // One evaluation per configured target and complete seven-day range. A
-      // new range gets a new key tomorrow; failed jobs remain auditable rather
-      // than being repeatedly re-submitted every five minutes.
-      if (job) return;
+      // One evaluation per configured target and rolling seven-day range ending
+      // today. A new range gets a new key tomorrow; failed jobs remain
+      // auditable rather than being repeatedly re-submitted every five minutes.
+      if (job) {
+        // A webhook failure must not lose the daily status alert. Reuse the
+        // completed, auditable evaluation instead of submitting another query.
+        if (job.status === "completed" && !job.slackStatusDeliveredAt) dailyStatusTargets.push({ evaluationKey, filters });
+        return;
+      }
 
       const submitted = (await submitCountSql(buildLevelFailRateSql(queryFilters), { cacheStrategy: "default" })).query;
       submittedCount += 1;
@@ -90,6 +98,7 @@ export async function GET(request: Request) {
       const result = await reconcileGameplayAlertsFromQuery(filters, completed, queryFilters);
       transitions.push(...result.transitions);
       jobUpdates.push({ ...job, status: "completed", completedAt: new Date().toISOString() });
+      dailyStatusTargets.push({ evaluationKey, filters });
       completedCount += 1;
     } catch (error) {
       failures.push(`${label}: ${error instanceof Error ? error.message : "evaluation failed"}`);
@@ -97,10 +106,23 @@ export async function GET(request: Request) {
   }));
 
   await saveGameplayAlertQueryJobRecords(jobUpdates);
+  const dailyStatusTransitions = (await Promise.all(dailyStatusTargets.map(async ({ filters }) =>
+    (await openGameplayAlertStates(filters)).map((state) => ({ type: "daily-open" as const, state })),
+  ))).flat();
+  const dailyOpenKeys = new Set(dailyStatusTransitions.map((transition) => transition.state.alertKey));
   const retryTransitions = (await Promise.all(targets.map((filters) => undeliveredGameplayAlertTransitions(filters)))).flat();
   let delivery: { delivered: number; skipped: number; configured: boolean } | undefined;
   try {
-    delivery = await deliverGameplayAlertTransitions(uniqueTransitions([...transitions, ...retryTransitions]));
+    // A just-opened level is represented once as CURRENT OPEN in the daily
+    // status, while still marking its opening delivery as confirmed.
+    delivery = await deliverGameplayAlertTransitions(uniqueTransitions([
+      ...transitions.filter((transition) => transition.type !== "opened" || !dailyOpenKeys.has(transition.state.alertKey)),
+      ...retryTransitions.filter((transition) => transition.type !== "opened" || !dailyOpenKeys.has(transition.state.alertKey)),
+      ...dailyStatusTransitions,
+    ]));
+    if (delivery.configured) {
+      await markGameplayAlertQueryJobsSlackStatusDelivered(dailyStatusTargets.map((target) => target.evaluationKey), new Date().toISOString());
+    }
   } catch (error) {
     failures.push(`Slack: ${error instanceof Error ? error.message : "delivery failed"}`);
   }
@@ -109,5 +131,5 @@ export async function GET(request: Request) {
     const key = gameplayAlertEvaluationKey(filters);
     return (jobUpdates.find((job) => job.evaluationKey === key) ?? existingByKey.get(key))?.status === "running";
   }).length;
-  return NextResponse.json({ evaluatedAt: new Date().toISOString(), targetCount: targets.length, submittedCount, completedCount, runningCount, transitionCount: transitions.length, delivery, failures });
+  return NextResponse.json({ evaluatedAt: new Date().toISOString(), targetCount: targets.length, submittedCount, completedCount, runningCount, transitionCount: transitions.length, dailyOpenCount: dailyStatusTransitions.length, delivery, failures });
 }
