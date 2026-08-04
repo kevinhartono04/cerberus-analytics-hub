@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { allAppVersionsAlertScope, allPlatformsAlertScope, buildLevelFailRateSql, dailyGameplayAlertFilters, gameplayAlertCronFilters, gameplayAlertSettingsInputSchema, parseLevelFailRateRows } from "@/lib/gameplay-alerts";
+import { allAppVersionsAlertScope, allPlatformsAlertScope, buildLevelFailRateSql, dailyGameplayAlertFilters, formatGameplayAlertSlackMessage, gameplayAlertCronFilters, gameplayAlertSettingsInputSchema, parseLevelFailRateRows } from "@/lib/gameplay-alerts";
 
 const filters = {
   appName: "wordblast",
@@ -31,6 +31,25 @@ describe("gameplay difficulty alerts", () => {
 
     expect(filters).toEqual([expect.objectContaining({ platform: "android", platforms: ["android"], appVersion: allAppVersionsAlertScope, appVersions: [] })]);
     expect(buildLevelFailRateSql({ ...filters[0], platforms: ["android"] })).toContain("1 = 1 -- modifiable parameter");
+  });
+
+  it("formats Slack as a compact, checked current-status list without layout internals or thresholds", () => {
+    const message = formatGameplayAlertSlackMessage([
+      {
+        type: "daily-open",
+        state: { alertKey: "level-556", appName: "stacksmash", platform: allPlatformsAlertScope, appVersion: allAppVersionsAlertScope, level: 556, layoutBankId: "4860", layoutHash: "long-internal-layout-hash", difficultyTier: "normal", status: "open", firstSeenAt: "2026-08-01T00:00:00.000Z", lastSeenAt: "2026-08-04T04:30:00.000Z", lastFailRate: 0.507, lastReachedPlayers: 11_999, threshold: 0.4 },
+      },
+      {
+        type: "daily-open",
+        state: { alertKey: "level-202", appName: "stacksmash", platform: allPlatformsAlertScope, appVersion: allAppVersionsAlertScope, level: 202, difficultyTier: "normal", status: "open", firstSeenAt: "2026-08-01T00:00:00.000Z", lastSeenAt: "2026-08-04T04:30:00.000Z", lastFailRate: 0.532, lastReachedPlayers: 17_029, threshold: 0.4 },
+      },
+    ], new Date("2026-08-04T04:30:00.000Z"));
+
+    expect(message).toContain("*Game:* stacksmash\n*Platform:* All platforms\n*Version:* All versions\n*Checked:* 04 Aug 2026 11:30 WIB");
+    expect(message).toContain("*Open levels (2)*\n• Level 202 · normal · 53.2% · 17K players\n• Level 556 · normal · 50.7% · 12K players");
+    expect(message).not.toContain("layout-hash");
+    expect(message).not.toContain("Layout bank");
+    expect(message).not.toContain("vs 40%");
   });
 
   it("builds a query with the selected release filters and unique player contract", () => {

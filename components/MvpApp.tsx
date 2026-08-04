@@ -161,14 +161,14 @@ type PayloadDataType = (typeof payloadDataTypeOptions)[number];
 
 const intakeLabelClass = "mb-2 block font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500";
 const intakeInputClass =
-  "focus-ring h-[42px] w-full rounded-[9px] border border-line/70 bg-[#0a111e] px-3 text-sm font-semibold text-slate-300 shadow-none placeholder:text-slate-500";
+  "focus-ring h-[42px] w-full rounded-[9px] border border-line/70 bg-surface-panel px-3 text-sm font-semibold text-slate-300 shadow-none placeholder:text-slate-500";
 const intakeTextareaClass =
-  "focus-ring min-h-[62px] w-full resize-y rounded-[9px] border border-line/70 bg-[#0a111e] px-3 py-2 text-sm leading-relaxed text-slate-300 shadow-none placeholder:text-slate-500";
+  "focus-ring min-h-[62px] w-full resize-y rounded-[9px] border border-line/70 bg-surface-panel px-3 py-2 text-sm leading-relaxed text-slate-300 shadow-none placeholder:text-slate-500";
 const editorLabelClass = "mb-2 block font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500";
 const editorInputClass =
-  "focus-ring h-[42px] w-full rounded-[9px] border border-line/70 bg-[#0a111e] px-3 text-sm font-semibold text-slate-300 shadow-none placeholder:text-slate-500 disabled:opacity-60";
+  "focus-ring h-[42px] w-full rounded-[9px] border border-line/70 bg-surface-panel px-3 text-sm font-semibold text-slate-300 shadow-none placeholder:text-slate-500 disabled:opacity-60";
 const editorTextareaClass =
-  "focus-ring min-h-[62px] w-full resize-y rounded-[9px] border border-line/70 bg-[#0a111e] px-3 py-2 text-sm leading-relaxed text-slate-300 shadow-none placeholder:text-slate-500 disabled:opacity-60";
+  "focus-ring min-h-[62px] w-full resize-y rounded-[9px] border border-line/70 bg-surface-panel px-3 py-2 text-sm leading-relaxed text-slate-300 shadow-none placeholder:text-slate-500 disabled:opacity-60";
 
 const eventGroupOptions = [
   {
@@ -320,7 +320,7 @@ function CheckboxDropdown({
   }
 
   return (
-    <details className={`group rounded-[11px] border border-line/70 border-l-2 bg-[#0a111e] shadow-none open:shadow-soft ${tone.border}`}>
+    <details className={`group rounded-[11px] border border-line/70 border-l-2 bg-surface-panel shadow-none open:shadow-soft ${tone.border}`}>
       <summary className="focus-ring flex cursor-pointer list-none items-start justify-between gap-3 rounded-[11px] px-4 py-3">
         <span className="min-w-0 flex-1">
           <span className="flex items-center justify-between gap-3">
@@ -332,7 +332,7 @@ function CheckboxDropdown({
           {visibleSelections.length ? (
             <span className="mt-2 flex flex-wrap gap-1.5">
               {visibleSelections.map((item) => (
-                <span key={item} className="rounded-[7px] border border-line/80 bg-[#151c2e] px-2 py-1 text-[11px] text-slate-300">
+                <span key={item} className="rounded-[7px] border border-line/80 bg-surface-raised px-2 py-1 text-[11px] text-slate-300">
                   {item}
                 </span>
               ))}
@@ -346,7 +346,7 @@ function CheckboxDropdown({
             <span className="mt-2 block text-xs leading-relaxed text-slate-500">{helper}</span>
           )}
         </span>
-        <span className="tone-chip w-fit rounded border border-line/80 bg-[#151c2e] px-2 py-1 font-mono text-[10px] font-semibold uppercase tracking-[0.04em] text-slate-400">
+        <span className="tone-chip w-fit rounded border border-line/80 bg-surface-raised px-2 py-1 font-mono text-[10px] font-semibold uppercase tracking-[0.04em] text-slate-400">
           Choose
         </span>
       </summary>
@@ -355,13 +355,13 @@ function CheckboxDropdown({
           {options.map((option) => (
             <label
               key={option}
-              className="flex items-start gap-2 rounded-md border border-line/70 bg-[#0d1424] px-3 py-2 text-sm text-text-muted hover:bg-sage"
+              className="flex items-start gap-2 rounded-md border border-line/70 bg-surface-popover px-3 py-2 text-sm text-text-muted hover:bg-sage"
             >
               <input
                 type="checkbox"
                 checked={selectedSet.has(option)}
                 onChange={() => toggle(option)}
-                className="mt-0.5 h-4 w-4 rounded border-line bg-[#0a111e] text-cobalt"
+                className="mt-0.5 h-4 w-4 rounded border-line bg-surface-panel text-cobalt"
               />
               <span>{option}</span>
             </label>
@@ -535,7 +535,7 @@ function Metric({ label, value }: { label: string; value: string | number }) {
 function EditorMetric({ label, value }: { label: string; value: string | number }) {
   const tone = metricTone(label, value);
   return (
-    <div className="relative overflow-hidden rounded-[14px] border border-line/70 bg-[linear-gradient(180deg,#101a2d,#0d1626)] px-[18px] py-4">
+    <div className="relative overflow-hidden rounded-[14px] border border-line/70 surface-gradient px-[18px] py-4">
       <div className={`absolute inset-x-0 top-0 h-0.5 ${tone.bar}`} />
       <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">{label}</div>
       <div className={`metric-value mt-2 font-display text-3xl font-extrabold leading-none ${tone.metric}`}>{value}</div>
@@ -748,7 +748,7 @@ function PayloadDetailsEditor({
   return (
     <div>
       <div className="overflow-x-auto rounded-xl border border-line/60">
-        <div className="grid min-w-[820px] grid-cols-[200px_110px_minmax(260px,1fr)_170px_78px] gap-0 border-b border-line/60 bg-[#0d1424] px-3 py-2.5 font-mono text-[9.5px] uppercase tracking-[0.1em] text-slate-500">
+        <div className="grid min-w-[820px] grid-cols-[200px_110px_minmax(260px,1fr)_170px_78px] gap-0 border-b border-line/60 bg-surface-popover px-3 py-2.5 font-mono text-[9.5px] uppercase tracking-[0.1em] text-slate-500">
           <div>Payload</div>
           <div>Type</div>
           <div>Description</div>
@@ -757,11 +757,11 @@ function PayloadDetailsEditor({
         </div>
         <div>
           {payloadFields.map((payload, payloadIndex) => {
-            const rowTone = payloadIndex % 2 === 0 ? "bg-[#0a111e]" : "bg-[#0c1423]";
+            const rowTone = payloadIndex % 2 === 0 ? "bg-surface-panel" : "bg-surface-card";
             return (
               <div
                 key={`payload-${payloadIndex}`}
-                className={`grid min-w-[820px] grid-cols-[200px_110px_minmax(260px,1fr)_170px_78px] items-center border-b border-line/40 px-3 py-2.5 last:border-b-0 hover:bg-[#101a2c] ${rowTone}`}
+                className={`grid min-w-[820px] grid-cols-[200px_110px_minmax(260px,1fr)_170px_78px] items-center border-b border-line/40 px-3 py-2.5 last:border-b-0 hover:bg-surface-raised ${rowTone}`}
               >
                 <input
                   aria-label={`${eventName} payload name ${payloadIndex + 1}`}
@@ -780,7 +780,7 @@ function PayloadDetailsEditor({
                   value={canonicalPayloadDataType(payload.type) ?? normalizePayloadDataType(payload, { inferFromExample: true })}
                   disabled={!canEdit}
                   onChange={(event) => onChange(payloadIndex, { type: event.target.value })}
-                  className="focus-ring mr-3 h-8 rounded-full border border-line/70 bg-[#121b2c] px-2 font-mono text-[11px] font-semibold text-slate-300 disabled:opacity-60"
+                  className="focus-ring mr-3 h-8 rounded-full border border-line/70 bg-surface-raised px-2 font-mono text-[11px] font-semibold text-slate-300 disabled:opacity-60"
                 >
                   {payloadDataTypeOptions.map((type) => (
                     <option key={type} value={type}>
@@ -809,7 +809,7 @@ function PayloadDetailsEditor({
                     aria-label={`${eventName} duplicate ${payload.canonicalFieldName}`}
                     disabled={!canEdit}
                     onClick={() => onDuplicate(payloadIndex)}
-                    className="focus-ring inline-flex h-8 w-8 items-center justify-center rounded-md border border-line/70 bg-[#121b2c] text-slate-500 hover:bg-sage hover:text-slate-300 disabled:opacity-50"
+                    className="focus-ring inline-flex h-8 w-8 items-center justify-center rounded-md border border-line/70 bg-surface-raised text-slate-500 hover:bg-sage hover:text-slate-300 disabled:opacity-50"
                   >
                     <Copy className="h-3.5 w-3.5" />
                   </button>
@@ -937,7 +937,7 @@ function LibraryBrowser({ library }: { library: LibrarySnapshot }) {
           <span className="h-1.5 w-1.5 rounded-full bg-cobalt shadow-[0_0_10px_#3d82ff]" />
           Event Design · Library
         </div>
-        <h1 className="mt-3 font-display text-[34px] font-extrabold leading-none text-[#f4f6ff]">Reference Library</h1>
+        <h1 className="mt-3 font-display text-[34px] font-extrabold leading-none text-ink">Reference Library</h1>
         <p className="mt-2 max-w-3xl text-[13.5px] text-slate-500">
           The canonical events, generation packs, and governance decisions the generator matches against.
         </p>
@@ -951,12 +951,12 @@ function LibraryBrowser({ library }: { library: LibrarySnapshot }) {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <div className="overflow-hidden rounded-2xl border border-line/70 bg-[#0b1120] shadow-soft">
-          <div className="border-b border-line/60 bg-[#0d1424] px-[18px] py-[14px] font-display text-sm font-bold text-[#eef1fb]">Generation Packs</div>
+        <div className="overflow-hidden rounded-2xl border border-line/70 bg-surface-card shadow-soft">
+          <div className="border-b border-line/60 bg-surface-popover px-[18px] py-[14px] font-display text-sm font-bold text-ink">Generation Packs</div>
           <div className="divide-y divide-line/40">
             {library.generationPacks.map((pack) => (
               <div key={pack.featurePack} className="px-[18px] py-[15px]">
-                <div className="text-[13.5px] font-semibold text-[#eaeefc]">{pack.featurePack}</div>
+                <div className="text-[13.5px] font-semibold text-ink">{pack.featurePack}</div>
                 <p className="mt-1.5 text-[12.5px] leading-relaxed text-slate-500">{pack.applicableWhen}</p>
                 <p className="mt-2 font-mono text-[9.5px] font-semibold uppercase tracking-[0.04em] text-amber">{pack.launchPriority}</p>
               </div>
@@ -964,12 +964,12 @@ function LibraryBrowser({ library }: { library: LibrarySnapshot }) {
           </div>
         </div>
 
-        <div className="self-start overflow-hidden rounded-2xl border border-line/70 bg-[#0b1120] shadow-soft">
-          <div className="border-b border-line/60 bg-[#0d1424] px-[18px] py-[14px] font-display text-sm font-bold text-[#eef1fb]">Governance Decisions</div>
+        <div className="self-start overflow-hidden rounded-2xl border border-line/70 bg-surface-card shadow-soft">
+          <div className="border-b border-line/60 bg-surface-popover px-[18px] py-[14px] font-display text-sm font-bold text-ink">Governance Decisions</div>
           <div className="divide-y divide-line/40">
             {library.governanceDecisions.map((decision) => (
               <div key={decision.area} className="px-[18px] py-[15px]">
-                <div className="text-[13.5px] font-semibold text-[#eaeefc]">{decision.area}</div>
+                <div className="text-[13.5px] font-semibold text-ink">{decision.area}</div>
                 <p className="mt-1.5 text-[12.5px] leading-relaxed text-slate-400">{decision.decision}</p>
                 {decision.legacy_aliases ? (
                   <p className="mt-2 font-mono text-[11px] text-slate-500">Aliases: {decision.legacy_aliases}</p>
@@ -980,10 +980,10 @@ function LibraryBrowser({ library }: { library: LibrarySnapshot }) {
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-2xl border border-line/70 bg-[#0b1120] shadow-soft">
-        <div className="flex flex-col gap-3 border-b border-line/60 bg-[#0d1424] px-[18px] py-[14px] sm:flex-row sm:items-center sm:justify-between">
-          <div className="font-display text-sm font-bold text-[#eef1fb]">Event Catalog</div>
-          <div className="flex items-center gap-2 rounded-[9px] border border-line/70 bg-[#0a111e] px-3 py-2">
+      <div className="overflow-hidden rounded-2xl border border-line/70 bg-surface-card shadow-soft">
+        <div className="flex flex-col gap-3 border-b border-line/60 bg-surface-popover px-[18px] py-[14px] sm:flex-row sm:items-center sm:justify-between">
+          <div className="font-display text-sm font-bold text-ink">Event Catalog</div>
+          <div className="flex items-center gap-2 rounded-[9px] border border-line/70 bg-surface-panel px-3 py-2">
             <Search className="h-3.5 w-3.5 text-slate-500" />
             <input
               value={query}
@@ -995,7 +995,7 @@ function LibraryBrowser({ library }: { library: LibrarySnapshot }) {
         </div>
         <div className="max-h-[520px] overflow-auto">
           <table className="w-full min-w-[960px] text-left text-[12.5px]">
-            <thead className="sticky top-0 z-10 bg-[#0a1120] font-mono text-[9.5px] uppercase tracking-[0.09em] text-slate-500">
+            <thead className="sticky top-0 z-10 bg-surface-table font-mono text-[9.5px] uppercase tracking-[0.09em] text-slate-500">
               <tr>
                 <th className="px-[18px] py-3 font-semibold">Event</th>
                 <th className="px-3 py-3 font-semibold">Pack</th>
@@ -1007,7 +1007,7 @@ function LibraryBrowser({ library }: { library: LibrarySnapshot }) {
               {events.map((event) => {
                 const tone = categoryTone(`${event.category} ${event.featurePack} ${event.eventName}`);
                 return (
-                  <tr key={event.eventName} className="hover:bg-[#0e1626]">
+                  <tr key={event.eventName} className="hover:bg-surface-hover">
                     <td className={`px-[18px] py-3.5 align-top font-mono text-[12.5px] font-semibold ${tone.text}`}>{event.eventName}</td>
                     <td className="px-3 py-3.5 align-top text-slate-400">{event.featurePack}</td>
                     <td className="px-3 py-3.5 align-top">
@@ -1216,7 +1216,7 @@ function SpecReview({
 
   if (!spec) {
     return (
-      <section className="rounded-2xl border border-dashed border-line/70 bg-[linear-gradient(180deg,#0e1626,#0c1421)] p-10 text-center shadow-soft">
+      <section className="rounded-2xl border border-dashed border-line/70 surface-card-gradient p-10 text-center shadow-soft">
         <Sparkles className="mx-auto h-8 w-8 text-cobalt" />
         <h2 className="mt-4 font-display text-xl font-bold text-slate-200">No spec generated yet</h2>
         <p className="mt-2 text-sm text-slate-500">Fill the game intake and generate a draft analytics spec.</p>
@@ -1236,7 +1236,7 @@ function SpecReview({
             <span className="h-1.5 w-1.5 rounded-full bg-cobalt shadow-[0_0_10px_#3d82ff]" />
             Event Design · Editor
           </div>
-          <h1 className="mt-3 font-display text-[34px] font-extrabold leading-none text-[#f4f6ff]">
+          <h1 className="mt-3 font-display text-[34px] font-extrabold leading-none text-ink">
             {spec.intake.gameTitle || "Untitled Spec"}
           </h1>
           <p className="mt-2 text-sm text-slate-500">
@@ -1250,7 +1250,7 @@ function SpecReview({
             type="button"
             disabled={!canEdit}
             onClick={addCustomEvent}
-            className="focus-ring inline-flex h-11 items-center gap-2 rounded-[10px] border border-line/70 bg-[#121b2c] px-4 text-sm font-semibold text-slate-300 hover:bg-[#17223a] disabled:opacity-50"
+            className="focus-ring inline-flex h-11 items-center gap-2 rounded-[10px] border border-line/70 bg-surface-raised px-4 text-sm font-semibold text-slate-300 hover:bg-surface-hover disabled:opacity-50"
           >
             <Plus className="h-4 w-4" />
             Add Event
@@ -1275,8 +1275,8 @@ function SpecReview({
       </div>
 
       <div className="grid items-start gap-[18px] xl:grid-cols-[minmax(280px,372px)_minmax(0,1fr)]">
-          <div className="min-w-0 overflow-hidden rounded-2xl border border-line/70 bg-[#0b1120]">
-            <div className="flex items-center gap-2 border-b border-line/60 bg-[#0d1424] px-4 py-3">
+          <div className="min-w-0 overflow-hidden rounded-2xl border border-line/70 bg-surface-card">
+            <div className="flex items-center gap-2 border-b border-line/60 bg-surface-popover px-4 py-3">
               <Search className="h-4 w-4 text-slate-500" />
               <input
                 value={globalFilter}
@@ -1297,7 +1297,7 @@ function SpecReview({
                     type="button"
                     onClick={() => setSelectedEventIndex(eventIndex)}
                     className={`focus-ring block w-full border-b border-line/40 border-l-[3px] px-4 py-3 text-left text-sm ${tone.border} ${
-                      isSelected ? "bg-[#141d30]" : "hover:bg-[#111a2c]"
+                      isSelected ? "bg-surface-raised" : "hover:bg-surface-raised"
                     }`}
                   >
                     <div className="flex items-start justify-between gap-2">
@@ -1320,7 +1320,7 @@ function SpecReview({
             </div>
           </div>
 
-          <div className="min-w-0 rounded-2xl border border-line/70 bg-[linear-gradient(180deg,#0e1626,#0c1421)] p-[22px]">
+          <div className="min-w-0 rounded-2xl border border-line/70 surface-card-gradient p-[22px]">
             {selectedEvent ? (
               <div className="space-y-5">
                 <div className="flex flex-col justify-between gap-3 border-b border-line/60 pb-4 md:flex-row md:items-start">
@@ -1343,7 +1343,7 @@ function SpecReview({
                       type="button"
                       disabled={!canEdit}
                       onClick={() => duplicateEvent(selectedEventIndex)}
-                      className="focus-ring inline-flex items-center justify-center gap-2 rounded-[9px] border border-line/70 bg-[#121b2c] px-3 py-2 text-sm font-semibold text-slate-300 hover:bg-[#17223a] disabled:opacity-50"
+                      className="focus-ring inline-flex items-center justify-center gap-2 rounded-[9px] border border-line/70 bg-surface-raised px-3 py-2 text-sm font-semibold text-slate-300 hover:bg-surface-hover disabled:opacity-50"
                     >
                       <Copy className="h-4 w-4" />
                       Duplicate Event
@@ -1415,7 +1415,7 @@ function SpecReview({
                     <h4 className="font-bold text-slate-200">Argument Details</h4>
                     <p className="text-sm text-slate-500">Edit the event argument key, value description, and example values.</p>
                   </div>
-                  <div className="grid gap-3 rounded-xl border border-line/60 bg-[#0a111e] p-3 lg:grid-cols-[minmax(160px,220px)_minmax(0,1fr)_minmax(180px,260px)]">
+                  <div className="grid gap-3 rounded-xl border border-line/60 bg-surface-panel p-3 lg:grid-cols-[minmax(160px,220px)_minmax(0,1fr)_minmax(180px,260px)]">
                     <label className="block">
                       <span className={editorLabelClass}>Argument Type</span>
                       <input
@@ -1479,7 +1479,7 @@ function SpecReview({
         </div>
 
       {spec.platformAdPayloads.length ? (
-        <div className="rounded-2xl border border-line/70 bg-[linear-gradient(180deg,#0e1626,#0c1421)] p-[22px]">
+        <div className="rounded-2xl border border-line/70 surface-card-gradient p-[22px]">
           <div className="mb-3 flex flex-col justify-between gap-3 md:flex-row md:items-start">
             <div>
               <h3 className="font-bold text-slate-200">Platform Ad Payload Enrichment</h3>
@@ -1487,12 +1487,12 @@ function SpecReview({
                 Edit one payload definition per ad type. Changes apply to every platform-triggered event in that ad type.
               </p>
             </div>
-            <span className="w-fit rounded-md border border-line/70 bg-[#121b2c] px-2 py-1 font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">
+            <span className="w-fit rounded-md border border-line/70 bg-surface-raised px-2 py-1 font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">
               {adPayloadGroups.length} payload definitions
             </span>
           </div>
 
-          <div className="mb-3 flex items-center gap-3 rounded-xl border border-line/70 bg-[#0a111e] px-3 py-2">
+          <div className="mb-3 flex items-center gap-3 rounded-xl border border-line/70 bg-surface-panel px-3 py-2">
             <Search className="h-4 w-4 text-slate-500" />
             <input
               value={adPayloadFilter}
@@ -1503,8 +1503,8 @@ function SpecReview({
           </div>
 
           <div className="grid gap-4 xl:grid-cols-[minmax(280px,360px)_minmax(0,1fr)]">
-            <div className="min-w-0 max-h-[560px] overflow-auto rounded-xl border border-line/70 bg-[#0b1120]">
-              <div className="sticky top-0 border-b border-line/60 bg-[#0d1424] px-3 py-2 font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">
+            <div className="min-w-0 max-h-[560px] overflow-auto rounded-xl border border-line/70 bg-surface-card">
+              <div className="sticky top-0 border-b border-line/60 bg-surface-popover px-3 py-2 font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">
                 Ad Payload Definitions
               </div>
               <div className="divide-y divide-line/40">
@@ -1517,7 +1517,7 @@ function SpecReview({
                       type="button"
                       onClick={() => setSelectedAdPayloadGroupKey(group.key)}
                       className={`focus-ring block w-full border-l-2 px-3 py-3 text-left text-sm ${tone.border} ${
-                        isSelected ? "bg-[#141d30]" : "hover:bg-[#111a2c]"
+                        isSelected ? "bg-surface-raised" : "hover:bg-surface-raised"
                       }`}
                     >
                       <div className="flex items-start justify-between gap-2">
@@ -1538,7 +1538,7 @@ function SpecReview({
               </div>
             </div>
 
-            <div className="min-w-0 rounded-xl border border-line/70 bg-[#0a111e] p-4">
+            <div className="min-w-0 rounded-xl border border-line/70 bg-surface-panel p-4">
               {selectedAdPayloadGroup ? (
                 <div className="space-y-5">
                   <div className="flex flex-col justify-between gap-3 border-b border-line/60 pb-4 md:flex-row md:items-start">
@@ -1571,13 +1571,13 @@ function SpecReview({
                   </div>
 
                   <div className="grid gap-3 md:grid-cols-[180px_1fr]">
-                    <div className="rounded-xl border border-line/60 bg-[#0d1424] p-3">
+                    <div className="rounded-xl border border-line/60 bg-surface-popover p-3">
                       <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">
                         Ad Family
                       </div>
                       <div className="mt-1 break-words text-sm font-semibold text-slate-300">{selectedAdPayloadGroup.adFamily}</div>
                     </div>
-                    <div className="rounded-xl border border-line/60 bg-[#0d1424] p-3">
+                    <div className="rounded-xl border border-line/60 bg-surface-popover p-3">
                       <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">
                         Affected Events
                       </div>
@@ -1682,11 +1682,11 @@ function ImportDetailsDialog({
   const canSubmit = Boolean(gameTitle.trim()) && !isImporting;
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm">
-      <form onSubmit={onSubmit} className="w-full max-w-md rounded-2xl border border-line/70 bg-[#0d1424] p-5 shadow-soft">
+      <form onSubmit={onSubmit} className="w-full max-w-md rounded-2xl border border-line/70 bg-surface-popover p-5 shadow-soft">
         <div className="flex items-start justify-between gap-4">
           <div>
             <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-cobalt">Saved Specs</div>
-            <h3 className="mt-2 font-display text-lg font-bold text-[#f2f5ff]">Import Spec Details</h3>
+            <h3 className="mt-2 font-display text-lg font-bold text-ink">Import Spec Details</h3>
             <p className="mt-1 text-sm text-slate-500">{file.name}</p>
           </div>
           <button
@@ -1694,7 +1694,7 @@ function ImportDetailsDialog({
             aria-label="Cancel import"
             disabled={isImporting}
             onClick={onCancel}
-            className="focus-ring inline-flex h-9 w-9 items-center justify-center rounded-md border border-line/70 bg-[#0a111e] text-slate-500 hover:bg-[#17223a] disabled:opacity-50"
+            className="focus-ring inline-flex h-9 w-9 items-center justify-center rounded-md border border-line/70 bg-surface-panel text-slate-500 hover:bg-surface-hover disabled:opacity-50"
           >
             <X className="h-4 w-4" />
           </button>
@@ -1727,7 +1727,7 @@ function ImportDetailsDialog({
             type="button"
             disabled={isImporting}
             onClick={onCancel}
-            className="focus-ring inline-flex h-10 items-center gap-2 rounded-[9px] border border-line/70 bg-[#121b2c] px-3 text-sm font-semibold text-text-muted hover:bg-[#17223a] disabled:opacity-50"
+            className="focus-ring inline-flex h-10 items-center gap-2 rounded-[9px] border border-line/70 bg-surface-raised px-3 text-sm font-semibold text-text-muted hover:bg-surface-hover disabled:opacity-50"
           >
             <X className="h-4 w-4" />
             Cancel
@@ -1765,11 +1765,11 @@ function RenameSpecDialog({
   const canSubmit = Boolean(gameTitle.trim()) && !isRenaming;
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm">
-      <form onSubmit={onSubmit} className="w-full max-w-md rounded-2xl border border-line/70 bg-[#0d1424] p-5 shadow-soft">
+      <form onSubmit={onSubmit} className="w-full max-w-md rounded-2xl border border-line/70 bg-surface-popover p-5 shadow-soft">
         <div className="flex items-start justify-between gap-4">
           <div>
             <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-cobalt">Saved Specs</div>
-            <h3 className="mt-2 font-display text-lg font-bold text-[#f2f5ff]">Rename Saved Spec</h3>
+            <h3 className="mt-2 font-display text-lg font-bold text-ink">Rename Saved Spec</h3>
             <p className="mt-1 text-sm text-slate-500">Update the name shown across Saved Specs and the Spec Viewer.</p>
           </div>
           <button
@@ -1777,7 +1777,7 @@ function RenameSpecDialog({
             aria-label="Cancel rename"
             disabled={isRenaming}
             onClick={onCancel}
-            className="focus-ring inline-flex h-9 w-9 items-center justify-center rounded-md border border-line/70 bg-[#0a111e] text-slate-500 hover:bg-[#17223a] disabled:opacity-50"
+            className="focus-ring inline-flex h-9 w-9 items-center justify-center rounded-md border border-line/70 bg-surface-panel text-slate-500 hover:bg-surface-hover disabled:opacity-50"
           >
             <X className="h-4 w-4" />
           </button>
@@ -1799,7 +1799,7 @@ function RenameSpecDialog({
             type="button"
             disabled={isRenaming}
             onClick={onCancel}
-            className="focus-ring inline-flex h-10 items-center gap-2 rounded-[9px] border border-line/70 bg-[#121b2c] px-3 text-sm font-semibold text-text-muted hover:bg-[#17223a] disabled:opacity-50"
+            className="focus-ring inline-flex h-10 items-center gap-2 rounded-[9px] border border-line/70 bg-surface-raised px-3 text-sm font-semibold text-text-muted hover:bg-surface-hover disabled:opacity-50"
           >
             <X className="h-4 w-4" />
             Cancel
@@ -1898,7 +1898,7 @@ function SavedSpecsBrowser({
   function ImportControl() {
     if (!canImport) return null;
     return (
-      <label className="focus-ring inline-flex h-11 cursor-pointer items-center gap-2 rounded-[10px] border border-line/70 bg-[#121b2c] px-4 text-sm font-semibold text-text-muted hover:bg-[#17223a]">
+      <label className="focus-ring inline-flex h-11 cursor-pointer items-center gap-2 rounded-[10px] border border-line/70 bg-surface-raised px-4 text-sm font-semibold text-text-muted hover:bg-surface-hover">
         <Upload className="h-4 w-4" />
         {isImporting ? "Importing..." : "Import Spec"}
         <input
@@ -1942,12 +1942,12 @@ function SavedSpecsBrowser({
             <span className="h-1.5 w-1.5 rounded-full bg-cobalt shadow-[0_0_10px_#3d82ff]" />
             Event Design · Saved Specs
           </div>
-          <h1 className="mt-3 font-display text-[34px] font-extrabold leading-none text-[#f4f6ff]">Saved Specs</h1>
+          <h1 className="mt-3 font-display text-[34px] font-extrabold leading-none text-ink">Saved Specs</h1>
           <p className="mt-2 text-[13.5px] text-slate-500">Saved Game Specs are ready to view, edit if you own them, or import from XLSX / CSV.</p>
         </div>
-        <div className="rounded-2xl border border-dashed border-line/70 bg-[#0b1120] px-6 py-14 text-center shadow-soft">
+        <div className="rounded-2xl border border-dashed border-line/70 bg-surface-card px-6 py-14 text-center shadow-soft">
           <FileText className="mx-auto h-8 w-8 text-cobalt" />
-          <h2 className="mt-4 font-display text-xl font-bold text-[#f2f5ff]">No saved specs yet</h2>
+          <h2 className="mt-4 font-display text-xl font-bold text-ink">No saved specs yet</h2>
           <p className="mt-2 text-sm text-slate-500">Generate a draft or import an existing analytics spec.</p>
           <div className="mt-5 flex justify-center">
             <ImportControl />
@@ -1984,14 +1984,14 @@ function SavedSpecsBrowser({
             <span className="h-1.5 w-1.5 rounded-full bg-cobalt shadow-[0_0_10px_#3d82ff]" />
             Event Design · Saved Specs
           </div>
-          <h1 className="mt-3 font-display text-[34px] font-extrabold leading-none text-[#f4f6ff]">Saved Specs</h1>
+          <h1 className="mt-3 font-display text-[34px] font-extrabold leading-none text-ink">Saved Specs</h1>
           <p className="mt-2 text-[13.5px] text-slate-500">
             Saved Game Specs · {savedSpecs.length} {savedSpecs.length === 1 ? "spec" : "specs"} · open to view, edit if you own them, or import from XLSX / CSV.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <ImportControl />
-          <div className="rounded-[10px] border border-line/70 bg-[#0d1424] px-3 py-2 text-right">
+          <div className="rounded-[10px] border border-line/70 bg-surface-popover px-3 py-2 text-right">
             <div className="font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-slate-500">Saved Specs</div>
             <div className="mt-0.5 font-display text-xl font-extrabold text-cobalt">{savedSpecs.length}</div>
           </div>
@@ -2009,7 +2009,7 @@ function SavedSpecsBrowser({
             .join("");
           const owner = savedSpec.ownerName || savedSpec.ownerEmail || "Legacy";
           return (
-            <article key={savedSpec.id} className="flex min-h-[272px] flex-col rounded-2xl border border-line/70 bg-[linear-gradient(180deg,#0e1626,#0c1421)] p-5 shadow-soft transition-colors hover:border-line">
+            <article key={savedSpec.id} className="flex min-h-[272px] flex-col rounded-2xl border border-line/70 surface-card-gradient p-5 shadow-soft transition-colors hover:border-line">
               <div className="flex items-start justify-between gap-3">
                 <div className={`flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-[11px] border font-display text-sm font-extrabold ${statusTone(savedSpec.status).chip}`}>
                   {initials || "SP"}
@@ -2017,7 +2017,7 @@ function SavedSpecsBrowser({
                 <StatusChip status={savedSpec.status} />
               </div>
               <div className="mt-4 flex items-center gap-2">
-                <h2 className="min-w-0 flex-1 truncate font-display text-[17px] font-bold text-[#f2f5ff]">{savedSpec.gameTitle}</h2>
+                <h2 className="min-w-0 flex-1 truncate font-display text-[17px] font-bold text-ink">{savedSpec.gameTitle}</h2>
                 {savedSpec.canEdit ? (
                   <button
                     type="button"
@@ -2025,7 +2025,7 @@ function SavedSpecsBrowser({
                     aria-label={`Rename ${savedSpec.gameTitle}`}
                     disabled={isRenaming}
                     onClick={() => stageRename(savedSpec)}
-                    className="focus-ring inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-line/70 bg-[#101a2c] px-2 font-mono text-[9px] font-semibold uppercase tracking-[0.08em] text-text-muted hover:bg-[#16223a] disabled:cursor-wait disabled:opacity-50"
+                    className="focus-ring inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-line/70 bg-surface-raised px-2 font-mono text-[9px] font-semibold uppercase tracking-[0.08em] text-text-muted hover:bg-surface-hover disabled:cursor-wait disabled:opacity-50"
                   >
                     <Pencil className="h-3 w-3" />
                     Rename
@@ -2035,11 +2035,11 @@ function SavedSpecsBrowser({
               <p className="mt-1 truncate text-[12.5px] text-slate-500">{savedSpec.genre || "Unspecified"}</p>
               <div className="mt-4 flex items-end gap-[18px] border-t border-line/40 pt-4">
                 <div>
-                  <div className="font-display text-lg font-extrabold text-[#eaeefc]">{savedSpec.eventCount}</div>
+                  <div className="font-display text-lg font-extrabold text-ink">{savedSpec.eventCount}</div>
                   <div className="mt-0.5 font-mono text-[9px] font-semibold uppercase tracking-[0.08em] text-slate-500">Events</div>
                 </div>
                 <div>
-                  <div className="font-display text-lg font-extrabold text-[#eaeefc]">{savedSpec.payloadCount}</div>
+                  <div className="font-display text-lg font-extrabold text-ink">{savedSpec.payloadCount}</div>
                   <div className="mt-0.5 font-mono text-[9px] font-semibold uppercase tracking-[0.08em] text-slate-500">Payloads</div>
                 </div>
                 <div className="ml-auto min-w-0 text-right">
@@ -2053,7 +2053,7 @@ function SavedSpecsBrowser({
                   title="Open in Spec Viewer"
                   aria-label="Open"
                   onClick={() => onOpen(savedSpec.id)}
-                  className="focus-ring inline-flex h-9 flex-1 items-center justify-center gap-2 rounded-[9px] border border-line/70 bg-[#101a2c] px-3 text-xs font-semibold text-text-muted hover:bg-[#16223a]"
+                  className="focus-ring inline-flex h-9 flex-1 items-center justify-center gap-2 rounded-[9px] border border-line/70 bg-surface-raised px-3 text-xs font-semibold text-text-muted hover:bg-surface-hover"
                 >
                   <Eye className="h-3.5 w-3.5" />
                   Open
@@ -2187,21 +2187,21 @@ function PartnerDomainAccessAdmin() {
   }
 
   return (
-    <section className="space-y-4 rounded-2xl border border-line/70 bg-[#0b1120] p-5 shadow-soft">
+    <section className="space-y-4 rounded-2xl border border-line/70 bg-surface-card p-5 shadow-soft">
       <div>
         <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-emerald">Partner access</div>
-        <h2 className="mt-2 text-lg font-bold text-[#f4f6ff]">Launch Readiness partner domains</h2>
+        <h2 className="mt-2 text-lg font-bold text-ink">Launch Readiness partner domains</h2>
         <p className="mt-1 text-sm text-slate-500">Verified Google users at an active domain inherit these permitted apps.</p>
       </div>
       {status ? <p className="rounded-[9px] border border-cobalt/20 bg-cobalt/10 px-3 py-2 text-sm text-cobalt">{status}</p> : null}
-      <form onSubmit={saveDomain} className="grid gap-4 rounded-[12px] border border-line/60 bg-[#0d1424] p-4 lg:grid-cols-[minmax(180px,1fr)_160px_auto]">
+      <form onSubmit={saveDomain} className="grid gap-4 rounded-[12px] border border-line/60 bg-surface-popover p-4 lg:grid-cols-[minmax(180px,1fr)_160px_auto]">
         <label className="block">
           <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">Corporate domain</span>
-          <input value={domain} onChange={(event) => setDomain(event.target.value)} placeholder="partnerstudio.com" required className="focus-ring mt-1.5 h-10 w-full rounded-[8px] border border-line/70 bg-[#101a2c] px-3 text-sm text-slate-200" />
+          <input value={domain} onChange={(event) => setDomain(event.target.value)} placeholder="partnerstudio.com" required className="focus-ring mt-1.5 h-10 w-full rounded-[8px] border border-line/70 bg-surface-raised px-3 text-sm text-slate-200" />
         </label>
         <label className="block">
           <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">Expires on</span>
-          <input type="date" value={expiresOn} onChange={(event) => setExpiresOn(event.target.value)} required className="focus-ring mt-1.5 h-10 w-full rounded-[8px] border border-line/70 bg-[#101a2c] px-3 text-sm text-slate-200" />
+          <input type="date" value={expiresOn} onChange={(event) => setExpiresOn(event.target.value)} required className="focus-ring mt-1.5 h-10 w-full rounded-[8px] border border-line/70 bg-surface-raised px-3 text-sm text-slate-200" />
         </label>
         <label className="mt-6 inline-flex h-10 items-center gap-2 text-sm text-slate-300">
           <input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} className="h-4 w-4 accent-cobalt" /> Enabled
@@ -2219,17 +2219,17 @@ function PartnerDomainAccessAdmin() {
         </fieldset>
         <div className="flex gap-2 lg:col-span-3">
           <button type="submit" className="focus-ring inline-flex h-10 items-center gap-2 rounded-[8px] bg-cobalt px-4 text-sm font-semibold text-white hover:bg-cobalt/90"><Plus className="h-4 w-4" />{domain ? "Save domain" : "Add domain"}</button>
-          <button type="button" onClick={resetForm} className="focus-ring h-10 rounded-[8px] border border-line/70 px-4 text-sm font-semibold text-slate-400 hover:bg-[#17223a]">Clear</button>
+          <button type="button" onClick={resetForm} className="focus-ring h-10 rounded-[8px] border border-line/70 px-4 text-sm font-semibold text-slate-400 hover:bg-surface-hover">Clear</button>
         </div>
       </form>
       <div className="overflow-x-auto rounded-[12px] border border-line/60">
-        <div className="grid min-w-[680px] grid-cols-[1.2fr_1.7fr_140px_170px] border-b border-line/50 bg-[#0a1120] px-4 py-2.5 font-mono text-[9.5px] font-semibold uppercase tracking-[0.09em] text-slate-500"><div>Domain</div><div>Apps</div><div>Expiry</div><div className="text-right">Manage</div></div>
+        <div className="grid min-w-[680px] grid-cols-[1.2fr_1.7fr_140px_170px] border-b border-line/50 bg-surface-table px-4 py-2.5 font-mono text-[9.5px] font-semibold uppercase tracking-[0.09em] text-slate-500"><div>Domain</div><div>Apps</div><div>Expiry</div><div className="text-right">Manage</div></div>
         {domains.map((item) => (
           <div key={item.domain} className="grid min-w-[680px] grid-cols-[1.2fr_1.7fr_140px_170px] items-center border-b border-line/40 px-4 py-3 text-sm last:border-b-0">
             <div className="font-semibold text-slate-200">{item.domain}<span className={`ml-2 rounded px-1.5 py-0.5 font-mono text-[9px] ${item.enabled && new Date(item.expiresAt).getTime() > Date.now() ? "bg-emerald/10 text-emerald" : "bg-rose/10 text-rose"}`}>{item.enabled && new Date(item.expiresAt).getTime() > Date.now() ? "active" : item.enabled ? "expired" : "disabled"}</span></div>
             <div className="text-xs text-slate-400">{item.allowedApps.join(", ")}</div>
             <div className="font-mono text-xs text-slate-400">{item.expiresAt.slice(0, 10)}</div>
-            <div className="flex justify-end gap-2"><button type="button" onClick={() => editDomain(item)} className="focus-ring rounded-[7px] border border-line/70 px-2.5 py-1.5 text-xs font-semibold text-slate-300 hover:bg-[#17223a]">Edit</button><button type="button" onClick={() => void removeDomain(item.domain)} className="focus-ring inline-flex rounded-[7px] border border-rose/40 px-2.5 py-1.5 text-xs font-semibold text-rose hover:bg-rose/10"><Trash2 className="mr-1 h-3.5 w-3.5" />Revoke</button></div>
+            <div className="flex justify-end gap-2"><button type="button" onClick={() => editDomain(item)} className="focus-ring rounded-[7px] border border-line/70 px-2.5 py-1.5 text-xs font-semibold text-slate-300 hover:bg-surface-hover">Edit</button><button type="button" onClick={() => void removeDomain(item.domain)} className="focus-ring inline-flex rounded-[7px] border border-rose/40 px-2.5 py-1.5 text-xs font-semibold text-rose hover:bg-rose/10"><Trash2 className="mr-1 h-3.5 w-3.5" />Revoke</button></div>
           </div>
         ))}
         {!domains.length && !isLoading ? <p className="px-4 py-8 text-center text-sm text-slate-500">No partner domains configured.</p> : null}
@@ -2310,24 +2310,24 @@ function UserRoleAdmin({ currentUser }: { currentUser: AppUser | null }) {
           <span className="h-1.5 w-1.5 rounded-full bg-cobalt shadow-[0_0_10px_#3d82ff]" />
           Event Design · Users
         </div>
-        <h1 className="mt-3 font-display text-[34px] font-extrabold leading-none text-[#f4f6ff]">User Access</h1>
+        <h1 className="mt-3 font-display text-[34px] font-extrabold leading-none text-ink">User Access</h1>
         <p className="mt-2 text-[13.5px] text-slate-500">Admins manage roles. Access is gated to approved organization accounts.</p>
       </div>
 
       {status ? <p className="rounded-[10px] border border-cobalt/20 bg-cobalt/10 px-4 py-3 text-sm font-semibold text-cobalt">{status}</p> : null}
 
-      <form onSubmit={addUser} className="grid gap-3 rounded-2xl border border-line/70 bg-[#0b1120] p-5 shadow-soft md:grid-cols-[minmax(180px,1fr)_minmax(160px,0.7fr)_140px_auto]">
+      <form onSubmit={addUser} className="grid gap-3 rounded-2xl border border-line/70 bg-surface-card p-5 shadow-soft md:grid-cols-[minmax(180px,1fr)_minmax(160px,0.7fr)_140px_auto]">
         <label className="block">
           <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">Tripledot email</span>
-          <input type="email" value={newUserEmail} onChange={(event) => setNewUserEmail(event.target.value)} placeholder="name@tripledotstudios.com" required className="focus-ring mt-1.5 h-10 w-full rounded-[8px] border border-line/70 bg-[#101a2c] px-3 text-sm text-slate-200" />
+          <input type="email" value={newUserEmail} onChange={(event) => setNewUserEmail(event.target.value)} placeholder="name@tripledotstudios.com" required className="focus-ring mt-1.5 h-10 w-full rounded-[8px] border border-line/70 bg-surface-raised px-3 text-sm text-slate-200" />
         </label>
         <label className="block">
           <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">Name (optional)</span>
-          <input value={newUserName} onChange={(event) => setNewUserName(event.target.value)} placeholder="Name shown before first sign-in" className="focus-ring mt-1.5 h-10 w-full rounded-[8px] border border-line/70 bg-[#101a2c] px-3 text-sm text-slate-200" />
+          <input value={newUserName} onChange={(event) => setNewUserName(event.target.value)} placeholder="Name shown before first sign-in" className="focus-ring mt-1.5 h-10 w-full rounded-[8px] border border-line/70 bg-surface-raised px-3 text-sm text-slate-200" />
         </label>
         <label className="block">
           <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">Role</span>
-          <select value={newUserRole} onChange={(event) => setNewUserRole(event.target.value as UserRole)} className="focus-ring mt-1.5 h-10 w-full rounded-[8px] border border-line/70 bg-[#101a2c] px-3 text-sm font-semibold text-slate-200">
+          <select value={newUserRole} onChange={(event) => setNewUserRole(event.target.value as UserRole)} className="focus-ring mt-1.5 h-10 w-full rounded-[8px] border border-line/70 bg-surface-raised px-3 text-sm font-semibold text-slate-200">
             {(["admin", "editor", "viewer"] as UserRole[]).map((role) => <option key={role} value={role}>{roleLabels[role]}</option>)}
           </select>
         </label>
@@ -2335,8 +2335,8 @@ function UserRoleAdmin({ currentUser }: { currentUser: AppUser | null }) {
         <p className="md:col-span-4 text-xs text-slate-500">Use this for Tripledot users only. Partners are granted Tech Launch access by domain below.</p>
       </form>
 
-      <div className="w-full overflow-x-auto rounded-2xl border border-line/70 bg-[#0b1120] shadow-soft">
-        <div className="grid min-w-[760px] grid-cols-[minmax(0,1fr)_220px_180px] border-b border-line/50 bg-[#0a1120] px-5 py-3 font-mono text-[9.5px] font-semibold uppercase tracking-[0.09em] text-slate-500">
+      <div className="w-full overflow-x-auto rounded-2xl border border-line/70 bg-surface-card shadow-soft">
+        <div className="grid min-w-[760px] grid-cols-[minmax(0,1fr)_220px_180px] border-b border-line/50 bg-surface-table px-5 py-3 font-mono text-[9.5px] font-semibold uppercase tracking-[0.09em] text-slate-500">
           <div>User</div><div>Role</div><div className="text-right">Manage</div>
         </div>
         <div className="max-h-[620px] overflow-auto">
@@ -2356,13 +2356,13 @@ function UserRoleAdmin({ currentUser }: { currentUser: AppUser | null }) {
             const isCurrentUser = user.id === currentUser?.id;
             const isExternalUser = !user.email.toLowerCase().endsWith("@tripledotstudios.com");
             return (
-              <div key={user.id} className="grid min-w-[760px] grid-cols-[minmax(0,1fr)_220px_180px] items-center border-b border-line/40 px-5 py-3.5 last:border-b-0 hover:bg-[#0e1626]">
+              <div key={user.id} className="grid min-w-[760px] grid-cols-[minmax(0,1fr)_220px_180px] items-center border-b border-line/40 px-5 py-3.5 last:border-b-0 hover:bg-surface-hover">
                 <div className="flex min-w-0 items-center gap-3">
                   <div className={`flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-[10px] border font-display text-[13px] font-bold ${roleTone}`}>
                     {initials || "US"}
                   </div>
                   <div className="min-w-0">
-                    <div className="truncate text-[13.5px] font-semibold text-[#eaeefc]">{displayName}</div>
+                    <div className="truncate text-[13.5px] font-semibold text-ink">{displayName}</div>
                     <div className="mt-0.5 truncate font-mono text-[11px] text-slate-500">{user.email}</div>
                   </div>
                 </div>
@@ -2378,7 +2378,7 @@ function UserRoleAdmin({ currentUser }: { currentUser: AppUser | null }) {
                     value={user.role}
                     disabled={isCurrentUser || isExternalUser}
                     onChange={(event) => void updateRole(user.id, event.target.value as UserRole)}
-                    className="focus-ring h-9 w-[132px] rounded-[8px] border border-line/70 bg-[#101a2c] px-2 text-xs font-semibold text-slate-300 hover:bg-[#16223a] disabled:cursor-not-allowed disabled:opacity-50"
+                    className="focus-ring h-9 w-[132px] rounded-[8px] border border-line/70 bg-surface-raised px-2 text-xs font-semibold text-slate-300 hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-50"
                     title={isExternalUser ? "External users are always viewers" : isCurrentUser ? "Your role cannot be changed here" : "Change user role"}
                   >
                     {(["admin", "editor", "viewer"] as UserRole[]).map((role) => (
@@ -2602,9 +2602,9 @@ function rowsForSpec(spec: GeneratedSpec): SpecViewerRow[] {
 function ViewerEventRow({ event }: { event: GeneratedEvent }) {
   const tone = categoryTone(`${event.category} ${event.featurePack} ${event.eventName}`);
   return (
-    <article className="overflow-hidden rounded-[12px] border border-line/70 bg-[#0b1120] shadow-[0_8px_18px_rgba(0,0,0,0.12)] transition-colors hover:border-line hover:bg-[#0e1626]">
+    <article className="overflow-hidden rounded-[12px] border border-line/70 bg-surface-card shadow-[0_8px_18px_rgba(0,0,0,0.12)] transition-colors hover:border-line hover:bg-surface-hover">
       <div className={`h-0.5 ${tone.bar}`} />
-      <div className="grid min-w-[760px] grid-cols-[1.4fr_150px_2fr_90px] border-b border-line/40 bg-[#0a1120] px-5 py-2.5 font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">
+      <div className="grid min-w-[760px] grid-cols-[1.4fr_150px_2fr_90px] border-b border-line/40 bg-surface-table px-5 py-2.5 font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">
         <div>Event</div><div>Category</div><div>Trigger</div><div className="text-right">Payloads</div>
       </div>
       <div className="grid min-w-[760px] grid-cols-[1.4fr_150px_2fr_90px] items-center px-5 py-4">
@@ -2620,9 +2620,9 @@ function ViewerEventRow({ event }: { event: GeneratedEvent }) {
       </div>
 
       {(event.argumentName || event.argumentDescription || event.argumentExamples || event.payloadFields.length) ? (
-        <div className="border-t border-line/30 bg-[#090f1b] px-5 py-4">
+        <div className="border-t border-line/30 bg-surface-card px-5 py-4">
           {(event.argumentName || event.argumentDescription || event.argumentExamples) ? (
-            <section aria-label="Event context" className="mb-4 rounded-[10px] border border-line/50 bg-[#0d1626] p-4">
+            <section aria-label="Event context" className="mb-4 rounded-[10px] border border-line/50 bg-surface-card p-4">
               <div className="mb-3 font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Event Context</div>
               <div className="grid gap-4 md:grid-cols-[1.1fr_1.1fr_1fr]">
                 <div>
@@ -2685,9 +2685,9 @@ function ViewerPlatformAdRow({
 }) {
   const tone = categoryTone(`${adFamily} ad event`);
   return (
-    <article className="overflow-hidden rounded-[12px] border border-line/70 bg-[#0b1120] shadow-[0_8px_18px_rgba(0,0,0,0.12)] transition-colors hover:border-line hover:bg-[#0e1626]">
+    <article className="overflow-hidden rounded-[12px] border border-line/70 bg-surface-card shadow-[0_8px_18px_rgba(0,0,0,0.12)] transition-colors hover:border-line hover:bg-surface-hover">
       <div className={`h-0.5 ${tone.bar}`} />
-      <div className="grid min-w-[760px] grid-cols-[1.4fr_150px_2fr_90px] border-b border-line/40 bg-[#0a1120] px-5 py-2.5 font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">
+      <div className="grid min-w-[760px] grid-cols-[1.4fr_150px_2fr_90px] border-b border-line/40 bg-surface-table px-5 py-2.5 font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">
         <div>Event</div><div>Category</div><div>Trigger</div><div className="text-right">Payloads</div>
       </div>
       <div className="grid min-w-[760px] grid-cols-[1.4fr_150px_2fr_90px] items-center px-5 py-4">
@@ -2699,7 +2699,7 @@ function ViewerPlatformAdRow({
         <p className="pr-4 text-[14px] leading-relaxed text-slate-400">{adFamily} platform ad event payloads.</p>
         <div className="text-right font-mono text-[15px] font-semibold text-slate-300">{payloads.length}</div>
       </div>
-      <div className="overflow-x-auto border-t border-line/30 bg-[#090f1b] px-5 py-4">
+      <div className="overflow-x-auto border-t border-line/30 bg-surface-card px-5 py-4">
         <div className="mb-2 font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Payload Definition</div>
         <table className="w-full min-w-[760px] text-left text-[13px]">
           <thead className="font-mono text-[11px] uppercase tracking-[0.1em] text-slate-500">
@@ -2767,18 +2767,18 @@ function SpecViewer({
 
   if (isLoading) {
     return (
-      <section className="rounded-2xl border border-line/70 bg-[#0b1120] p-10 text-center shadow-soft">
+      <section className="rounded-2xl border border-line/70 bg-surface-card p-10 text-center shadow-soft">
         <Table2 className="mx-auto h-8 w-8 text-cobalt" />
-        <h2 className="mt-4 font-display text-xl font-bold text-[#f2f5ff]">Loading saved specs</h2>
+        <h2 className="mt-4 font-display text-xl font-bold text-ink">Loading saved specs</h2>
       </section>
     );
   }
 
   if (!savedSpecs.length) {
     return (
-      <section className="rounded-2xl border border-dashed border-line/70 bg-[#0b1120] p-10 text-center shadow-soft">
+      <section className="rounded-2xl border border-dashed border-line/70 bg-surface-card p-10 text-center shadow-soft">
         <Table2 className="mx-auto h-8 w-8 text-cobalt" />
-        <h2 className="mt-4 font-display text-xl font-bold text-[#f2f5ff]">No saved specs to view</h2>
+        <h2 className="mt-4 font-display text-xl font-bold text-ink">No saved specs to view</h2>
         <p className="mt-2 text-sm text-slate-500">Generate and save a game spec first, then it will appear here.</p>
       </section>
     );
@@ -2786,9 +2786,9 @@ function SpecViewer({
 
   if (!activeSpec) {
     return (
-      <section className="rounded-2xl border border-line/70 bg-[#0b1120] p-10 text-center shadow-soft">
+      <section className="rounded-2xl border border-line/70 bg-surface-card p-10 text-center shadow-soft">
         <Table2 className="mx-auto h-8 w-8 text-cobalt" />
-        <h2 className="mt-4 font-display text-xl font-bold text-[#f2f5ff]">Select a game spec</h2>
+        <h2 className="mt-4 font-display text-xl font-bold text-ink">Select a game spec</h2>
       </section>
     );
   }
@@ -2818,7 +2818,7 @@ function SpecViewer({
                   aria-haspopup="listbox"
                   aria-expanded={isSpecMenuOpen}
                   aria-controls="saved-spec-options"
-                  className="focus-ring group flex max-w-full items-center rounded-[10px] border border-transparent py-1 pl-2 pr-9 text-left font-display text-[34px] font-extrabold leading-none text-[#f4f6ff] transition-colors hover:border-cobalt/40 hover:bg-cobalt/10 focus:border-cobalt/60 focus:bg-cobalt/10"
+                  className="focus-ring group flex max-w-full items-center rounded-[10px] border border-transparent py-1 pl-2 pr-9 text-left font-display text-[34px] font-extrabold leading-none text-ink transition-colors hover:border-cobalt/40 hover:bg-cobalt/10 focus:border-cobalt/60 focus:bg-cobalt/10"
                 >
                   <span className="truncate">{activeSpec.intake.gameTitle}</span>
                   <ChevronDown className={`pointer-events-none absolute right-3 h-5 w-5 shrink-0 text-cobalt transition-transform ${isSpecMenuOpen ? "rotate-180" : ""}`} />
@@ -2829,7 +2829,7 @@ function SpecViewer({
                   id="saved-spec-options"
                   role="listbox"
                   aria-label="Saved game specs"
-                  className="absolute left-0 top-full z-50 mt-2 w-[min(92vw,390px)] overflow-hidden rounded-[12px] border border-line/80 bg-[#101a2d] p-1.5 shadow-soft"
+                  className="absolute left-0 top-full z-50 mt-2 w-[min(92vw,390px)] overflow-hidden rounded-[12px] border border-line/80 bg-surface-raised p-1.5 shadow-soft"
                 >
                   <div className="px-2.5 py-2 font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Saved Game Specs</div>
                   {savedSpecs.map((savedSpec) => {
@@ -2846,7 +2846,7 @@ function SpecViewer({
                           setIsSpecMenuOpen(false);
                         }}
                         className={`focus-ring relative block w-full rounded-[9px] px-3 py-2.5 text-left transition-colors ${
-                          isActive ? "bg-cobalt/15 text-[#f2f5ff]" : "text-[#cbd2e8] hover:bg-[#17223a]"
+                          isActive ? "bg-cobalt/15 text-ink" : "text-text-muted hover:bg-surface-hover"
                         }`}
                       >
                         {isActive ? <span className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-cobalt" /> : null}
@@ -2861,7 +2861,7 @@ function SpecViewer({
               ) : null}
             </div>
           ) : (
-            <h1 className="mt-3 font-display text-[34px] font-extrabold leading-none text-[#f4f6ff]">{activeSpec.intake.gameTitle}</h1>
+            <h1 className="mt-3 font-display text-[34px] font-extrabold leading-none text-ink">{activeSpec.intake.gameTitle}</h1>
           )}
           <p className="mt-2 text-[13.5px] text-slate-500">
             Read-only view · shareable with viewers · {activeSpec.intake.genre || "Unspecified genre"}
@@ -2871,7 +2871,7 @@ function SpecViewer({
           <button
             type="button"
             onClick={() => onCopyShareLink(activeSpec.id)}
-            className="focus-ring inline-flex h-11 items-center gap-2 rounded-[10px] border border-line/70 bg-[#121b2c] px-4 text-sm font-semibold text-text-muted hover:bg-[#17223a]"
+            className="focus-ring inline-flex h-11 items-center gap-2 rounded-[10px] border border-line/70 bg-surface-raised px-4 text-sm font-semibold text-text-muted hover:bg-surface-hover"
           >
             <Link2 className="h-4 w-4" />
             Copy Share Link
@@ -2889,8 +2889,8 @@ function SpecViewer({
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-2xl border border-line/70 bg-[#0b1120] shadow-soft">
-        <div className="flex flex-col gap-3 border-b border-line/50 bg-[#0d1424] px-5 py-3.5 lg:flex-row lg:items-center lg:justify-between">
+      <div className="overflow-hidden rounded-2xl border border-line/70 bg-surface-card shadow-soft">
+        <div className="flex flex-col gap-3 border-b border-line/50 bg-surface-popover px-5 py-3.5 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex min-w-0 items-center gap-3">
             <StatusChip status={activeSummary?.status ?? reviewStatusForEvents(activeSpec.generatedEvents)} />
             <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-slate-500">
@@ -2898,7 +2898,7 @@ function SpecViewer({
             </span>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <div className="flex h-8 items-center gap-2 rounded-[7px] border border-line/70 bg-[#0a111e] px-2.5">
+            <div className="flex h-8 items-center gap-2 rounded-[7px] border border-line/70 bg-surface-panel px-2.5">
               <Search className="h-3.5 w-3.5 text-slate-500" />
               <input
                 value={query}
@@ -2911,7 +2911,7 @@ function SpecViewer({
         </div>
         {shareStatus ? <div className="border-b border-cobalt/20 bg-cobalt/10 px-5 py-2 text-xs font-semibold text-cobalt">{shareStatus}</div> : null}
 
-        <div className="border-b border-line/50 bg-[#0a1120]">
+        <div className="border-b border-line/50 bg-surface-table">
           <div className="flex items-stretch overflow-x-auto" role="tablist" aria-label="Event categories">
             <div className="flex w-[118px] shrink-0 flex-col justify-center border-r border-line/50 px-4">
               <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Event</span>
@@ -2932,8 +2932,8 @@ function SpecViewer({
                   onClick={() => { setActiveGroupId(group.id); setQuery(""); }}
                   className={`relative flex min-w-[166px] shrink-0 flex-col justify-center border-r border-line/50 px-4 py-3 text-left transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-cobalt ${
                     isActive
-                      ? "bg-[linear-gradient(135deg,rgba(61,130,255,0.18),rgba(13,20,36,0.72))] text-[#f2f5ff]"
-                      : "bg-[#0a1120] text-slate-400 hover:bg-[#101a2d] hover:text-[#eef1fb]"
+                      ? "surface-selected-gradient text-ink"
+                      : "bg-surface-table text-slate-400 hover:bg-surface-raised hover:text-ink"
                   }`}
                 >
                   {isActive ? <span className={`absolute inset-y-0 left-0 w-0.5 ${tone.bar}`} /> : null}
@@ -3381,7 +3381,7 @@ export default function MvpApp({ library }: { library: LibrarySnapshot }) {
               <span className="h-1.5 w-1.5 rounded-full bg-cobalt shadow-[0_0_10px_#3d82ff]" />
               Event Design · Intake
             </div>
-            <h1 className="mt-3 font-display text-3xl font-extrabold leading-tight text-[#f4f6ff]">Describe the game</h1>
+            <h1 className="mt-3 font-display text-3xl font-extrabold leading-tight text-ink">Describe the game</h1>
             <p className="mt-2 max-w-2xl text-sm text-slate-500">
               Fill the intake and generate a draft analytics spec matched against the reference library.
             </p>
@@ -3389,7 +3389,7 @@ export default function MvpApp({ library }: { library: LibrarySnapshot }) {
           <section className="grid items-start gap-[18px] lg:grid-cols-[1fr_320px]">
             <form
               onSubmit={form.handleSubmit(onSubmit)}
-              className="space-y-[18px] rounded-2xl border border-line/70 bg-[linear-gradient(180deg,#0e1626,#0c1421)] p-[22px] shadow-soft"
+              className="space-y-[18px] rounded-2xl border border-line/70 surface-card-gradient p-[22px] shadow-soft"
             >
               <div className="grid gap-[14px] md:grid-cols-2">
                 <label className="block">
@@ -3474,7 +3474,7 @@ export default function MvpApp({ library }: { library: LibrarySnapshot }) {
                 <button
                   type="button"
                   onClick={() => form.reset(exampleIntake)}
-                  className="focus-ring inline-flex h-11 items-center gap-2 rounded-[10px] border border-line/70 bg-[#121b2c] px-4 text-sm font-semibold text-text-muted hover:bg-[#17223a]"
+                  className="focus-ring inline-flex h-11 items-center gap-2 rounded-[10px] border border-line/70 bg-surface-raised px-4 text-sm font-semibold text-text-muted hover:bg-surface-hover"
                 >
                   <Sparkles className="h-4 w-4" />
                   Load Example
@@ -3483,7 +3483,7 @@ export default function MvpApp({ library }: { library: LibrarySnapshot }) {
             </form>
 
             <aside className="space-y-[14px]">
-              <div className="rounded-[14px] border border-line/70 bg-[linear-gradient(180deg,#101a2d,#0d1626)] p-[18px] shadow-soft">
+              <div className="rounded-[14px] border border-line/70 surface-gradient p-[18px] shadow-soft">
                 <div className="flex items-center gap-2 font-display text-sm font-bold text-slate-300">
                   <Library className="h-4 w-4 text-slate-400" />
                   Library Seed
@@ -3493,7 +3493,7 @@ export default function MvpApp({ library }: { library: LibrarySnapshot }) {
                   <span className="font-semibold text-text-muted">{library.generationPacks.length} generation packs</span>.
                 </p>
               </div>
-              <div className="rounded-[14px] border border-line/70 bg-[linear-gradient(180deg,#101a2d,#0d1626)] p-[18px] shadow-soft">
+              <div className="rounded-[14px] border border-line/70 surface-gradient p-[18px] shadow-soft">
                 <div className="flex items-center gap-2 font-display text-sm font-bold text-slate-300">
                   <BookOpen className="h-4 w-4 text-slate-400" />
                   Intake Tips

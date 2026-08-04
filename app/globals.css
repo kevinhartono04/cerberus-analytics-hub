@@ -5,17 +5,94 @@
 @tailwind utilities;
 
 :root {
-  color: #dae2fd;
-  background: #050b18;
+  --color-ink: 18 35 58;
+  --color-line: 203 213 225;
+  --color-mist: 242 246 251;
+  --color-sage: 231 237 245;
+  --color-gold: 185 117 19;
+  --color-surface: 242 246 251;
+  --color-surface-low: 255 255 255;
+  --color-surface-mid: 236 241 247;
+  --color-surface-high: 222 230 240;
+  --color-surface-highest: 203 213 225;
+  --color-surface-panel: 250 252 255;
+  --color-surface-card: 255 255 255;
+  --color-surface-table: 247 249 252;
+  --color-surface-raised: 241 245 250;
+  --color-surface-popover: 255 255 255;
+  --color-surface-hover: 232 238 246;
+  --color-text-muted: 73 89 113;
+  --color-text-subtle: 96 110 130;
+  --color-brand-muted: 42 87 167;
+  --color-emerald: 13 130 90;
+  --color-amber: 178 108 14;
+  --color-cyan: 0 123 160;
+  --color-violet: 105 77 184;
+  --color-rose: 202 55 89;
+  --page-background: radial-gradient(circle at 20% 0%, rgba(0, 102, 255, 0.08), transparent 28rem), linear-gradient(180deg, #f7faff 0%, #eef3f9 100%);
+  --shell-background: radial-gradient(1200px 600px at 12% -8%, rgba(61, 130, 255, 0.12), transparent 60%), radial-gradient(900px 500px at 100% 0%, rgba(31, 196, 138, 0.05), transparent 55%), linear-gradient(180deg, #f8fbff 0%, #eef3f9 100%);
+  --sidebar-background: linear-gradient(180deg, #ffffff 0%, #f4f7fb 100%);
+  --brand-tile-background: #edf4ff;
+  --scrollbar-track: #edf2f8;
+  --scrollbar-thumb: #aab8c9;
+  --scrollbar-thumb-hover: #72839a;
+  --chart-grid: #d7e0eb;
+  --chart-axis: #71839b;
+  --chart-label: #5f718b;
+  --chart-tooltip: #ffffff;
+  --chart-tooltip-line: #c4d0df;
+  --chart-tooltip-ink: #1b2b42;
+  color: rgb(var(--color-ink));
+  background: rgb(var(--color-mist));
+  color-scheme: light;
+}
+
+html[data-theme="dark"] {
+  --color-ink: 218 226 253;
+  --color-line: 66 70 86;
+  --color-mist: 5 11 24;
+  --color-sage: 26 34 53;
+  --color-gold: 255 185 95;
+  --color-surface: 5 11 24;
+  --color-surface-low: 11 19 36;
+  --color-surface-mid: 16 24 39;
+  --color-surface-high: 26 34 53;
+  --color-surface-highest: 36 44 64;
+  --color-surface-panel: 10 17 30;
+  --color-surface-card: 11 17 32;
+  --color-surface-table: 10 17 32;
+  --color-surface-raised: 16 26 44;
+  --color-surface-popover: 13 20 36;
+  --color-surface-hover: 23 34 58;
+  --color-text-muted: 194 198 216;
+  --color-text-subtle: 139 147 173;
+  --color-brand-muted: 179 197 255;
+  --color-emerald: 78 222 163;
+  --color-amber: 255 185 95;
+  --color-cyan: 72 217 255;
+  --color-violet: 183 164 255;
+  --color-rose: 255 122 144;
+  --page-background: radial-gradient(circle at 20% 0%, rgba(0, 102, 255, 0.1), transparent 28rem), linear-gradient(180deg, #050b18 0%, #020713 100%);
+  --shell-background: radial-gradient(1200px 600px at 12% -8%, rgba(61, 130, 255, 0.16), transparent 60%), radial-gradient(900px 500px at 100% 0%, rgba(31, 196, 138, 0.06), transparent 55%), linear-gradient(180deg, #070b16 0%, #04060d 100%);
+  --sidebar-background: linear-gradient(180deg, #090e1a 0%, #070b15 100%);
+  --brand-tile-background: #0d1930;
+  --scrollbar-track: #050b18;
+  --scrollbar-thumb: #424656;
+  --scrollbar-thumb-hover: #8c90a1;
+  --chart-grid: #263247;
+  --chart-axis: #64748b;
+  --chart-label: #94a3b8;
+  --chart-tooltip: #0d1424;
+  --chart-tooltip-line: #475569;
+  --chart-tooltip-ink: #e2e8f0;
+  color-scheme: dark;
 }
 
 body {
   margin: 0;
   min-height: 100vh;
-  background:
-    radial-gradient(circle at 20% 0%, rgba(0, 102, 255, 0.1), transparent 28rem),
-    linear-gradient(180deg, #050b18 0%, #020713 100%);
-  color: #dae2fd;
+  background: var(--page-background);
+  color: rgb(var(--color-ink));
   font-family: Inter, ui-sans-serif, system-ui, sans-serif;
   letter-spacing: 0;
 }
@@ -29,6 +106,93 @@ select {
 
 .focus-ring {
   @apply focus:outline-none focus:ring-1 focus:ring-cobalt focus:ring-offset-0;
+}
+
+.shell-backdrop {
+  background: var(--shell-background);
+}
+
+.shell-sidebar {
+  background: var(--sidebar-background);
+}
+
+.brand-tile {
+  background: var(--brand-tile-background);
+}
+
+.surface-gradient {
+  background: linear-gradient(180deg, #f7faff, #eef3f9);
+}
+
+.surface-card-gradient {
+  background: linear-gradient(180deg, #ffffff, #f4f7fb);
+}
+
+.surface-selected-gradient {
+  background: linear-gradient(135deg, rgba(61, 130, 255, 0.12), rgba(255, 255, 255, 0.92));
+}
+
+html[data-theme="dark"] .surface-gradient {
+  background: linear-gradient(180deg, #101a2d, #0d1626);
+}
+
+html[data-theme="dark"] .surface-card-gradient {
+  background: linear-gradient(180deg, #0e1626, #0c1421);
+}
+
+html[data-theme="dark"] .surface-selected-gradient {
+  background: linear-gradient(135deg, rgba(61, 130, 255, 0.18), rgba(13, 20, 36, 0.72));
+}
+
+.verdict-overview {
+  background: linear-gradient(180deg, #ffffff, #f3f7fc);
+}
+
+.verdict-overview-emerald {
+  background: radial-gradient(420px 200px at 15% 0%, rgba(34, 150, 104, 0.12), transparent 70%), linear-gradient(180deg, #ffffff, #f3f7fc);
+}
+
+.verdict-overview-amber {
+  background: radial-gradient(420px 200px at 15% 0%, rgba(200, 130, 26, 0.12), transparent 70%), linear-gradient(180deg, #ffffff, #f3f7fc);
+}
+
+.verdict-overview-rose {
+  background: radial-gradient(420px 200px at 15% 0%, rgba(210, 71, 100, 0.11), transparent 70%), linear-gradient(180deg, #ffffff, #f3f7fc);
+}
+
+html[data-theme="dark"] .verdict-overview {
+  background: linear-gradient(180deg, #101a2d, #0d1626);
+}
+
+html[data-theme="dark"] .verdict-overview-emerald {
+  background: radial-gradient(420px 200px at 15% 0%, rgba(78, 222, 163, 0.12), transparent 70%), linear-gradient(180deg, #101a2d, #0d1626);
+}
+
+html[data-theme="dark"] .verdict-overview-amber {
+  background: radial-gradient(420px 200px at 15% 0%, rgba(255, 185, 95, 0.12), transparent 70%), linear-gradient(180deg, #101a2d, #0d1626);
+}
+
+html[data-theme="dark"] .verdict-overview-rose {
+  background: radial-gradient(420px 200px at 15% 0%, rgba(255, 122, 144, 0.12), transparent 70%), linear-gradient(180deg, #101a2d, #0d1626);
+}
+
+.product-link {
+  border-left-color: transparent;
+  color: rgb(var(--color-text-subtle));
+}
+
+.product-link-icon {
+  color: rgb(var(--color-text-subtle));
+}
+
+.product-link-active {
+  border-left-color: var(--product-accent);
+  background: color-mix(in srgb, var(--product-accent) 13%, transparent);
+  color: rgb(var(--color-ink));
+}
+
+.product-link-active .product-link-icon {
+  color: var(--product-accent);
 }
 
 @layer base {
@@ -51,167 +215,136 @@ select {
   }
 
   ::-webkit-scrollbar-track {
-    background: #050b18;
+    background: var(--scrollbar-track);
   }
 
   ::-webkit-scrollbar-thumb {
-    background: #424656;
+    background: var(--scrollbar-thumb);
     border-radius: 4px;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background: #8c90a1;
+    background: var(--scrollbar-thumb-hover);
   }
 }
 
-.theme-dark {
-  color: #dae2fd;
-  background:
-    radial-gradient(circle at 18% -10%, rgba(0, 102, 255, 0.12), transparent 28rem),
-    linear-gradient(180deg, #050b18 0%, #020713 100%);
-}
-
-.theme-dark :where(.bg-white, .bg-white\/95) {
-  background-color: #101827;
-}
-
-.theme-dark :where(.bg-mist) {
-  background-color: #050b18;
-}
-
-.theme-dark :where(.bg-sage) {
-  background-color: #1a2235;
-}
-
-.theme-dark :where(.bg-mist\/50) {
-  background-color: rgba(5, 11, 24, 0.78);
-}
-
-.theme-dark :where(.bg-cobalt) {
-  background-color: #0066ff;
-}
-
-.theme-dark :where(.text-ink) {
-  color: #dae2fd;
-}
-
-.theme-dark :where(.text-cobalt) {
-  color: #b3c5ff;
-}
-
-.theme-dark :where(.text-slate-500) {
-  color: #9ca3b8;
-}
-
-.theme-dark :where(.text-slate-600, .text-slate-700) {
-  color: #c2c6d8;
-}
-
-.theme-dark :where(.border-line) {
-  border-color: #424656;
-}
-
-.theme-dark :where(.divide-line > :not([hidden]) ~ :not([hidden])) {
-  border-color: #424656;
-}
-
-.theme-dark :where(.shadow-sm, .shadow-md, .shadow-soft) {
-  box-shadow: none;
-}
-
-.theme-dark :where(input, textarea, select) {
-  border-color: #424656;
-  background-color: #0b1324;
-  color: #dae2fd;
+:where(input, textarea, select) {
+  border-color: rgb(var(--color-line));
+  background-color: rgb(var(--color-surface-low));
+  color: rgb(var(--color-ink));
   font-family: Inter, ui-sans-serif, system-ui, sans-serif;
 }
 
-.theme-dark :where(input::placeholder, textarea::placeholder) {
-  color: #8c90a1;
+:where(input::placeholder, textarea::placeholder) {
+  color: rgb(var(--color-text-subtle));
 }
 
-.theme-dark :where(input[type="date"])::-webkit-calendar-picker-indicator {
+:where(select option) {
+  background-color: rgb(var(--color-surface-low));
+  color: rgb(var(--color-ink));
+}
+
+html[data-theme="light"] :where(.text-slate-200, .hover\:text-slate-200:hover) {
+  color: rgb(var(--color-ink));
+}
+
+html[data-theme="light"] :where(.text-slate-300, .hover\:text-slate-300:hover) {
+  color: rgb(var(--color-text-muted));
+}
+
+html[data-theme="light"] :where(.text-slate-400) {
+  color: rgb(var(--color-text-subtle));
+}
+
+html[data-theme="dark"] :where(.bg-white, .bg-white\/95) {
+  background-color: rgb(var(--color-surface-mid));
+}
+
+html[data-theme="dark"] :where(.text-cobalt) {
+  color: rgb(var(--color-brand-muted));
+}
+
+html[data-theme="dark"] :where(.text-slate-500) {
+  color: #9ca3b8;
+}
+
+html[data-theme="dark"] :where(.text-slate-600, .text-slate-700) {
+  color: rgb(var(--color-text-muted));
+}
+
+html[data-theme="dark"] :where(.shadow-sm, .shadow-md, .shadow-soft) {
+  box-shadow: none;
+}
+
+html[data-theme="dark"] :where(input[type="date"])::-webkit-calendar-picker-indicator {
   filter: invert(1) brightness(1.7);
   opacity: 0.9;
 }
 
-.theme-dark :where(select option) {
-  background-color: #0b1324;
-  color: #dae2fd;
-}
-
-.theme-dark :where(table) {
-  color: #dae2fd;
-}
-
-.theme-dark :where(thead) {
+:where(thead) {
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   letter-spacing: 0.04em;
 }
 
-.theme-dark :where(label > span:first-child, summary span span:first-child) {
-  color: #dae2fd;
+html[data-theme="dark"] :where(label > span:first-child, summary span span:first-child) {
+  color: rgb(var(--color-ink));
 }
 
-.theme-dark :where(.text-xs.font-semibold.uppercase, .text-\[11px\].font-semibold.uppercase) {
+html[data-theme="dark"] :where(.text-xs.font-semibold.uppercase, .text-\[11px\].font-semibold.uppercase) {
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   letter-spacing: 0.04em;
 }
 
-.theme-dark :where(button) {
+html[data-theme="dark"] :where(button) {
   letter-spacing: 0;
 }
 
-.theme-dark :where(button.text-xs, button .text-xs, button .text-\[11px\]) {
+html[data-theme="dark"] :where(button.text-xs, button .text-xs, button .text-\[11px\]) {
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
-.theme-dark :where(tbody tr:nth-child(even)) {
+html[data-theme="dark"] :where(tbody tr:nth-child(even)) {
   background-color: rgba(26, 34, 53, 0.42);
 }
 
-.theme-dark :where(tbody tr:hover) {
+html[data-theme="dark"] :where(tbody tr:hover) {
   background-color: rgba(36, 44, 64, 0.78);
 }
 
-.theme-dark :where(.font-mono) {
-  color: #b3c5ff;
+html[data-theme="dark"] :where(.font-mono) {
+  color: rgb(var(--color-brand-muted));
 }
 
-.theme-dark .status-chip,
-.theme-dark .tone-chip {
+.status-chip,
+.tone-chip {
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   letter-spacing: 0.02em;
 }
 
-.theme-dark .metric-value {
+.metric-value {
   font-family: "Hanken Grotesk", Inter, ui-sans-serif, system-ui, sans-serif;
 }
 
-.theme-dark :where(.hover\:bg-slate-50:hover, .hover\:bg-white\/70:hover) {
-  background-color: #1a2235;
+html[data-theme="dark"] :where(.hover\:bg-slate-50:hover, .hover\:bg-white\/70:hover) {
+  background-color: rgb(var(--color-sage));
 }
 
-.theme-dark :where(.hover\:bg-red-50:hover) {
+html[data-theme="dark"] :where(.hover\:bg-red-50:hover, .bg-red-50) {
   background-color: rgba(255, 180, 171, 0.12);
 }
 
-.theme-dark :where(.bg-amber-50) {
+html[data-theme="dark"] :where(.bg-amber-50) {
   background-color: rgba(255, 185, 95, 0.12);
 }
 
-.theme-dark :where(.text-amber-800) {
+html[data-theme="dark"] :where(.text-amber-800) {
   color: #ffddb8;
 }
 
-.theme-dark :where(.bg-red-50) {
-  background-color: rgba(255, 180, 171, 0.12);
-}
-
-.theme-dark :where(.text-red-700) {
+html[data-theme="dark"] :where(.text-red-700) {
   color: #ffb4ab;
 }
 
-.theme-dark :where(.bg-cobalt:hover, .hover\:bg-cobalt\/90:hover) {
+html[data-theme="dark"] :where(.bg-cobalt:hover, .hover\:bg-cobalt\/90:hover) {
   background-color: #0054d6;
 }

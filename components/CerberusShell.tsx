@@ -8,11 +8,13 @@ import {
   Gauge,
   LogIn,
   LogOut,
+  Moon,
   Shield,
+  Sun,
   Wand2,
   type LucideIcon,
 } from "lucide-react";
-import { ReactNode, useEffect, useState } from "react";
+import React, { CSSProperties, ReactNode, useEffect, useState } from "react";
 
 export type HubProductId = "spec-generator" | "tech-launch" | "spec-check";
 
@@ -69,16 +71,14 @@ function ProductLink({ product, active, collapsed }: { product: ProductItem; act
       href={product.href}
       title={collapsed ? product.label : undefined}
       aria-current={active ? "page" : undefined}
-      className={`focus-ring flex h-10 w-full items-center gap-3 rounded-[10px] border-l-2 px-3 text-sm font-semibold transition-colors ${
+      className={`product-link focus-ring flex h-10 w-full items-center gap-3 rounded-[10px] border-l-2 px-3 text-sm font-semibold transition-colors ${
+        active ? "product-link-active" : ""
+      } ${
         collapsed ? "justify-center" : "justify-start max-md:justify-center"
       }`}
-      style={{
-        borderLeftColor: active ? product.accent : "transparent",
-        background: active ? `${product.accent}21` : "transparent",
-        color: active ? "#eaeefc" : "#8b93ad",
-      }}
+      style={{ "--product-accent": product.accent } as CSSProperties}
     >
-      <Icon className="h-[18px] w-[18px] shrink-0" style={{ color: active ? product.accent : "#8b93ad" }} />
+      <Icon className="product-link-icon h-[18px] w-[18px] shrink-0" />
       {collapsed ? null : <span className="truncate max-md:hidden">{product.label}</span>}
     </a>
   );
@@ -89,7 +89,7 @@ function UserPanel({ user, collapsed, isLoading = false }: { user?: ShellUser; c
     return (
       <div
         aria-label="Loading account"
-        className={`flex h-10 w-full items-center gap-3 rounded-md border border-line bg-[#0a111e] px-3 ${
+        className={`flex h-10 w-full items-center gap-3 rounded-md border border-line bg-surface-panel px-3 ${
           collapsed ? "justify-center" : "justify-start max-md:justify-center"
         }`}
       >
@@ -104,7 +104,7 @@ function UserPanel({ user, collapsed, isLoading = false }: { user?: ShellUser; c
       <a
         href="/sign-in"
         title={collapsed ? "Sign in" : undefined}
-        className={`focus-ring flex h-10 w-full items-center gap-2 rounded-md border border-line bg-[#0a111e] px-3 text-sm font-semibold text-cobalt hover:bg-sage ${
+        className={`focus-ring flex h-10 w-full items-center gap-2 rounded-md border border-line bg-surface-panel px-3 text-sm font-semibold text-cobalt hover:bg-sage ${
           collapsed ? "justify-center" : "justify-start max-md:justify-center"
         }`}
       >
@@ -146,7 +146,7 @@ function UserPanel({ user, collapsed, isLoading = false }: { user?: ShellUser; c
       <a
         href="/api/auth/signout?callbackUrl=/sign-in"
         title={collapsed ? "Sign out" : undefined}
-        className={`focus-ring flex h-9 w-full items-center gap-2 rounded-md border border-line bg-[#0a111e] px-3 text-xs font-semibold text-slate-500 hover:bg-sage hover:text-ink ${
+        className={`focus-ring flex h-9 w-full items-center gap-2 rounded-md border border-line bg-surface-panel px-3 text-xs font-semibold text-slate-500 hover:bg-sage hover:text-ink ${
           collapsed ? "justify-center" : "justify-start max-md:justify-center"
         }`}
       >
@@ -183,6 +183,12 @@ export default function CerberusShell<T extends string>({
   const hasExplicitUser = user !== undefined;
   const [sessionUser, setSessionUser] = useState<ShellUser | undefined>(user);
   const [launchReadinessExpanded, setLaunchReadinessExpanded] = useState(currentProduct === "tech-launch");
+  const [theme, setTheme] = useState<"dark" | "light">("dark");
+
+  useEffect(() => {
+    const savedTheme = document.documentElement.dataset.theme;
+    setTheme(savedTheme === "light" ? "light" : "dark");
+  }, []);
 
   useEffect(() => {
     if (hasExplicitUser) {
@@ -225,24 +231,35 @@ export default function CerberusShell<T extends string>({
   const sidebarUser = hasExplicitUser ? user : sessionUser;
   const isLoadingUser = !hasExplicitUser && sessionUser === undefined;
   const visibleProducts = sidebarUser?.accountType === "external" ? products.filter((product) => product.id === "tech-launch") : products;
+  const toggleTheme = () => {
+    const nextTheme = theme === "dark" ? "light" : "dark";
+    document.documentElement.dataset.theme = nextTheme;
+    setTheme(nextTheme);
+
+    try {
+      localStorage.setItem("cerberus-theme", nextTheme);
+    } catch {
+      // The UI should still switch when browser storage is unavailable.
+    }
+  };
 
   return (
-    <main className="theme-dark min-h-screen bg-mist">
-      <div className="flex min-h-screen bg-[radial-gradient(1200px_600px_at_12%_-8%,rgba(61,130,255,0.16),transparent_60%),radial-gradient(900px_500px_at_100%_0%,rgba(31,196,138,0.06),transparent_55%),linear-gradient(180deg,#070b16_0%,#04060d_100%)]">
+    <main className="min-h-screen bg-mist">
+      <div className="shell-backdrop flex min-h-screen">
         <aside
-          className={`sticky top-0 flex h-screen shrink-0 flex-col border-r border-line/70 bg-[linear-gradient(180deg,#090e1a_0%,#070b15_100%)] transition-[width] duration-200 ${
+          className={`shell-sidebar sticky top-0 flex h-screen shrink-0 flex-col border-r border-line/70 transition-[width] duration-200 ${
             collapsed ? "w-20" : "w-20 md:w-[264px]"
           }`}
         >
           <div className={`border-b border-line/50 px-4 py-5 ${collapsed ? "text-center" : ""}`}>
             <div className={`flex items-center gap-3 ${collapsed ? "justify-center" : "max-md:justify-center"}`}>
-              <div className="relative flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-[13px] border border-cobalt/30 bg-[#0d1930] shadow-[0_0_18px_rgba(61,130,255,0.12)]">
+              <div className="brand-tile relative flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-[13px] border border-cobalt/30 shadow-[0_0_18px_rgba(61,130,255,0.12)]">
                 <img src="/cerberus_logo_512.png" alt="Cerberus" className="relative h-10 w-10 object-contain" />
               </div>
               {collapsed ? null : (
                 <div className="min-w-0 max-md:hidden">
-                  <h1 className="font-brand text-[18px] font-bold leading-none text-[#f7f8ff]">Cerberus</h1>
-                  <div className="mt-2 flex items-center gap-1.5 leading-none text-[#aeb8d2]">
+                  <h1 className="font-brand text-[18px] font-bold leading-none text-ink">Cerberus</h1>
+                  <div className="mt-2 flex items-center gap-1.5 leading-none text-brand-muted">
                     <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-cobalt shadow-[0_0_8px_#3d82ff]" />
                     <span className="font-brand text-[12px] font-semibold">Analytics Hub</span>
                   </div>
@@ -330,22 +347,46 @@ export default function CerberusShell<T extends string>({
             <UserPanel user={sidebarUser} collapsed={collapsed} isLoading={isLoadingUser} />
           </div>
 
-          {onToggleCollapsed ? (
-            <div className="border-t border-line/50 p-3">
+          <div className="space-y-2 border-t border-line/50 p-3">
+            <button
+              type="button"
+              role="switch"
+              aria-checked={theme === "light"}
+              title={collapsed ? "Light mode" : undefined}
+              aria-label="Light mode"
+              onClick={toggleTheme}
+              className={`focus-ring flex h-10 w-full items-center gap-2 rounded-md border border-line bg-surface-panel px-3 text-sm font-semibold text-text-subtle hover:bg-sage hover:text-ink ${
+                collapsed ? "justify-center" : "justify-start max-md:justify-center"
+              }`}
+            >
+              {theme === "light" ? <Sun className="h-4 w-4 text-cobalt" /> : <Moon className="h-4 w-4" />}
+              {collapsed ? null : <span className="max-md:hidden">Light mode</span>}
+              {collapsed ? null : (
+                <span
+                  aria-hidden="true"
+                  className={`ml-auto flex h-5 w-9 items-center rounded-full border p-0.5 transition-colors ${
+                    theme === "light" ? "border-cobalt/50 bg-cobalt/15" : "border-line bg-surface-raised"
+                  }`}
+                >
+                  <span className={`h-3.5 w-3.5 rounded-full bg-current transition-transform ${theme === "light" ? "translate-x-4 text-cobalt" : "translate-x-0 text-text-subtle"}`} />
+                </span>
+              )}
+            </button>
+            {onToggleCollapsed ? (
               <button
                 type="button"
                 title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
                 aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
                 onClick={onToggleCollapsed}
-                className={`focus-ring flex h-10 w-full items-center gap-2 rounded-md border border-line bg-[#0a111e] px-3 text-sm font-semibold text-slate-500 hover:bg-sage hover:text-ink ${
+                className={`focus-ring flex h-10 w-full items-center gap-2 rounded-md border border-line bg-surface-panel px-3 text-sm font-semibold text-slate-500 hover:bg-sage hover:text-ink ${
                   collapsed ? "justify-center" : "justify-start max-md:justify-center"
                 }`}
               >
                 {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
                 {collapsed ? null : <span className="max-md:hidden">Collapse</span>}
               </button>
-            </div>
-          ) : null}
+            ) : null}
+          </div>
         </aside>
 
         <section className="max-h-screen min-w-0 flex-1 overflow-x-hidden overflow-y-auto">

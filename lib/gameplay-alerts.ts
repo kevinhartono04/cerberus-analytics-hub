@@ -612,18 +612,67 @@ export async function openGameplayAlertStates(filtersInput: unknown): Promise<Ga
   return (await listGameplayAlertStates(filters)).map(stateFromRecord).filter((state) => state.status === "open");
 }
 
+function compactPlayerCount(value: number) {
+  if (value < 1_000) return String(value);
+  const divisor = value >= 1_000_000 ? 1_000_000 : 1_000;
+  const suffix = divisor === 1_000_000 ? "M" : "K";
+  const scaled = value / divisor;
+  const digits = scaled < 10 ? 1 : 0;
+  return `${Number(scaled.toFixed(digits))}${suffix}`;
+}
+
+function checkedAtLabel(value: Date) {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Jakarta",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(value).replace(",", "") + " WIB";
+}
+
+function alertSection(type: GameplayAlertTransition["type"]) {
+  if (type === "pending") return { key: "pending", heading: "Pending recheck" };
+  if (type === "resolved") return { key: "resolved", heading: "Resolved levels" };
+  return { key: "open", heading: "Open levels" };
+}
+
+export function formatGameplayAlertSlackMessage(transitions: GameplayAlertTransition[], checkedAt = new Date()) {
+  const groups = new Map<string, { state: GameplayAlertState; sections: Map<string, { heading: string; states: GameplayAlertState[] }> }>();
+  for (const transition of transitions) {
+    const platform = transition.state.platform === allPlatformsAlertScope ? "All platforms" : transition.state.platform;
+    const appVersion = transition.state.appVersion === allAppVersionsAlertScope ? "All versions" : transition.state.appVersion;
+    const key = `${transition.state.appName}:${platform}:${appVersion}`;
+    const group = groups.get(key) ?? { state: transition.state, sections: new Map() };
+    const section = alertSection(transition.type);
+    const bucket = group.sections.get(section.key) ?? { heading: section.heading, states: [] };
+    bucket.states.push(transition.state);
+    group.sections.set(section.key, bucket);
+    groups.set(key, group);
+  }
+
+  const sectionOrder = ["open", "pending", "resolved"];
+  return ["*Gameplay Difficulty Alerts*", ...[...groups.values()].map((group) => {
+    const platform = group.state.platform === allPlatformsAlertScope ? "All platforms" : group.state.platform;
+    const appVersion = group.state.appVersion === allAppVersionsAlertScope ? "All versions" : group.state.appVersion;
+    const sections = sectionOrder.flatMap((key) => {
+      const section = group.sections.get(key);
+      if (!section) return [];
+      const levels = section.states
+        .sort((a, b) => a.level - b.level || a.difficultyTier.localeCompare(b.difficultyTier))
+        .map((state) => `• Level ${state.level} · ${state.difficultyTier} · ${(state.lastFailRate * 100).toFixed(1)}% · ${compactPlayerCount(state.lastReachedPlayers)} players`);
+      return [`*${section.heading} (${levels.length})*`, ...levels];
+    });
+    return [`*Game:* ${group.state.appName}`, `*Platform:* ${platform}`, `*Version:* ${appVersion}`, `*Checked:* ${checkedAtLabel(checkedAt)}`, "", ...sections].join("\n");
+  })].join("\n\n");
+}
+
 export async function deliverGameplayAlertTransitions(transitions: GameplayAlertTransition[]) {
   const webhook = process.env.SLACK_GAMEPLAY_ALERT_WEBHOOK_URL?.trim();
   if (!webhook || !transitions.length) return { delivered: 0, skipped: transitions.length, configured: Boolean(webhook) };
-  const lines = transitions.map(({ type, state }) => {
-    const label = type === "daily-open" ? "CURRENT OPEN" : type === "opened" ? "OPEN" : type === "pending" ? "PENDING RECHECK" : "RESOLVED";
-    const appVersion = state.appVersion === allAppVersionsAlertScope ? "all versions" : state.appVersion;
-    const platform = state.platform === allPlatformsAlertScope ? "all platforms" : state.platform;
-    const statusDetail = type === "pending" ? "new layout revision is warming up" : `${(state.lastFailRate * 100).toFixed(1)}% fail rate vs ${(state.threshold * 100).toFixed(0)}%`;
-    const revision = state.layoutHash ? ` · revision ${state.layoutHash}` : "";
-    return `*${label}* · ${state.appName} ${platform} · ${appVersion} · Level ${state.level} · Layout bank ${state.layoutBankId ?? "legacy"}${revision} · ${state.difficultyTier} · ${statusDetail} · ${state.lastReachedPlayers} players`;
-  });
-  const response = await fetch(webhook, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: `Gameplay Difficulty Alerts\n${lines.join("\n")}` }) });
+  const response = await fetch(webhook, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: formatGameplayAlertSlackMessage(transitions) }) });
   if (!response.ok) throw new Error(`Slack webhook returned ${response.status}`);
   const deliveredAt = new Date().toISOString();
   await Promise.all([

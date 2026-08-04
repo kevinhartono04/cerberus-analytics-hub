@@ -190,7 +190,7 @@ const slowQueryAfterMs = 45_000;
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 const techLabelClass = "mb-2 block font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500";
 const techInputClass =
-  "focus-ring h-[42px] w-full rounded-[9px] border border-line/70 bg-[#0a111e] px-3 text-sm font-semibold text-slate-300 shadow-none placeholder:font-normal placeholder:text-slate-500";
+  "focus-ring h-[42px] w-full rounded-[9px] border border-line/70 bg-surface-panel px-3 text-sm font-semibold text-slate-300 shadow-none placeholder:font-normal placeholder:text-slate-500";
 
 function isoDate(date: Date) {
   const year = date.getFullYear();
@@ -244,7 +244,7 @@ function presetRange(days: number) {
 function defaultFilters(): Filters {
   const end = new Date();
   const start = new Date(end);
-  start.setDate(start.getDate() - 7);
+  start.setDate(start.getDate() - 2);
   return {
     appName: "stacksmash",
     platform: "android",
@@ -423,17 +423,17 @@ function verdictClasses(verdict: Verdict) {
 }
 
 function verdictOverviewClasses(verdict: Verdict) {
-  if (verdict === "green") return "border-emerald/35 bg-[radial-gradient(420px_200px_at_15%_0%,rgba(78,222,163,0.12),transparent_70%),linear-gradient(180deg,#101a2d,#0d1626)] text-emerald";
-  if (verdict === "yellow") return "border-amber/35 bg-[radial-gradient(420px_200px_at_15%_0%,rgba(255,185,95,0.12),transparent_70%),linear-gradient(180deg,#101a2d,#0d1626)] text-amber";
-  if (verdict === "red") return "border-rose/35 bg-[radial-gradient(420px_200px_at_15%_0%,rgba(255,122,144,0.12),transparent_70%),linear-gradient(180deg,#101a2d,#0d1626)] text-rose";
-  return "border-line/70 bg-[linear-gradient(180deg,#101a2d,#0d1626)] text-[#b3c5ff]";
+  if (verdict === "green") return "verdict-overview verdict-overview-emerald border-emerald/35 text-emerald";
+  if (verdict === "yellow") return "verdict-overview verdict-overview-amber border-amber/35 text-amber";
+  if (verdict === "red") return "verdict-overview verdict-overview-rose border-rose/35 text-rose";
+  return "border-line/70 surface-gradient text-brand-muted";
 }
 
 function verdictValueClasses(verdict: Verdict) {
   if (verdict === "green") return "text-emerald";
   if (verdict === "yellow") return "text-amber";
   if (verdict === "red") return "text-rose";
-  return "text-[#f4f6ff]";
+  return "text-ink";
 }
 
 function verdictBarTone(verdict: Verdict): "cobalt" | "emerald" | "amber" | "rose" {
@@ -462,7 +462,7 @@ function Bar({ value, tone = "cobalt" }: { value: number | null; tone?: "cobalt"
   const color =
     tone === "emerald" ? "bg-emerald" : tone === "amber" ? "bg-amber" : tone === "rose" ? "bg-rose" : "bg-cobalt";
   return (
-    <div className="h-1.5 w-full overflow-hidden rounded bg-[#12192a]">
+    <div className="h-1.5 w-full overflow-hidden rounded bg-surface-raised">
       <div className={`h-full rounded ${color}`} style={{ width: `${width}%` }} />
     </div>
   );
@@ -533,9 +533,9 @@ function sortedTelemetryRows(rows: MetricRow[]) {
 
 function ComparisonViewToggle({ view, onChange }: { view: ComparisonView; onChange: (view: ComparisonView) => void }) {
   return (
-    <div className="inline-flex rounded-[8px] border border-line/70 bg-[#0a111e] p-1">
-      <div className="group relative"><button type="button" onClick={() => onChange("individual")} aria-label="Show individual metric tables" className={`focus-ring flex h-8 w-8 items-center justify-center rounded-[6px] ${view === "individual" ? "bg-cobalt text-white" : "text-slate-500 hover:text-slate-300"}`}><Rows3 className="h-4 w-4" /></button><span role="tooltip" className="pointer-events-none absolute left-1/2 top-full z-20 mt-2 -translate-x-1/2 whitespace-nowrap rounded-md border border-line bg-[#0d1424] px-2 py-1 text-xs font-semibold text-slate-200 opacity-0 shadow-soft transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">Individual metrics</span></div>
-      <div className="group relative"><button type="button" onClick={() => onChange("unified")} aria-label="Show unified comparison table" className={`focus-ring flex h-8 w-8 items-center justify-center rounded-[6px] ${view === "unified" ? "bg-cobalt text-white" : "text-slate-500 hover:text-slate-300"}`}><GitCompareArrows className="h-4 w-4" /></button><span role="tooltip" className="pointer-events-none absolute right-0 top-full z-20 mt-2 whitespace-nowrap rounded-md border border-line bg-[#0d1424] px-2 py-1 text-xs font-semibold text-slate-200 opacity-0 shadow-soft transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">Unified comparison</span></div>
+    <div className="inline-flex rounded-[8px] border border-line/70 bg-surface-panel p-1">
+      <div className="group relative"><button type="button" onClick={() => onChange("individual")} aria-label="Show individual metric tables" className={`focus-ring flex h-8 w-8 items-center justify-center rounded-[6px] ${view === "individual" ? "bg-cobalt text-white" : "text-slate-500 hover:text-slate-300"}`}><Rows3 className="h-4 w-4" /></button><span role="tooltip" className="pointer-events-none absolute left-1/2 top-full z-20 mt-2 -translate-x-1/2 whitespace-nowrap rounded-md border border-line bg-surface-popover px-2 py-1 text-xs font-semibold text-slate-200 opacity-0 shadow-soft transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">Individual metrics</span></div>
+      <div className="group relative"><button type="button" onClick={() => onChange("unified")} aria-label="Show unified comparison table" className={`focus-ring flex h-8 w-8 items-center justify-center rounded-[6px] ${view === "unified" ? "bg-cobalt text-white" : "text-slate-500 hover:text-slate-300"}`}><GitCompareArrows className="h-4 w-4" /></button><span role="tooltip" className="pointer-events-none absolute right-0 top-full z-20 mt-2 whitespace-nowrap rounded-md border border-line bg-surface-popover px-2 py-1 text-xs font-semibold text-slate-200 opacity-0 shadow-soft transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">Unified comparison</span></div>
     </div>
   );
 }
@@ -543,19 +543,19 @@ function ComparisonViewToggle({ view, onChange }: { view: ComparisonView; onChan
 function IndividualReadinessTable({ data, label, isLoading, statusText, headerAction }: { data: ReadinessResponse; label: string; isLoading: boolean; statusText: string; headerAction?: ReactNode }) {
   const rows = sortedTelemetryRows(data.rows);
   return (
-    <section className="relative overflow-hidden rounded-2xl border border-line/70 bg-[#0b1120] shadow-soft" aria-busy={isLoading}>
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line/60 bg-[#0d1424] px-[18px] py-[15px]">
-        <div><h2 className="font-display text-base font-bold text-[#eef1fb]">Readiness Metrics · {label}</h2><p className="mt-1 text-xs text-slate-500">Last run {new Date(data.metadata.executedAt).toLocaleString()}</p></div>
-        <div className="flex flex-wrap items-center justify-end gap-2"><div className="rounded-[8px] border border-line/70 bg-[#0a111e] px-3 py-2 font-mono text-[11px] text-slate-400">{data.filters.appName} · {data.filters.platform} · {data.filters.appVersion}</div>{headerAction}</div>
+    <section className="relative overflow-hidden rounded-2xl border border-line/70 bg-surface-card shadow-soft" aria-busy={isLoading}>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line/60 bg-surface-popover px-[18px] py-[15px]">
+        <div><h2 className="font-display text-base font-bold text-ink">Readiness Metrics · {label}</h2><p className="mt-1 text-xs text-slate-500">Last run {new Date(data.metadata.executedAt).toLocaleString()}</p></div>
+        <div className="flex flex-wrap items-center justify-end gap-2"><div className="rounded-[8px] border border-line/70 bg-surface-panel px-3 py-2 font-mono text-[11px] text-slate-400">{data.filters.appName} · {data.filters.platform} · {data.filters.appVersion}</div>{headerAction}</div>
       </div>
       <div className="relative overflow-x-auto">
         <div className={`transition-opacity ${isLoading ? "opacity-35" : "opacity-100"}`}>
           <table className="min-w-[1180px] w-full text-left text-sm">
-            <thead className="bg-[#0a1120] font-mono text-[11px] font-semibold uppercase tracking-[0.04em] text-slate-500"><tr><th className="px-4 py-3">Metric</th><th className="px-4 py-3">Verdict</th><th className="px-4 py-3">% Within Benchmark*</th><th className="px-4 py-3">Benchmark</th><th className="px-4 py-3">Median</th><th className="px-4 py-3">P80</th><th className="px-4 py-3">Samples</th><th className="px-4 py-3 text-right">% vs Benchmark</th></tr></thead>
-            <tbody className="divide-y divide-line/40">{rows.map((row) => <tr key={row.name} className="hover:bg-[#0e1626]"><td className="px-4 py-4"><div className="text-sm font-semibold text-[#eaeefc]">{row.metricTitle}</div><div className="mt-1 font-mono text-xs text-slate-500">{row.name}</div></td><td className="px-4 py-4"><span className={`inline-flex items-center gap-2 rounded-md border px-2.5 py-1 text-xs font-semibold ${verdictClasses(row.verdict)}`}>{verdictIcon(row.verdict)}{verdictLabel(row.verdict)}</span></td><td className="px-4 py-4"><div className="min-w-44"><div className={`mb-2 font-mono text-xs ${verdictValueClasses(row.verdict)}`}>{pct(row.pctOfSampleWithTolerance)}</div><Bar value={row.pctOfSampleWithTolerance} tone={verdictBarTone(row.verdict)} /></div></td><td className="px-4 py-4 font-mono text-sm text-slate-300">{compactNumber(row.benchmark)}</td><td className="px-4 py-4 font-mono text-sm text-slate-300">{compactNumber(row.p50Value)}</td><td className="px-4 py-4 font-mono text-sm text-slate-300">{compactNumber(row.p80Value)}</td><td className="px-4 py-4 font-mono text-sm text-slate-400">{new Intl.NumberFormat().format(row.numSample)}</td><td className="px-4 py-4 text-right font-mono text-sm" style={{ color: verdictColor(row.verdict) }}>{benchmarkComparisonPct(row)}</td></tr>)}</tbody>
+            <thead className="bg-surface-table font-mono text-[11px] font-semibold uppercase tracking-[0.04em] text-slate-500"><tr><th className="px-4 py-3">Metric</th><th className="px-4 py-3">Verdict</th><th className="px-4 py-3">% Within Benchmark*</th><th className="px-4 py-3">Benchmark</th><th className="px-4 py-3">Median</th><th className="px-4 py-3">P80</th><th className="px-4 py-3">Samples</th><th className="px-4 py-3 text-right">% vs Benchmark</th></tr></thead>
+            <tbody className="divide-y divide-line/40">{rows.map((row) => <tr key={row.name} className="hover:bg-surface-hover"><td className="px-4 py-4"><div className="text-sm font-semibold text-ink">{row.metricTitle}</div><div className="mt-1 font-mono text-xs text-slate-500">{row.name}</div></td><td className="px-4 py-4"><span className={`inline-flex items-center gap-2 rounded-md border px-2.5 py-1 text-xs font-semibold ${verdictClasses(row.verdict)}`}>{verdictIcon(row.verdict)}{verdictLabel(row.verdict)}</span></td><td className="px-4 py-4"><div className="min-w-44"><div className={`mb-2 font-mono text-xs ${verdictValueClasses(row.verdict)}`}>{pct(row.pctOfSampleWithTolerance)}</div><Bar value={row.pctOfSampleWithTolerance} tone={verdictBarTone(row.verdict)} /></div></td><td className="px-4 py-4 font-mono text-sm text-slate-300">{compactNumber(row.benchmark)}</td><td className="px-4 py-4 font-mono text-sm text-slate-300">{compactNumber(row.p50Value)}</td><td className="px-4 py-4 font-mono text-sm text-slate-300">{compactNumber(row.p80Value)}</td><td className="px-4 py-4 font-mono text-sm text-slate-400">{new Intl.NumberFormat().format(row.numSample)}</td><td className="px-4 py-4 text-right font-mono text-sm" style={{ color: verdictColor(row.verdict) }}>{benchmarkComparisonPct(row)}</td></tr>)}</tbody>
           </table>
         </div>
-        {isLoading ? <div className="pointer-events-none absolute inset-0 flex min-h-56 items-center justify-center bg-[#050b18]/70 backdrop-blur-[1px]"><div className="inline-flex items-center gap-3 rounded-[9px] border border-line/70 bg-[#0d1424] px-4 py-3 text-sm font-semibold text-slate-200 shadow-soft"><LoadingSpinner className="h-5 w-5 text-cobalt" />{statusText || "Running comparison..."}</div></div> : null}
+        {isLoading ? <div className="pointer-events-none absolute inset-0 flex min-h-56 items-center justify-center bg-mist/70 backdrop-blur-[1px]"><div className="inline-flex items-center gap-3 rounded-[9px] border border-line/70 bg-surface-popover px-4 py-3 text-sm font-semibold text-slate-200 shadow-soft"><LoadingSpinner className="h-5 w-5 text-cobalt" />{statusText || "Running comparison..."}</div></div> : null}
       </div>
     </section>
   );
@@ -648,14 +648,14 @@ function FilterDropdown<T extends string>({
         <button
           type="button"
           onClick={() => setIsOpen((open) => !open)}
-          className="focus-ring flex h-[42px] w-full items-center justify-between gap-3 rounded-[9px] border border-line/70 bg-[#0a111e] px-3 text-left text-sm font-semibold text-slate-300"
+          className="focus-ring flex h-[42px] w-full items-center justify-between gap-3 rounded-[9px] border border-line/70 bg-surface-panel px-3 text-left text-sm font-semibold text-slate-300"
           aria-expanded={isOpen}
         >
           <span className="truncate">{selectedLabel}</span>
           <ChevronDown className={`h-4 w-4 shrink-0 text-slate-500 transition-transform ${isOpen ? "rotate-180" : ""}`} />
         </button>
         {isOpen ? (
-          <div className="absolute left-0 top-full z-50 mt-2 max-h-72 w-full overflow-y-auto rounded-[9px] border border-line/70 bg-[#0d1424] p-1 shadow-soft">
+          <div className="absolute left-0 top-full z-50 mt-2 max-h-72 w-full overflow-y-auto rounded-[9px] border border-line/70 bg-surface-popover p-1 shadow-soft">
             {options.map((option) => (
               <button
                 key={option.value}
@@ -665,7 +665,7 @@ function FilterDropdown<T extends string>({
                   onChange(option.value);
                   setIsOpen(false);
                 }}
-                className={`focus-ring block w-full rounded-[7px] px-3 py-2 text-left text-sm font-semibold transition-colors hover:bg-[#17223a] ${
+                className={`focus-ring block w-full rounded-[7px] px-3 py-2 text-left text-sm font-semibold transition-colors hover:bg-surface-hover ${
                   option.value === value ? "bg-emerald/10 text-emerald" : "text-slate-400"
                 }`}
               >
@@ -825,29 +825,29 @@ function DateRangePicker({
           }
           openPicker();
         }}
-        className="focus-ring flex h-[42px] w-full items-center justify-between gap-3 rounded-[9px] border border-line/70 bg-[#0a111e] px-3 text-left text-sm text-slate-300"
+        className="focus-ring flex h-[42px] w-full items-center justify-between gap-3 rounded-[9px] border border-line/70 bg-surface-panel px-3 text-left text-sm text-slate-300"
       >
         <span className="min-w-0 truncate text-sm">
           {startDate} to {endDate}
         </span>
-        <CalendarDays className="h-4 w-4 shrink-0 text-white" />
+        <CalendarDays className="h-4 w-4 shrink-0 text-slate-300" />
       </button>
 
       {isOpen && popoverPosition && typeof document !== "undefined"
         ? createPortal(
         <div
-          className="fixed z-[100] overflow-hidden rounded-xl border border-line/70 bg-[#0d1424] shadow-soft"
+          className="fixed z-[100] overflow-hidden rounded-xl border border-line/70 bg-surface-popover shadow-soft"
           style={{ top: popoverPosition.top, left: popoverPosition.left, width: popoverPosition.width }}
         >
           <div className="grid max-h-[520px] grid-cols-1 md:grid-cols-[160px_1fr]">
-            <div className="border-b border-line/60 bg-[#0a111e] p-3 md:border-b-0 md:border-r">
+            <div className="border-b border-line/60 bg-surface-panel p-3 md:border-b-0 md:border-r">
               <div className="flex max-h-64 flex-col gap-1 overflow-y-auto pr-1">
                 {presets.map((preset) => (
                   <button
                     key={preset.label}
                     type="button"
                     onClick={() => applyPreset(preset.range())}
-                    className="focus-ring rounded-[7px] px-3 py-2 text-left text-sm font-semibold text-slate-400 hover:bg-[#17223a] hover:text-slate-200"
+                    className="focus-ring rounded-[7px] px-3 py-2 text-left text-sm font-semibold text-slate-400 hover:bg-surface-hover hover:text-slate-200"
                   >
                     {preset.label}
                   </button>
@@ -857,14 +857,14 @@ function DateRangePicker({
             <div className="p-4">
               <div className="mb-4 flex flex-wrap items-center gap-3 text-xs font-bold uppercase text-slate-500">
                 <span>Start</span>
-                <span className="rounded-[7px] border border-line/70 bg-[#0a111e] px-3 py-2 font-mono text-slate-300">{draftStart || "Select date"}</span>
+                <span className="rounded-[7px] border border-line/70 bg-surface-panel px-3 py-2 font-mono text-slate-300">{draftStart || "Select date"}</span>
                 <span>End</span>
-                <span className="rounded-[7px] border border-line/70 bg-[#0a111e] px-3 py-2 font-mono text-slate-300">{draftEnd || "Select date"}</span>
+                <span className="rounded-[7px] border border-line/70 bg-surface-panel px-3 py-2 font-mono text-slate-300">{draftEnd || "Select date"}</span>
                 <div className="ml-auto flex gap-2">
                   <button
                     type="button"
                     onClick={() => setVisibleMonth((current) => addMonths(current, -1))}
-                    className="focus-ring flex h-9 w-9 items-center justify-center rounded-[7px] border border-line/70 bg-[#101a2c] text-slate-400 hover:bg-[#17223a] hover:text-slate-200"
+                    className="focus-ring flex h-9 w-9 items-center justify-center rounded-[7px] border border-line/70 bg-surface-raised text-slate-400 hover:bg-surface-hover hover:text-slate-200"
                     aria-label="Previous month"
                   >
                     <ChevronLeft className="h-4 w-4" />
@@ -872,7 +872,7 @@ function DateRangePicker({
                   <button
                     type="button"
                     onClick={() => setVisibleMonth((current) => addMonths(current, 1))}
-                    className="focus-ring flex h-9 w-9 items-center justify-center rounded-[7px] border border-line/70 bg-[#101a2c] text-slate-400 hover:bg-[#17223a] hover:text-slate-200"
+                    className="focus-ring flex h-9 w-9 items-center justify-center rounded-[7px] border border-line/70 bg-surface-raised text-slate-400 hover:bg-surface-hover hover:text-slate-200"
                     aria-label="Next month"
                   >
                     <ChevronRight className="h-4 w-4" />
@@ -887,7 +887,7 @@ function DateRangePicker({
                 <button
                   type="button"
                   onClick={() => setIsOpen(false)}
-                  className="focus-ring h-10 rounded-[8px] border border-line/70 bg-[#121b2c] px-4 text-sm font-semibold text-slate-300 hover:bg-[#17223a]"
+                  className="focus-ring h-10 rounded-[8px] border border-line/70 bg-surface-raised px-4 text-sm font-semibold text-slate-300 hover:bg-surface-hover"
                 >
                   Cancel
                 </button>
@@ -1312,7 +1312,7 @@ export default function TechLaunchDashboard() {
             <span className="h-1.5 w-1.5 rounded-full bg-emerald shadow-[0_0_10px_#4edea3]" />
             Launch Readiness · Readiness
           </div>
-          <h1 className="mt-3 font-display text-[34px] font-extrabold leading-none text-[#f4f6ff]">Readiness Dashboard</h1>
+          <h1 className="mt-3 font-display text-[34px] font-extrabold leading-none text-ink">Readiness Dashboard</h1>
           <p className="mt-2 max-w-2xl text-[13.5px] text-slate-500">
             Live Snowflake telemetry via the Count API, cached by filter set for fast repeat loads.
           </p>
@@ -1323,13 +1323,13 @@ export default function TechLaunchDashboard() {
             {accessError}
           </section>
         ) : (
-        <form onSubmit={submit} className="mb-[22px] rounded-[14px] border border-line/70 bg-[#0b1120] p-4 shadow-soft">
+        <form onSubmit={submit} className="mb-[22px] rounded-[14px] border border-line/70 bg-surface-card p-4 shadow-soft">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-line/60 pb-4">
             <div>
               <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">Query setup</div>
               <div className="mt-1 text-sm text-slate-400">Compare one release against another version or app.</div>
             </div>
-            <div className="inline-flex items-center gap-3 rounded-[8px] border border-line/70 bg-[#0a111e] px-3 py-2">
+            <div className="inline-flex items-center gap-3 rounded-[8px] border border-line/70 bg-surface-panel px-3 py-2">
               <span className="text-sm font-semibold text-slate-300">Comparison</span>
               <button
                 type="button"
@@ -1394,7 +1394,7 @@ export default function TechLaunchDashboard() {
                       updateFilters({ appVersion: "" });
                       setIsVersionMenuOpen(true);
                     }}
-                    className="focus-ring absolute right-9 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-[6px] text-slate-500 hover:bg-[#17223a] hover:text-slate-200"
+                    className="focus-ring absolute right-9 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-[6px] text-slate-500 hover:bg-surface-hover hover:text-slate-200"
                     aria-label="Clear app version"
                   >
                     <XCircle className="h-4 w-4" />
@@ -1403,7 +1403,7 @@ export default function TechLaunchDashboard() {
                 <button
                   type="button"
                   onClick={() => setIsVersionMenuOpen((open) => !open)}
-                  className="focus-ring absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-[6px] text-slate-500 hover:bg-[#17223a] hover:text-slate-200"
+                  className="focus-ring absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-[6px] text-slate-500 hover:bg-surface-hover hover:text-slate-200"
                   aria-label="Toggle app version suggestions"
                   aria-expanded={isVersionMenuOpen}
                 >
@@ -1413,7 +1413,7 @@ export default function TechLaunchDashboard() {
                   <div
                     id="tech-launch-app-version-options"
                     role="listbox"
-                    className="absolute left-0 top-full z-50 mt-2 max-h-72 w-full overflow-y-auto rounded-[9px] border border-line/70 bg-[#0d1424] p-1 shadow-soft"
+                    className="absolute left-0 top-full z-50 mt-2 max-h-72 w-full overflow-y-auto rounded-[9px] border border-line/70 bg-surface-popover p-1 shadow-soft"
                   >
                     {isLoadingVersions ? (
                       <div className="flex items-center gap-2 px-3 py-3 text-sm font-semibold text-slate-500">
@@ -1432,7 +1432,7 @@ export default function TechLaunchDashboard() {
                             updateFilters({ appVersion: option.appVersion });
                             setIsVersionMenuOpen(false);
                           }}
-                          className={`focus-ring block w-full rounded-[7px] px-3 py-2 text-left transition-colors hover:bg-[#17223a] ${
+                          className={`focus-ring block w-full rounded-[7px] px-3 py-2 text-left transition-colors hover:bg-surface-hover ${
                             filters.appVersion === option.appVersion ? "bg-emerald/10 text-emerald" : "text-slate-400"
                           }`}
                         >
@@ -1482,7 +1482,7 @@ export default function TechLaunchDashboard() {
               type="button"
               disabled={!canRunReadiness}
               onClick={() => void loadReadiness(true)}
-              className="focus-ring mt-[27px] inline-flex h-[42px] items-center justify-center gap-2 rounded-[9px] border border-line/70 bg-[#121b2c] px-4 text-sm font-semibold text-text-muted hover:bg-[#17223a] disabled:opacity-60"
+              className="focus-ring mt-[27px] inline-flex h-[42px] items-center justify-center gap-2 rounded-[9px] border border-line/70 bg-surface-raised px-4 text-sm font-semibold text-text-muted hover:bg-surface-hover disabled:opacity-60"
             >
               {isLoading ? <LoadingSpinner /> : <RefreshCw className="h-4 w-4" />}
               Refresh
@@ -1533,7 +1533,7 @@ export default function TechLaunchDashboard() {
                           updateComparisonFilters({ appVersion: "" });
                           setIsComparisonVersionMenuOpen(true);
                         }}
-                        className="focus-ring absolute right-9 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-[6px] text-slate-500 hover:bg-[#17223a] hover:text-slate-200"
+                        className="focus-ring absolute right-9 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-[6px] text-slate-500 hover:bg-surface-hover hover:text-slate-200"
                         aria-label="Clear compare version"
                       >
                         <XCircle className="h-4 w-4" />
@@ -1542,7 +1542,7 @@ export default function TechLaunchDashboard() {
                     <button
                       type="button"
                       onClick={() => setIsComparisonVersionMenuOpen((open) => !open)}
-                      className="focus-ring absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-[6px] text-slate-500 hover:bg-[#17223a] hover:text-slate-200"
+                      className="focus-ring absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-[6px] text-slate-500 hover:bg-surface-hover hover:text-slate-200"
                       aria-label="Toggle compare version suggestions"
                       aria-expanded={isComparisonVersionMenuOpen}
                     >
@@ -1552,7 +1552,7 @@ export default function TechLaunchDashboard() {
                       <div
                         id="tech-launch-comparison-version-options"
                         role="listbox"
-                        className="absolute left-0 top-full z-50 mt-2 max-h-72 w-full overflow-y-auto rounded-[9px] border border-line/70 bg-[#0d1424] p-1 shadow-soft"
+                        className="absolute left-0 top-full z-50 mt-2 max-h-72 w-full overflow-y-auto rounded-[9px] border border-line/70 bg-surface-popover p-1 shadow-soft"
                       >
                         {isLoadingComparisonVersions ? (
                           <div className="flex items-center gap-2 px-3 py-3 text-sm font-semibold text-slate-500"><LoadingSpinner />Loading suggestions...</div>
@@ -1568,7 +1568,7 @@ export default function TechLaunchDashboard() {
                                 updateComparisonFilters({ appVersion: option.appVersion });
                                 setIsComparisonVersionMenuOpen(false);
                               }}
-                              className={`focus-ring block w-full rounded-[7px] px-3 py-2 text-left transition-colors hover:bg-[#17223a] ${comparisonFilters.appVersion === option.appVersion ? "bg-emerald/10 text-emerald" : "text-slate-400"}`}
+                              className={`focus-ring block w-full rounded-[7px] px-3 py-2 text-left transition-colors hover:bg-surface-hover ${comparisonFilters.appVersion === option.appVersion ? "bg-emerald/10 text-emerald" : "text-slate-400"}`}
                             >
                               <span className="block text-sm font-bold text-slate-200">{option.appVersion}</span>
                               <span className="mt-1 block text-xs">{new Intl.NumberFormat(undefined, { notation: "compact" }).format(option.sampleCount)} samples</span>
@@ -1617,12 +1617,12 @@ export default function TechLaunchDashboard() {
                     <div className="mt-3 flex items-center gap-3"><span className={`flex h-10 w-10 items-center justify-center rounded-xl border ${verdictClasses(comparisonData.summary.overallVerdict)}`}>{verdictIcon(comparisonData.summary.overallVerdict)}</span><span className="font-display text-2xl font-extrabold">{verdictLabel(comparisonData.summary.overallVerdict)}</span></div>
                     <div className="mt-3 font-mono text-[10px] text-slate-500">{comparisonData.filters.appName} · {comparisonData.filters.appVersion}</div>
                   </div>
-                  <div className="rounded-2xl border border-line/70 bg-[linear-gradient(180deg,#101a2d,#0d1626)] p-5 shadow-soft">
+                  <div className="rounded-2xl border border-line/70 surface-gradient p-5 shadow-soft">
                     <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">Changes</div>
                     <div className="mt-3 flex items-baseline gap-3"><span className="font-display text-2xl font-extrabold text-rose">{comparisonSummary.regressedCount}</span><span className="text-xs text-slate-500">regressed</span><span className="font-display text-xl font-extrabold text-emerald">{comparisonSummary.improvedCount}</span><span className="text-xs text-slate-500">improved</span></div>
                     <div className="mt-3 font-mono text-[10px] text-slate-500">{comparisonSummary.unchangedCount} unchanged · {comparisonSummary.notComparableCount} not comparable</div>
                   </div>
-                  <div className="rounded-2xl border border-line/70 bg-[linear-gradient(180deg,#101a2d,#0d1626)] p-5 shadow-soft">
+                  <div className="rounded-2xl border border-line/70 surface-gradient p-5 shadow-soft">
                     <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">Largest regression</div>
                     <div className="mt-3 text-[18px] font-extrabold leading-tight text-rose">{comparisonSummary.largestRegression?.metricTitle ?? "None"}</div>
                     <div className="mt-3 font-mono text-[10px] text-slate-500">{comparisonSummary.largestRegression ? comparisonDelta(comparisonSummary.largestRegression.absoluteDelta, comparisonSummary.largestRegression.relativeDelta) : "No regressions detected"}</div>
@@ -1630,21 +1630,21 @@ export default function TechLaunchDashboard() {
                 </section>
 
                 {comparisonView === "unified" ? (
-                <section className="relative overflow-hidden rounded-2xl border border-line/70 bg-[#0b1120] shadow-soft" aria-busy={isLoading}>
-                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line/60 bg-[#0d1424] px-[18px] py-[15px]">
-                    <div><h2 className="font-display text-base font-bold text-[#eef1fb]">Readiness comparison</h2><p className="mt-1 text-xs text-slate-500">{comparisonFilters.appName === filters.appName ? "Release comparison" : "Benchmark comparison"} · shared {filters.platform} data from {filters.startDate} to {filters.endDate}</p></div>
+                <section className="relative overflow-hidden rounded-2xl border border-line/70 bg-surface-card shadow-soft" aria-busy={isLoading}>
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line/60 bg-surface-popover px-[18px] py-[15px]">
+                    <div><h2 className="font-display text-base font-bold text-ink">Readiness comparison</h2><p className="mt-1 text-xs text-slate-500">{comparisonFilters.appName === filters.appName ? "Release comparison" : "Benchmark comparison"} · shared {filters.platform} data from {filters.startDate} to {filters.endDate}</p></div>
                     <div className="flex items-center gap-2">{isLoading ? <div className="inline-flex h-9 items-center gap-2 rounded-[8px] border border-cobalt/40 bg-cobalt/15 px-3 text-sm font-semibold text-cobalt"><LoadingSpinner />{statusText || "Running comparison..."}</div> : null}<ComparisonViewToggle view={comparisonView} onChange={setComparisonView} /></div>
                   </div>
                   <div className="relative overflow-x-auto">
                     <div className={`transition-opacity ${isLoading ? "opacity-35" : "opacity-100"}`}>
                       <table className="min-w-[1120px] w-full text-left text-sm">
-                        <thead className="bg-[#0a1120] font-mono text-[11px] font-semibold uppercase tracking-[0.04em] text-slate-500"><tr><th className="px-4 py-3">Metric</th><th className="px-4 py-3">Statistic</th><th className="px-4 py-3"><span className="block text-slate-500">Baseline</span><span className="mt-1 block normal-case tracking-normal text-slate-300">{data.filters.appName} · {data.filters.appVersion}</span></th><th className="px-4 py-3"><span className="block text-slate-500">Compare to</span><span className="mt-1 block normal-case tracking-normal text-slate-300">{comparisonData.filters.appName} · {comparisonData.filters.appVersion}</span></th><th className="px-4 py-3">Benchmark</th><th className="px-4 py-3">Delta <span className="normal-case tracking-normal text-slate-400">({data.filters.appVersion} − {comparisonData.filters.appVersion})</span></th><th className="px-4 py-3 text-right">Samples <span className="normal-case tracking-normal text-slate-600">(baseline / compare to)</span></th></tr></thead>
+                        <thead className="bg-surface-table font-mono text-[11px] font-semibold uppercase tracking-[0.04em] text-slate-500"><tr><th className="px-4 py-3">Metric</th><th className="px-4 py-3">Statistic</th><th className="px-4 py-3"><span className="block text-slate-500">Baseline</span><span className="mt-1 block normal-case tracking-normal text-slate-300">{data.filters.appName} · {data.filters.appVersion}</span></th><th className="px-4 py-3"><span className="block text-slate-500">Compare to</span><span className="mt-1 block normal-case tracking-normal text-slate-300">{comparisonData.filters.appName} · {comparisonData.filters.appVersion}</span></th><th className="px-4 py-3">Benchmark</th><th className="px-4 py-3">Delta <span className="normal-case tracking-normal text-slate-400">({data.filters.appVersion} − {comparisonData.filters.appVersion})</span></th><th className="px-4 py-3 text-right">Samples <span className="normal-case tracking-normal text-slate-600">(baseline / compare to)</span></th></tr></thead>
                         <tbody className="divide-y divide-line/40">
-                          {comparisonRows.map((row) => <tr key={row.name} className="hover:bg-[#0e1626]"><td className="px-4 py-4"><div className="font-semibold text-[#eaeefc]">{row.metricTitle}</div><div className="mt-1 font-mono text-xs text-slate-500">{row.name}</div></td><td className="px-4 py-4 font-mono text-xs text-slate-400">{comparisonStatisticLabel(row)}</td><td className="px-4 py-4"><div className="font-mono text-sm" style={{ color: row.baseline ? verdictColor(row.baseline.verdict) : "#64748b" }} title={row.baseline ? verdictLabel(row.baseline.verdict) : "Missing"}>{comparisonValueLabel(row, row.baselineValue)}</div></td><td className="px-4 py-4"><div className="font-mono text-sm" style={{ color: row.comparison ? verdictColor(row.comparison.verdict) : "#64748b" }} title={row.comparison ? verdictLabel(row.comparison.verdict) : "Missing"}>{comparisonValueLabel(row, row.comparisonValue)}</div></td><td className="px-4 py-4 font-mono text-sm text-slate-400">{comparisonBenchmarkLabel(row)}</td><td className="px-4 py-4"><div className="flex items-center gap-2 font-mono text-sm text-slate-300">{comparisonDelta(row.absoluteDelta, row.relativeDelta)}<DeltaOutcomeIndicator row={row} /></div></td><td className="px-4 py-4 text-right font-mono text-xs text-slate-600">{row.baseline ? new Intl.NumberFormat().format(row.baseline.numSample) : "—"} <span className="text-slate-700">/</span> {row.comparison ? new Intl.NumberFormat().format(row.comparison.numSample) : "—"}</td></tr>)}
+                          {comparisonRows.map((row) => <tr key={row.name} className="hover:bg-surface-hover"><td className="px-4 py-4"><div className="font-semibold text-ink">{row.metricTitle}</div><div className="mt-1 font-mono text-xs text-slate-500">{row.name}</div></td><td className="px-4 py-4 font-mono text-xs text-slate-400">{comparisonStatisticLabel(row)}</td><td className="px-4 py-4"><div className="font-mono text-sm" style={{ color: row.baseline ? verdictColor(row.baseline.verdict) : "#64748b" }} title={row.baseline ? verdictLabel(row.baseline.verdict) : "Missing"}>{comparisonValueLabel(row, row.baselineValue)}</div></td><td className="px-4 py-4"><div className="font-mono text-sm" style={{ color: row.comparison ? verdictColor(row.comparison.verdict) : "#64748b" }} title={row.comparison ? verdictLabel(row.comparison.verdict) : "Missing"}>{comparisonValueLabel(row, row.comparisonValue)}</div></td><td className="px-4 py-4 font-mono text-sm text-slate-400">{comparisonBenchmarkLabel(row)}</td><td className="px-4 py-4"><div className="flex items-center gap-2 font-mono text-sm text-slate-300">{comparisonDelta(row.absoluteDelta, row.relativeDelta)}<DeltaOutcomeIndicator row={row} /></div></td><td className="px-4 py-4 text-right font-mono text-xs text-slate-600">{row.baseline ? new Intl.NumberFormat().format(row.baseline.numSample) : "—"} <span className="text-slate-700">/</span> {row.comparison ? new Intl.NumberFormat().format(row.comparison.numSample) : "—"}</td></tr>)}
                         </tbody>
                       </table>
                     </div>
-                    {isLoading ? <div className="pointer-events-none absolute inset-0 flex min-h-56 items-center justify-center bg-[#050b18]/70 backdrop-blur-[1px]"><div className="inline-flex items-center gap-3 rounded-[9px] border border-line/70 bg-[#0d1424] px-4 py-3 text-sm font-semibold text-slate-200 shadow-soft"><LoadingSpinner className="h-5 w-5 text-cobalt" />{statusText || "Running comparison..."}</div></div> : null}
+                    {isLoading ? <div className="pointer-events-none absolute inset-0 flex min-h-56 items-center justify-center bg-mist/70 backdrop-blur-[1px]"><div className="inline-flex items-center gap-3 rounded-[9px] border border-line/70 bg-surface-popover px-4 py-3 text-sm font-semibold text-slate-200 shadow-soft"><LoadingSpinner className="h-5 w-5 text-cobalt" />{statusText || "Running comparison..."}</div></div> : null}
                   </div>
                 </section>
                 ) : (
@@ -1684,21 +1684,21 @@ export default function TechLaunchDashboard() {
                   </div>
                 </div>
               </div>
-              <div className="rounded-2xl border border-line/70 bg-[linear-gradient(180deg,#101a2d,#0d1626)] p-5 shadow-soft">
+              <div className="rounded-2xl border border-line/70 surface-gradient p-5 shadow-soft">
                 <div className="flex items-center justify-between gap-3 font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">
                   Telemetry samples <Database className="h-4 w-4 text-cobalt" />
                 </div>
-                <div className="mt-4 font-display text-[30px] font-extrabold leading-none text-[#f4f6ff]">{new Intl.NumberFormat().format(data.summary.totalSamples)}</div>
+                <div className="mt-4 font-display text-[30px] font-extrabold leading-none text-ink">{new Intl.NumberFormat().format(data.summary.totalSamples)}</div>
                 <div className="mt-2 text-xs leading-relaxed text-slate-500">{data.summary.insufficientCount} metric(s) below sample threshold</div>
               </div>
-              <div className="rounded-2xl border border-line/70 bg-[linear-gradient(180deg,#101a2d,#0d1626)] p-5 shadow-soft">
+              <div className="rounded-2xl border border-line/70 surface-gradient p-5 shadow-soft">
                 <div className="flex items-center justify-between gap-3 font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">
                   Weakest <AlertTriangle className="h-4 w-4 text-rose" />
                 </div>
                 <div className="mt-4 text-[19px] font-extrabold leading-tight text-rose">{data.summary.weakestMetric ?? "None"}</div>
                 <div className="mt-2 text-xs leading-relaxed text-slate-500">Lowest % within benchmark</div>
               </div>
-              <div className="rounded-2xl border border-line/70 bg-[linear-gradient(180deg,#101a2d,#0d1626)] p-5 shadow-soft">
+              <div className="rounded-2xl border border-line/70 surface-gradient p-5 shadow-soft">
                 <div className="flex items-center justify-between gap-3 font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">
                   Cache <RefreshCw className="h-4 w-4 text-emerald" />
                 </div>
@@ -1708,20 +1708,20 @@ export default function TechLaunchDashboard() {
             </section>
 
             {googlePlayRows.length ? (
-              <section className="mb-4 rounded-2xl border border-line/70 bg-[#0b1120] px-5 py-4 shadow-soft">
+              <section className="mb-4 rounded-2xl border border-line/70 bg-surface-card px-5 py-4 shadow-soft">
                 <div className="relative flex flex-col gap-4 md:flex-row md:items-center">
                   <div className="shrink-0 md:w-[220px]">
                     <div className="flex items-center justify-between gap-3 md:block">
-                      <h2 className="font-display text-base font-bold text-[#eef1fb]">Google Play Quality</h2>
+                      <h2 className="font-display text-base font-bold text-ink">Google Play Quality</h2>
                       <div className="font-mono text-[10px] uppercase tracking-[0.08em] text-slate-500 md:mt-1">Android only</div>
                     </div>
                     <p className="mt-1 text-xs text-slate-500">7-day user-weighted vitals.</p>
                   </div>
                   <div className={`grid min-w-0 flex-1 gap-3 transition-opacity sm:grid-cols-2 xl:grid-cols-3 ${isLoading ? "pointer-events-none opacity-35" : "opacity-100"}`}>
                     {googlePlayRows.map((row) => (
-                      <div key={row.name} className="rounded-xl border border-line/60 bg-[#0d1424]/70 px-4 py-3">
+                      <div key={row.name} className="rounded-xl border border-line/60 bg-surface-popover/70 px-4 py-3">
                         <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-                          <div className="text-sm font-semibold text-[#eaeefc]">{row.metricTitle}</div>
+                          <div className="text-sm font-semibold text-ink">{row.metricTitle}</div>
                           <div className={`font-mono text-[11px] font-semibold ${verdictValueClasses(row.verdict)}`}>{verdictLabel(row.verdict)}</div>
                         </div>
                         <div className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -1736,8 +1736,8 @@ export default function TechLaunchDashboard() {
                     ))}
                   </div>
                   {isLoading ? (
-                    <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-xl bg-[#050b18]/70 backdrop-blur-[1px]">
-                      <div className="inline-flex items-center gap-3 rounded-[9px] border border-line/70 bg-[#0d1424] px-4 py-3 text-sm font-semibold text-slate-200 shadow-soft">
+                    <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-xl bg-mist/70 backdrop-blur-[1px]">
+                      <div className="inline-flex items-center gap-3 rounded-[9px] border border-line/70 bg-surface-popover px-4 py-3 text-sm font-semibold text-slate-200 shadow-soft">
                         <LoadingSpinner className="h-5 w-5 text-cobalt" />
                         <span>{statusText || "Running Count query and loading Google Play API metrics..."}</span>
                       </div>
@@ -1747,10 +1747,10 @@ export default function TechLaunchDashboard() {
               </section>
             ) : null}
 
-            <section className="relative overflow-hidden rounded-2xl border border-line/70 bg-[#0b1120] shadow-soft" aria-busy={isLoading}>
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line/60 bg-[#0d1424] px-[18px] py-[15px]">
+            <section className="relative overflow-hidden rounded-2xl border border-line/70 bg-surface-card shadow-soft" aria-busy={isLoading}>
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line/60 bg-surface-popover px-[18px] py-[15px]">
                 <div>
-                  <h2 className="font-display text-base font-bold text-[#eef1fb]">Internal Telemetry</h2>
+                  <h2 className="font-display text-base font-bold text-ink">Internal Telemetry</h2>
                   <p className="mt-1 text-xs text-slate-500">
                     Last run {new Date(data.metadata.executedAt).toLocaleString()}
                     {data.metadata.durationMs ? ` · Count duration ${Math.round(data.metadata.durationMs)}ms` : ""}
@@ -1763,7 +1763,7 @@ export default function TechLaunchDashboard() {
                       {statusText || "Running Count query..."}
                     </div>
                   ) : null}
-                  <div className="rounded-[8px] border border-line/70 bg-[#0a111e] px-3 py-2 font-mono text-[11px] text-slate-500">
+                  <div className="rounded-[8px] border border-line/70 bg-surface-panel px-3 py-2 font-mono text-[11px] text-slate-500">
                     {data.filters.appName} · {data.filters.platform} · {data.filters.appVersion}
                   </div>
                 </div>
@@ -1772,7 +1772,7 @@ export default function TechLaunchDashboard() {
               <div className="relative overflow-x-auto">
                 <div className={`transition-opacity ${isLoading ? "opacity-35" : "opacity-100"}`}>
                 <table className="min-w-[1180px] w-full text-left text-sm">
-                  <thead className="bg-[#0a1120] font-mono text-[11px] font-semibold uppercase tracking-[0.04em] text-slate-500">
+                  <thead className="bg-surface-table font-mono text-[11px] font-semibold uppercase tracking-[0.04em] text-slate-500">
                     <tr>
                       <th className="px-4 py-3">
                         <ColumnHeader label="Metric" description="Telemetry metric being evaluated for launch readiness." />
@@ -1806,9 +1806,9 @@ export default function TechLaunchDashboard() {
                   </thead>
                   <tbody className="divide-y divide-line/40">
                     {telemetryRows.map((row) => (
-                      <tr key={row.name} className="hover:bg-[#0e1626]">
+                      <tr key={row.name} className="hover:bg-surface-hover">
                         <td className="px-4 py-4">
-                          <div className="text-sm font-semibold text-[#eaeefc]">{row.metricTitle}</div>
+                          <div className="text-sm font-semibold text-ink">{row.metricTitle}</div>
                           <div className="mt-1 font-mono text-xs text-slate-500">{row.name}</div>
                         </td>
                         <td className="px-4 py-4">
@@ -1846,8 +1846,8 @@ export default function TechLaunchDashboard() {
                 </div>
 
                 {isLoading ? (
-                  <div className="pointer-events-none absolute inset-0 flex min-h-56 items-center justify-center bg-[#050b18]/70 backdrop-blur-[1px]">
-                    <div className="inline-flex items-center gap-3 rounded-[9px] border border-line/70 bg-[#0d1424] px-4 py-3 text-sm font-semibold text-slate-200 shadow-soft">
+                  <div className="pointer-events-none absolute inset-0 flex min-h-56 items-center justify-center bg-mist/70 backdrop-blur-[1px]">
+                    <div className="inline-flex items-center gap-3 rounded-[9px] border border-line/70 bg-surface-popover px-4 py-3 text-sm font-semibold text-slate-200 shadow-soft">
                       <LoadingSpinner className="h-5 w-5 text-cobalt" />
                       <span>{statusText || "Running Count query..."}</span>
                     </div>
@@ -1867,7 +1867,7 @@ export default function TechLaunchDashboard() {
             )}
           </>
         ) : (
-          <div className="rounded-2xl border border-dashed border-line/70 bg-[#0b1120] px-4 py-14 text-center text-sm text-slate-500" aria-busy={isLoading}>
+          <div className="rounded-2xl border border-dashed border-line/70 bg-surface-card px-4 py-14 text-center text-sm text-slate-500" aria-busy={isLoading}>
             {isLoading ? (
               <div className="flex flex-col items-center gap-3">
                 <LoadingSpinner className="h-6 w-6 text-cobalt" />
