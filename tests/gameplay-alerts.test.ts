@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { allAppVersionsAlertScope, allPlatformsAlertScope, buildLevelFailRateSql, dailyGameplayAlertFilters, formatGameplayAlertSlackMessage, gameplayAlertCronFilters, gameplayAlertSettingsInputSchema, parseLevelFailRateRows } from "@/lib/gameplay-alerts";
+import { allAppVersionsAlertScope, allPlatformsAlertScope, buildLevelFailRateSql, dailyGameplayAlertFilters, formatGameplayAlertSlackMessage, gameplayAlertCronFilters, gameplayAlertSettingsInputSchema, gameplayAlertWebhookUrls, parseLevelFailRateRows } from "@/lib/gameplay-alerts";
 
 const filters = {
   appName: "wordblast",
@@ -50,6 +50,16 @@ describe("gameplay difficulty alerts", () => {
     expect(message).not.toContain("layout-hash");
     expect(message).not.toContain("Layout bank");
     expect(message).not.toContain("vs 40%");
+  });
+
+  it("uses a separately configured additional Slack webhook without exposing it in alert content", () => {
+    expect(gameplayAlertWebhookUrls({
+      SLACK_GAMEPLAY_ALERT_WEBHOOK_URL: " https://hooks.slack.com/services/primary ",
+      SLACK_GAMEPLAY_ALERT_ADDITIONAL_WEBHOOK_URL: "https://hooks.slack.com/services/additional",
+    })).toEqual([
+      "https://hooks.slack.com/services/primary",
+      "https://hooks.slack.com/services/additional",
+    ]);
   });
 
   it("builds a query with the selected release filters and unique player contract", () => {

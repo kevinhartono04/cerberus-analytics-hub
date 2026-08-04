@@ -669,11 +669,24 @@ export function formatGameplayAlertSlackMessage(transitions: GameplayAlertTransi
   })].join("\n\n");
 }
 
+/** The primary channel remains backwards-compatible; an optional second URL mirrors alerts to another channel. */
+export function gameplayAlertWebhookUrls(environment: { SLACK_GAMEPLAY_ALERT_WEBHOOK_URL?: string; SLACK_GAMEPLAY_ALERT_ADDITIONAL_WEBHOOK_URL?: string } = {
+  SLACK_GAMEPLAY_ALERT_WEBHOOK_URL: process.env.SLACK_GAMEPLAY_ALERT_WEBHOOK_URL,
+  SLACK_GAMEPLAY_ALERT_ADDITIONAL_WEBHOOK_URL: process.env.SLACK_GAMEPLAY_ALERT_ADDITIONAL_WEBHOOK_URL,
+}) {
+  return [...new Set([
+    environment.SLACK_GAMEPLAY_ALERT_WEBHOOK_URL,
+    environment.SLACK_GAMEPLAY_ALERT_ADDITIONAL_WEBHOOK_URL,
+  ].map((value) => value?.trim()).filter((value): value is string => Boolean(value)))];
+}
+
 export async function deliverGameplayAlertTransitions(transitions: GameplayAlertTransition[]) {
-  const webhook = process.env.SLACK_GAMEPLAY_ALERT_WEBHOOK_URL?.trim();
-  if (!webhook || !transitions.length) return { delivered: 0, skipped: transitions.length, configured: Boolean(webhook) };
-  const response = await fetch(webhook, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: formatGameplayAlertSlackMessage(transitions) }) });
-  if (!response.ok) throw new Error(`Slack webhook returned ${response.status}`);
+  const webhooks = gameplayAlertWebhookUrls();
+  if (!webhooks.length || !transitions.length) return { delivered: 0, skipped: transitions.length, configured: webhooks.length > 0 };
+  const message = JSON.stringify({ text: formatGameplayAlertSlackMessage(transitions) });
+  const responses = await Promise.all(webhooks.map((webhook) => fetch(webhook, { method: "POST", headers: { "content-type": "application/json" }, body: message })));
+  const failed = responses.find((response) => !response.ok);
+  if (failed) throw new Error(`Slack webhook returned ${failed.status}`);
   const deliveredAt = new Date().toISOString();
   await Promise.all([
     markGameplayAlertSlackDelivered(transitions.filter((transition) => transition.type === "opened" || transition.type === "daily-open").map((transition) => transition.state.alertKey), "opened", deliveredAt),

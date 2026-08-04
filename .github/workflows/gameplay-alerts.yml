@@ -2,9 +2,10 @@ name: Gameplay alerts
 
 on:
   schedule:
-    # Daily at 01:07 UTC. Avoid the top of the hour, when scheduled GitHub
-    # Actions can be delayed by higher platform load.
-    - cron: "7 1 * * *"
+    # Melbourne is UTC+10 during AEST. GitHub has recently dispatched this
+    # workflow about 3.5 hours late, so start at 19:00 UTC the prior day to
+    # target delivery near 08:30 AEST. Review before AEDT (UTC+11) begins.
+    - cron: "0 19 * * *"
   workflow_dispatch:
 
 permissions: {}
