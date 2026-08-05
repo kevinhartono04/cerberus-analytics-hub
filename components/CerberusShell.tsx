@@ -17,6 +17,19 @@ import {
 import React, { CSSProperties, ReactNode, useEffect, useState } from "react";
 
 export type HubProductId = "spec-generator" | "tech-launch" | "spec-check";
+type Theme = "dark" | "light";
+
+function readStoredTheme(): Theme {
+  try {
+    return localStorage.getItem("cerberus-theme") === "light" ? "light" : "dark";
+  } catch {
+    return "dark";
+  }
+}
+
+function applyTheme(theme: Theme) {
+  document.documentElement.dataset.theme = theme;
+}
 
 type ProductItem = {
   id: HubProductId;
@@ -183,11 +196,22 @@ export default function CerberusShell<T extends string>({
   const hasExplicitUser = user !== undefined;
   const [sessionUser, setSessionUser] = useState<ShellUser | undefined>(user);
   const [launchReadinessExpanded, setLaunchReadinessExpanded] = useState(currentProduct === "tech-launch");
-  const [theme, setTheme] = useState<"dark" | "light">("dark");
+  const [theme, setTheme] = useState<Theme>("dark");
 
   useEffect(() => {
-    const savedTheme = document.documentElement.dataset.theme;
-    setTheme(savedTheme === "light" ? "light" : "dark");
+    const savedTheme = readStoredTheme();
+    applyTheme(savedTheme);
+    setTheme(savedTheme);
+
+    const syncTheme = (event: StorageEvent) => {
+      if (event.key !== "cerberus-theme") return;
+      const nextTheme = event.newValue === "light" ? "light" : "dark";
+      applyTheme(nextTheme);
+      setTheme(nextTheme);
+    };
+
+    window.addEventListener("storage", syncTheme);
+    return () => window.removeEventListener("storage", syncTheme);
   }, []);
 
   useEffect(() => {
@@ -233,7 +257,7 @@ export default function CerberusShell<T extends string>({
   const visibleProducts = sidebarUser?.accountType === "external" ? products.filter((product) => product.id === "tech-launch") : products;
   const toggleTheme = () => {
     const nextTheme = theme === "dark" ? "light" : "dark";
-    document.documentElement.dataset.theme = nextTheme;
+    applyTheme(nextTheme);
     setTheme(nextTheme);
 
     try {

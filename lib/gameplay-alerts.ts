@@ -25,6 +25,7 @@ const sqlPath = path.join(process.cwd(), "data", "tech_launch_level_fail_rate.sq
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 export const allAppVersionsAlertScope = "__all_versions__";
 export const allPlatformsAlertScope = "__all_platforms__";
+export const gameplayAlertTimeZone = "Australia/Melbourne";
 
 export const gameplayAlertTargetSchema = z.object({
   appName: z.enum(techLaunchAppOptions),
@@ -697,8 +698,19 @@ export async function deliverGameplayAlertTransitions(transitions: GameplayAlert
 }
 
 export function gameplayAlertCronFilters(settings: GameplayAlertSettings, today = new Date()): GameplayAlertCronFilters[] {
-  const end = new Date(today);
-  const start = new Date(end);
+  const dateParts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: gameplayAlertTimeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(today).reduce<Record<string, string>>((parts, part) => {
+    if (part.type !== "literal") parts[part.type] = part.value;
+    return parts;
+  }, {});
+  const endDate = `${dateParts.year}-${dateParts.month}-${dateParts.day}`;
+  // Use UTC noon for calendar arithmetic so the date remains stable across
+  // Melbourne's daylight-saving transition.
+  const start = new Date(`${endDate}T12:00:00.000Z`);
   start.setUTCDate(start.getUTCDate() - 6);
   const iso = (value: Date) => value.toISOString().slice(0, 10);
   return settings.alertTargets.map((target) => ({
@@ -710,7 +722,7 @@ export function gameplayAlertCronFilters(settings: GameplayAlertSettings, today 
     appVersion: target.appVersion || allAppVersionsAlertScope,
     appVersions: target.appVersion ? [target.appVersion] : [],
     startDate: iso(start),
-    endDate: iso(end),
+    endDate,
   }));
 }
 

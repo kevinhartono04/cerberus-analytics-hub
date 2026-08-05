@@ -57,6 +57,7 @@ describe("gameplay alert cron", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ targetCount: 1, submittedCount: 1, completedCount: 0, runningCount: 1, failures: [] });
     expect(mocks.getQuery).not.toHaveBeenCalled();
+    expect(mocks.submit).toHaveBeenCalledWith("select 1", { cacheStrategy: "force" });
     expect(mocks.saveJobs).toHaveBeenCalledWith([expect.objectContaining({ jobKey: "count-job", status: "running" })]);
   });
 
@@ -79,7 +80,7 @@ describe("gameplay alert cron", () => {
 
     const response = await GET(new Request("https://example.com/api/cron/gameplay-alerts", { headers: { authorization: "Bearer test-secret" } }));
 
-    expect(await response.json()).toMatchObject({ runningCount: 0, dailyOpenCount: 1, failures: [] });
+    expect(await response.json()).toMatchObject({ runningCount: 0, dailyOpenDeliveryCount: 1, failures: [], evaluations: [expect.objectContaining({ reusedCompletedJob: true, storedOpenCount: 1 })] });
     expect(mocks.deliver).toHaveBeenCalledWith([expect.objectContaining({ type: "daily-open", state: expect.objectContaining({ alertKey: "open-240", level: 240 }) })]);
     expect(mocks.markStatusDelivered).toHaveBeenCalledWith(["stacksmash:android:0.2.0:2026-07-22:2026-07-28"], expect.any(String));
   });
@@ -91,7 +92,7 @@ describe("gameplay alert cron", () => {
 
     const response = await GET(new Request("https://example.com/api/cron/gameplay-alerts", { headers: { authorization: "Bearer test-secret" } }));
 
-    expect(await response.json()).toMatchObject({ dailyOpenCount: 1, delivery: { configured: false }, failures: [] });
+    expect(await response.json()).toMatchObject({ dailyOpenDeliveryCount: 1, delivery: { configured: false }, failures: [] });
     expect(mocks.markStatusDelivered).not.toHaveBeenCalled();
   });
 });

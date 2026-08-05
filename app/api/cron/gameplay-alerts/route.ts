@@ -73,7 +73,9 @@ export async function GET(request: Request) {
         return;
       }
 
-      const submitted = (await submitCountSql(buildLevelFailRateSql(queryFilters), { cacheStrategy: "default" })).query;
+      // Scheduled alerts must reflect all telemetry available when the job is
+      // submitted, rather than a reusable Count cache from an earlier check.
+      const submitted = (await submitCountSql(buildLevelFailRateSql(queryFilters), { cacheStrategy: "force" })).query;
       submittedCount += 1;
       job = { evaluationKey, jobKey: submitted.job_key, filters: JSON.stringify(filters), status: "running", submittedAt: new Date().toISOString() };
       if (submitted.status === "error") {
@@ -106,9 +108,13 @@ export async function GET(request: Request) {
   }));
 
   await saveGameplayAlertQueryJobRecords(jobUpdates);
-  const dailyStatusTransitions = (await Promise.all(dailyStatusTargets.map(async ({ filters }) =>
-    (await openGameplayAlertStates(filters)).map((state) => ({ type: "daily-open" as const, state })),
-  ))).flat();
+  const openStatesByEvaluationKey = new Map(await Promise.all(targets.map(async (filters) => [
+    gameplayAlertEvaluationKey(filters),
+    await openGameplayAlertStates(filters),
+  ] as const)));
+  const dailyStatusTransitions = dailyStatusTargets.flatMap(({ evaluationKey }) =>
+    (openStatesByEvaluationKey.get(evaluationKey) ?? []).map((state) => ({ type: "daily-open" as const, state })),
+  );
   const dailyOpenKeys = new Set(dailyStatusTransitions.map((transition) => transition.state.alertKey));
   const retryTransitions = (await Promise.all(targets.map((filters) => undeliveredGameplayAlertTransitions(filters)))).flat();
   let delivery: { delivered: number; skipped: number; configured: boolean } | undefined;
@@ -131,5 +137,34 @@ export async function GET(request: Request) {
     const key = gameplayAlertEvaluationKey(filters);
     return (jobUpdates.find((job) => job.evaluationKey === key) ?? existingByKey.get(key))?.status === "running";
   }).length;
-  return NextResponse.json({ evaluatedAt: new Date().toISOString(), targetCount: targets.length, submittedCount, completedCount, runningCount, transitionCount: transitions.length, dailyOpenCount: dailyStatusTransitions.length, delivery, failures });
+  const evaluations = targets.map((filters) => {
+    const evaluationKey = gameplayAlertEvaluationKey(filters);
+    const existing = existingByKey.get(evaluationKey);
+    const update = jobUpdates.find((job) => job.evaluationKey === evaluationKey);
+    const job = update ?? existing;
+    return {
+      appName: filters.appName,
+      platforms: filters.platforms,
+      appVersions: filters.appVersions,
+      startDate: filters.startDate,
+      endDate: filters.endDate,
+      jobStatus: job?.status ?? "not_submitted",
+      ...(job?.submittedAt ? { submittedAt: job.submittedAt } : {}),
+      ...(job?.completedAt ? { completedAt: job.completedAt } : {}),
+      reusedCompletedJob: existing?.status === "completed" && !update,
+      storedOpenCount: (openStatesByEvaluationKey.get(evaluationKey) ?? []).length,
+    };
+  });
+  return NextResponse.json({
+    requestedAt: new Date().toISOString(),
+    targetCount: targets.length,
+    submittedCount,
+    completedCount,
+    runningCount,
+    transitionCount: transitions.length,
+    dailyOpenDeliveryCount: dailyStatusTransitions.length,
+    delivery,
+    failures,
+    evaluations,
+  });
 }

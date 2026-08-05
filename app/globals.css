@@ -5,6 +5,49 @@
 @tailwind utilities;
 
 :root {
+  --color-ink: 218 226 253;
+  --color-line: 66 70 86;
+  --color-mist: 5 11 24;
+  --color-sage: 26 34 53;
+  --color-gold: 255 185 95;
+  --color-surface: 5 11 24;
+  --color-surface-low: 11 19 36;
+  --color-surface-mid: 16 24 39;
+  --color-surface-high: 26 34 53;
+  --color-surface-highest: 36 44 64;
+  --color-surface-panel: 10 17 30;
+  --color-surface-card: 11 17 32;
+  --color-surface-table: 10 17 32;
+  --color-surface-raised: 16 26 44;
+  --color-surface-popover: 13 20 36;
+  --color-surface-hover: 23 34 58;
+  --color-text-muted: 194 198 216;
+  --color-text-subtle: 139 147 173;
+  --color-brand-muted: 179 197 255;
+  --color-emerald: 78 222 163;
+  --color-amber: 255 185 95;
+  --color-cyan: 72 217 255;
+  --color-violet: 183 164 255;
+  --color-rose: 255 122 144;
+  --page-background: radial-gradient(circle at 20% 0%, rgba(0, 102, 255, 0.1), transparent 28rem), linear-gradient(180deg, #050b18 0%, #020713 100%);
+  --shell-background: radial-gradient(1200px 600px at 12% -8%, rgba(61, 130, 255, 0.16), transparent 60%), radial-gradient(900px 500px at 100% 0%, rgba(31, 196, 138, 0.06), transparent 55%), linear-gradient(180deg, #070b16 0%, #04060d 100%);
+  --sidebar-background: linear-gradient(180deg, #090e1a 0%, #070b15 100%);
+  --brand-tile-background: #0d1930;
+  --scrollbar-track: #050b18;
+  --scrollbar-thumb: #424656;
+  --scrollbar-thumb-hover: #8c90a1;
+  --chart-grid: #263247;
+  --chart-axis: #64748b;
+  --chart-label: #94a3b8;
+  --chart-tooltip: #0d1424;
+  --chart-tooltip-line: #475569;
+  --chart-tooltip-ink: #e2e8f0;
+  color: rgb(var(--color-ink));
+  background: rgb(var(--color-mist));
+  color-scheme: dark;
+}
+
+html[data-theme="light"] {
   --color-ink: 18 35 58;
   --color-line: 203 213 225;
   --color-mist: 242 246 251;
@@ -45,47 +88,6 @@
   color: rgb(var(--color-ink));
   background: rgb(var(--color-mist));
   color-scheme: light;
-}
-
-html[data-theme="dark"] {
-  --color-ink: 218 226 253;
-  --color-line: 66 70 86;
-  --color-mist: 5 11 24;
-  --color-sage: 26 34 53;
-  --color-gold: 255 185 95;
-  --color-surface: 5 11 24;
-  --color-surface-low: 11 19 36;
-  --color-surface-mid: 16 24 39;
-  --color-surface-high: 26 34 53;
-  --color-surface-highest: 36 44 64;
-  --color-surface-panel: 10 17 30;
-  --color-surface-card: 11 17 32;
-  --color-surface-table: 10 17 32;
-  --color-surface-raised: 16 26 44;
-  --color-surface-popover: 13 20 36;
-  --color-surface-hover: 23 34 58;
-  --color-text-muted: 194 198 216;
-  --color-text-subtle: 139 147 173;
-  --color-brand-muted: 179 197 255;
-  --color-emerald: 78 222 163;
-  --color-amber: 255 185 95;
-  --color-cyan: 72 217 255;
-  --color-violet: 183 164 255;
-  --color-rose: 255 122 144;
-  --page-background: radial-gradient(circle at 20% 0%, rgba(0, 102, 255, 0.1), transparent 28rem), linear-gradient(180deg, #050b18 0%, #020713 100%);
-  --shell-background: radial-gradient(1200px 600px at 12% -8%, rgba(61, 130, 255, 0.16), transparent 60%), radial-gradient(900px 500px at 100% 0%, rgba(31, 196, 138, 0.06), transparent 55%), linear-gradient(180deg, #070b16 0%, #04060d 100%);
-  --sidebar-background: linear-gradient(180deg, #090e1a 0%, #070b15 100%);
-  --brand-tile-background: #0d1930;
-  --scrollbar-track: #050b18;
-  --scrollbar-thumb: #424656;
-  --scrollbar-thumb-hover: #8c90a1;
-  --chart-grid: #263247;
-  --chart-axis: #64748b;
-  --chart-label: #94a3b8;
-  --chart-tooltip: #0d1424;
-  --chart-tooltip-line: #475569;
-  --chart-tooltip-ink: #e2e8f0;
-  color-scheme: dark;
 }
 
 body {

@@ -40,12 +40,13 @@ describe("CerberusShell theme switch", () => {
   });
 
   it("reflects the preloaded persisted preference", () => {
-    document.documentElement.dataset.theme = "light";
+    document.documentElement.dataset.theme = "dark";
     localStorage.setItem("cerberus-theme", "light");
 
     renderShell();
 
     expect(screen.getByRole("switch", { name: "Light mode" })).toHaveAttribute("aria-checked", "true");
+    expect(document.documentElement.dataset.theme).toBe("light");
   });
 
   it("keeps the light-mode control accessible when the sidebar is collapsed", () => {
