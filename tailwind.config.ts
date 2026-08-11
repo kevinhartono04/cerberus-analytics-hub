@@ -20,7 +20,7 @@ const config: Config = {
         mist: "rgb(var(--color-mist) / <alpha-value>)",
         sage: "rgb(var(--color-sage) / <alpha-value>)",
         gold: "rgb(var(--color-gold) / <alpha-value>)",
-        cobalt: "#0066ff",
+        cobalt: "#6d5ef7",
         surface: "rgb(var(--color-surface) / <alpha-value>)",
         "surface-low": "rgb(var(--color-surface-low) / <alpha-value>)",
         "surface-mid": "rgb(var(--color-surface-mid) / <alpha-value>)",

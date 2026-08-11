@@ -8,21 +8,21 @@ export type ProductId = "spec-generator" | "tech-launch" | "spec-check";
 const products: Array<{ id: ProductId; label: string; description: string; href: string; icon: LucideIcon }> = [
   {
     id: "spec-generator",
-    label: "Event Design",
+    label: "Event Studio",
     description: "Create and manage tracking specs",
     href: "/",
     icon: Wand2,
   },
   {
     id: "tech-launch",
-    label: "Launch Readiness",
+    label: "Launch Signal",
     description: "Readiness telemetry dashboard",
     href: "/tech-launch",
     icon: Gauge,
   },
   {
     id: "spec-check",
-    label: "Analytics QA",
+    label: "Signal QA",
     description: "Compare live data to saved specs",
     href: "/spec-check",
     icon: ClipboardCheck,

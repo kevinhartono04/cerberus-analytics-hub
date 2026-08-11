@@ -14,6 +14,7 @@ import {
   Wand2,
   type LucideIcon,
 } from "lucide-react";
+import Image from "next/image";
 import React, { CSSProperties, ReactNode, useEffect, useState } from "react";
 
 export type HubProductId = "spec-generator" | "tech-launch" | "spec-check";
@@ -40,9 +41,9 @@ type ProductItem = {
 };
 
 const products: ProductItem[] = [
-  { id: "spec-generator", label: "Event Design", href: "/", icon: Wand2, accent: "#3d82ff" },
-  { id: "tech-launch", label: "Launch Readiness", href: "/tech-launch", icon: Gauge, accent: "#4edea3" },
-  { id: "spec-check", label: "Analytics QA", href: "/spec-check", icon: ClipboardCheck, accent: "#48d9ff" },
+  { id: "spec-generator", label: "Event Studio", href: "/", icon: Wand2, accent: "#7c6cff" },
+  { id: "tech-launch", label: "Launch Signal", href: "/tech-launch", icon: Gauge, accent: "#28c7b7" },
+  { id: "spec-check", label: "Signal QA", href: "/spec-check", icon: ClipboardCheck, accent: "#f59b56" },
 ];
 
 export type ShellNavItem<T extends string> = {
@@ -277,26 +278,26 @@ export default function CerberusShell<T extends string>({
         >
           <div className={`border-b border-line/50 px-4 py-5 ${collapsed ? "text-center" : ""}`}>
             <div className={`flex items-center gap-3 ${collapsed ? "justify-center" : "max-md:justify-center"}`}>
-              <div className="brand-tile relative flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-[13px] border border-cobalt/30 shadow-[0_0_18px_rgba(61,130,255,0.12)]">
-                <img src="/cerberus_logo_512.png" alt="Cerberus" className="relative h-10 w-10 object-contain" />
+              <div className="brand-tile brand-mark relative flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-[15px] border border-cobalt/30 shadow-[0_12px_30px_rgba(89,73,205,0.22)]">
+                <Image src="/cerberus_logo_512.png" alt="Cerebral mark" width={40} height={40} priority className="relative h-10 w-10 object-contain" />
               </div>
               {collapsed ? null : (
                 <div className="min-w-0 max-md:hidden">
-                  <h1 className="font-brand text-[18px] font-bold leading-none text-ink">Cerberus</h1>
+                  <h1 className="brand-wordmark text-[19px] font-bold leading-none text-ink">CEREBRAL</h1>
                   <div className="mt-2 flex items-center gap-1.5 leading-none text-brand-muted">
-                    <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-cobalt shadow-[0_0_8px_#3d82ff]" />
-                    <span className="font-brand text-[12px] font-semibold">Analytics Hub</span>
+                    <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-cobalt shadow-[0_0_10px_rgba(109,94,247,0.9)]" />
+                    <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.13em]">Cerberus Analytics</span>
                   </div>
                 </div>
               )}
             </div>
           </div>
 
-          <nav className="flex flex-1 flex-col gap-6 px-3 py-4" aria-label="Analytics Hub">
+          <nav className="flex flex-1 flex-col gap-6 px-3 py-4" aria-label="Cerebral workspace">
             <div>
               {collapsed ? null : (
                 <div className="px-3 pb-2 font-mono text-[10px] uppercase tracking-[0.16em] text-slate-500 max-md:hidden">
-                  Products
+                  Intelligence
                 </div>
               )}
               <div className="flex flex-col gap-1">
@@ -335,7 +336,7 @@ export default function CerberusShell<T extends string>({
               <div>
                 {collapsed ? null : (
                   <div className="px-3 pb-2 font-mono text-[10px] uppercase tracking-[0.16em] text-slate-500 max-md:hidden">
-                    Workflow
+                    Workspace
                   </div>
                 )}
                 <div className="flex flex-col gap-1">

@@ -1158,7 +1158,7 @@ export default function SpecCheckDashboard() {
       .catch(() => {
         if (cancelled) return;
         setSpecs([]);
-        setSpecsError("Could not load saved specs. Sign in on the Analytics Hub, then reload this page.");
+        setSpecsError("Could not load saved specs. Sign in to CEREBRAL, then reload this page.");
       })
       .finally(() => {
         if (!cancelled) setIsLoadingSpecs(false);

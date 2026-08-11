@@ -3,8 +3,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Cerberus Analytics Hub",
-  description: "Generate and review game analytics specs from a reusable reference library.",
+  title: "CEREBRAL | Cerberus Analytics",
+  description: "Design, validate, and monitor game analytics with Cerberus Analytics.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
@@ -12,7 +12,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     <html lang="en" suppressHydrationWarning>
       <head>
         <script
-          id="cerberus-theme"
+          id="cerebral-theme"
           dangerouslySetInnerHTML={{
             __html: `try {
               var theme = localStorage.getItem("cerberus-theme");

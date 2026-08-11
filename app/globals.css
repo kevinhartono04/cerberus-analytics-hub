@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Sora:wght@500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Sora:wght@500;600;700;800&display=swap");
 
 @tailwind base;
 @tailwind components;
@@ -29,10 +29,10 @@ html[data-theme="dark"] {
   --color-cyan: 72 217 255;
   --color-violet: 183 164 255;
   --color-rose: 255 122 144;
-  --page-background: radial-gradient(circle at 20% 0%, rgba(0, 102, 255, 0.1), transparent 28rem), linear-gradient(180deg, #050b18 0%, #020713 100%);
-  --shell-background: radial-gradient(1200px 600px at 12% -8%, rgba(61, 130, 255, 0.16), transparent 60%), radial-gradient(900px 500px at 100% 0%, rgba(31, 196, 138, 0.06), transparent 55%), linear-gradient(180deg, #070b16 0%, #04060d 100%);
-  --sidebar-background: linear-gradient(180deg, #090e1a 0%, #070b15 100%);
-  --brand-tile-background: #0d1930;
+  --page-background: radial-gradient(circle at 18% -5%, rgba(109, 94, 247, 0.16), transparent 29rem), radial-gradient(circle at 88% 5%, rgba(40, 199, 183, 0.08), transparent 25rem), linear-gradient(180deg, #090a16 0%, #04050b 100%);
+  --shell-background: radial-gradient(1100px 620px at 8% -12%, rgba(109, 94, 247, 0.2), transparent 61%), radial-gradient(700px 500px at 100% 0%, rgba(40, 199, 183, 0.07), transparent 54%), linear-gradient(180deg, #0b0c17 0%, #06070f 100%);
+  --sidebar-background: linear-gradient(180deg, #0e0f1d 0%, #090a14 100%);
+  --brand-tile-background: linear-gradient(145deg, #201d4e, #11162d 66%, #132d35);
   --scrollbar-track: #050b18;
   --scrollbar-thumb: #424656;
   --scrollbar-thumb-hover: #8c90a1;
@@ -75,10 +75,10 @@ html[data-theme="dark"] {
   --color-cyan: 0 123 160;
   --color-violet: 105 77 184;
   --color-rose: 202 55 89;
-  --page-background: radial-gradient(circle at 20% 0%, rgba(0, 102, 255, 0.08), transparent 28rem), linear-gradient(180deg, #f7faff 0%, #eef3f9 100%);
-  --shell-background: radial-gradient(1200px 600px at 12% -8%, rgba(61, 130, 255, 0.12), transparent 60%), radial-gradient(900px 500px at 100% 0%, rgba(31, 196, 138, 0.05), transparent 55%), linear-gradient(180deg, #f8fbff 0%, #eef3f9 100%);
-  --sidebar-background: linear-gradient(180deg, #ffffff 0%, #f4f7fb 100%);
-  --brand-tile-background: #edf4ff;
+  --page-background: radial-gradient(circle at 18% -8%, rgba(109, 94, 247, 0.13), transparent 29rem), radial-gradient(circle at 92% 2%, rgba(40, 199, 183, 0.07), transparent 25rem), linear-gradient(180deg, #fbfaff 0%, #f1f3fb 100%);
+  --shell-background: radial-gradient(1100px 620px at 8% -12%, rgba(109, 94, 247, 0.13), transparent 61%), radial-gradient(700px 500px at 100% 0%, rgba(40, 199, 183, 0.06), transparent 54%), linear-gradient(180deg, #fbfaff 0%, #f1f3fb 100%);
+  --sidebar-background: linear-gradient(180deg, #ffffff 0%, #f7f7fc 100%);
+  --brand-tile-background: linear-gradient(145deg, #eeebff, #ecf9f7);
   --scrollbar-track: #edf2f8;
   --scrollbar-thumb: #aab8c9;
   --scrollbar-thumb-hover: #72839a;
@@ -126,6 +126,24 @@ select {
 
 .brand-tile {
   background: var(--brand-tile-background);
+}
+
+.brand-mark::after {
+  position: absolute;
+  inset: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 11px;
+  content: "";
+  pointer-events: none;
+}
+
+.brand-wordmark {
+  font-family: Sora, Inter, ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: 0.15em;
+}
+
+.cerebral-auth {
+  background: var(--page-background);
 }
 
 .surface-gradient {
@@ -197,6 +215,16 @@ html[data-theme="dark"] .verdict-overview-rose {
   border-left-color: var(--product-accent);
   background: color-mix(in srgb, var(--product-accent) 13%, transparent);
   color: rgb(var(--color-ink));
+}
+
+.product-link-active::after {
+  width: 4px;
+  height: 4px;
+  margin-left: auto;
+  border-radius: 999px;
+  background: var(--product-accent);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--product-accent) 80%, transparent);
+  content: "";
 }
 
 .product-link-active .product-link-icon {
