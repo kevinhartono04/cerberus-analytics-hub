@@ -22,31 +22,31 @@ describe("CerberusShell theme switch", () => {
         setItem: (key: string, value: string) => values.set(key, value),
       },
     });
-    document.documentElement.dataset.theme = "dark";
+    document.documentElement.dataset.theme = "light";
   });
 
-  it("defaults to dark mode and persists a light-mode selection", () => {
+  it("defaults to light mode and persists a dark-mode selection", () => {
     renderShell();
 
     const toggle = screen.getByRole("switch", { name: "Light mode" });
-    expect(toggle).toHaveAttribute("aria-checked", "false");
-    expect(document.documentElement.dataset.theme).toBe("dark");
+    expect(toggle).toHaveAttribute("aria-checked", "true");
+    expect(document.documentElement.dataset.theme).toBe("light");
 
     fireEvent.click(toggle);
 
-    expect(toggle).toHaveAttribute("aria-checked", "true");
-    expect(document.documentElement.dataset.theme).toBe("light");
-    expect(localStorage.getItem("cerberus-theme")).toBe("light");
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    expect(localStorage.getItem("cerberus-theme")).toBe("dark");
   });
 
   it("reflects the preloaded persisted preference", () => {
-    document.documentElement.dataset.theme = "dark";
-    localStorage.setItem("cerberus-theme", "light");
+    document.documentElement.dataset.theme = "light";
+    localStorage.setItem("cerberus-theme", "dark");
 
     renderShell();
 
-    expect(screen.getByRole("switch", { name: "Light mode" })).toHaveAttribute("aria-checked", "true");
-    expect(document.documentElement.dataset.theme).toBe("light");
+    expect(screen.getByRole("switch", { name: "Light mode" })).toHaveAttribute("aria-checked", "false");
+    expect(document.documentElement.dataset.theme).toBe("dark");
   });
 
   it("keeps the light-mode control accessible when the sidebar is collapsed", () => {

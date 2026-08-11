@@ -32,6 +32,13 @@ describe("GameMonitoringDashboard", () => {
     expect(screen.getAllByText(/Payment success events · D0/).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/FIPU · D1\+/).length).toBeGreaterThan(0);
     expect(screen.getAllByText("Created hour of day").length).toBeGreaterThan(1);
+    fireEvent.mouseMove(screen.getByRole("img", { name: /Android cumulative installs/i }), { clientX: 128 });
+    expect(screen.getByText("Hour 4")).toBeInTheDocument();
+    const finalAdRow = screen.getAllByText(/FIPU · D1\+/)[0];
+    const firstGameplayRow = screen.getAllByText(/Session Start vs Game Start · D0/)[0];
+    const firstPaymentRow = screen.getAllByText(/Payment success events · D0/)[0];
+    expect(finalAdRow.compareDocumentPosition(firstGameplayRow) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(firstGameplayRow.compareDocumentPosition(firstPaymentRow) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     await waitFor(() => {
       const call = vi.mocked(fetch).mock.calls.find(([url]) => url === "/api/tech-launch/game-monitoring");
       expect(call).toBeDefined();

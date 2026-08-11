@@ -4,7 +4,7 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
+html[data-theme="dark"] {
   --color-ink: 218 226 253;
   --color-line: 66 70 86;
   --color-mist: 5 11 24;
@@ -42,12 +42,15 @@
   --chart-tooltip: #0d1424;
   --chart-tooltip-line: #475569;
   --chart-tooltip-ink: #e2e8f0;
+  --chart-tooltip-bg: var(--chart-tooltip);
+  --chart-tooltip-border: var(--chart-tooltip-line);
+  --chart-tooltip-text: var(--chart-tooltip-ink);
   color: rgb(var(--color-ink));
   background: rgb(var(--color-mist));
   color-scheme: dark;
 }
 
-html[data-theme="light"] {
+:root {
   --color-ink: 18 35 58;
   --color-line: 203 213 225;
   --color-mist: 242 246 251;
@@ -85,6 +88,9 @@ html[data-theme="light"] {
   --chart-tooltip: #ffffff;
   --chart-tooltip-line: #c4d0df;
   --chart-tooltip-ink: #1b2b42;
+  --chart-tooltip-bg: var(--chart-tooltip);
+  --chart-tooltip-border: var(--chart-tooltip-line);
+  --chart-tooltip-text: var(--chart-tooltip-ink);
   color: rgb(var(--color-ink));
   background: rgb(var(--color-mist));
   color-scheme: light;

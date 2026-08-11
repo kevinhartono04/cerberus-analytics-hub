@@ -16,9 +16,9 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
           dangerouslySetInnerHTML={{
             __html: `try {
               var theme = localStorage.getItem("cerberus-theme");
-              document.documentElement.dataset.theme = theme === "light" ? "light" : "dark";
+              document.documentElement.dataset.theme = theme === "dark" ? "dark" : "light";
             } catch (_) {
-              document.documentElement.dataset.theme = "dark";
+              document.documentElement.dataset.theme = "light";
             }`,
           }}
         />

@@ -21,9 +21,9 @@ type Theme = "dark" | "light";
 
 function readStoredTheme(): Theme {
   try {
-    return localStorage.getItem("cerberus-theme") === "light" ? "light" : "dark";
+    return localStorage.getItem("cerberus-theme") === "dark" ? "dark" : "light";
   } catch {
-    return "dark";
+    return "light";
   }
 }
 
@@ -196,7 +196,7 @@ export default function CerberusShell<T extends string>({
   const hasExplicitUser = user !== undefined;
   const [sessionUser, setSessionUser] = useState<ShellUser | undefined>(user);
   const [launchReadinessExpanded, setLaunchReadinessExpanded] = useState(currentProduct === "tech-launch");
-  const [theme, setTheme] = useState<Theme>("dark");
+  const [theme, setTheme] = useState<Theme>("light");
 
   useEffect(() => {
     const savedTheme = readStoredTheme();
@@ -205,7 +205,7 @@ export default function CerberusShell<T extends string>({
 
     const syncTheme = (event: StorageEvent) => {
       if (event.key !== "cerberus-theme") return;
-      const nextTheme = event.newValue === "light" ? "light" : "dark";
+      const nextTheme = event.newValue === "dark" ? "dark" : "light";
       applyTheme(nextTheme);
       setTheme(nextTheme);
     };
