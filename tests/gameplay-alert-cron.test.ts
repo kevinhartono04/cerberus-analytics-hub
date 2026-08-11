@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/gameplay-alerts", () => ({
+  gameplayAlertTimeZone: "Australia/Melbourne",
   getGameplayAlertSettings: mocks.getSettings,
   gameplayAlertCronFilters: mocks.cronFilters,
   gameplayAlertEvaluationKey: mocks.evaluationKey,
@@ -30,6 +31,7 @@ vi.mock("@/lib/db", () => ({ listGameplayAlertQueryJobs: mocks.listJobs, saveGam
 vi.mock("@/lib/count-api", () => ({ submitCountSql: mocks.submit, getCountQuery: mocks.getQuery }));
 
 import { GET } from "@/app/api/cron/gameplay-alerts/route";
+import { isGameplayAlertCronWindow } from "@/lib/gameplay-alert-cron-window";
 
 const filters = { appName: "stacksmash", platform: "android", platforms: ["android"], appVersion: "0.2.0", appVersions: ["0.2.0"], startDate: "2026-07-22", endDate: "2026-07-28" };
 
@@ -52,7 +54,7 @@ describe("gameplay alert cron", () => {
   });
 
   it("submits an asynchronous Count job without waiting for completion", async () => {
-    const response = await GET(new Request("https://example.com/api/cron/gameplay-alerts", { headers: { authorization: "Bearer test-secret" } }));
+    const response = await GET(new Request("https://example.com/api/cron/gameplay-alerts?force=1", { headers: { authorization: "Bearer test-secret" } }));
 
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ targetCount: 1, submittedCount: 1, completedCount: 0, runningCount: 1, failures: [] });
@@ -65,7 +67,7 @@ describe("gameplay alert cron", () => {
     mocks.listJobs.mockResolvedValue([{ evaluationKey: "stacksmash:android:0.2.0:2026-07-22:2026-07-28", jobKey: "count-job", filters: JSON.stringify(filters), status: "running", submittedAt: "2026-07-29T00:00:00.000Z" }]);
     mocks.getQuery.mockResolvedValue({ query: { job_key: "count-job", status: "completed", result_preview: "", result_metadata: {} } });
 
-    const response = await GET(new Request("https://example.com/api/cron/gameplay-alerts", { headers: { authorization: "Bearer test-secret" } }));
+    const response = await GET(new Request("https://example.com/api/cron/gameplay-alerts?force=1", { headers: { authorization: "Bearer test-secret" } }));
 
     expect(await response.json()).toMatchObject({ targetCount: 1, submittedCount: 0, completedCount: 1, runningCount: 0, failures: [] });
     expect(mocks.submit).not.toHaveBeenCalled();
@@ -78,7 +80,7 @@ describe("gameplay alert cron", () => {
     mocks.listJobs.mockResolvedValue([{ evaluationKey: "stacksmash:android:0.2.0:2026-07-22:2026-07-28", jobKey: "count-job", filters: JSON.stringify(filters), status: "completed", submittedAt: "2026-07-29T00:00:00.000Z" }]);
     mocks.openStates.mockResolvedValue([{ alertKey: "open-240", status: "open", appName: "stacksmash", platform: "android", appVersion: "0.2.0", level: 240, difficultyTier: "normal", firstSeenAt: "2026-07-22T00:00:00.000Z", lastSeenAt: "2026-07-28T00:00:00.000Z", lastFailRate: 0.404, lastReachedPlayers: 23_400, threshold: 0.4 }]);
 
-    const response = await GET(new Request("https://example.com/api/cron/gameplay-alerts", { headers: { authorization: "Bearer test-secret" } }));
+    const response = await GET(new Request("https://example.com/api/cron/gameplay-alerts?force=1", { headers: { authorization: "Bearer test-secret" } }));
 
     expect(await response.json()).toMatchObject({ runningCount: 0, dailyOpenDeliveryCount: 1, failures: [], evaluations: [expect.objectContaining({ reusedCompletedJob: true, storedOpenCount: 1 })] });
     expect(mocks.deliver).toHaveBeenCalledWith([expect.objectContaining({ type: "daily-open", state: expect.objectContaining({ alertKey: "open-240", level: 240 }) })]);
@@ -90,9 +92,17 @@ describe("gameplay alert cron", () => {
     mocks.openStates.mockResolvedValue([{ alertKey: "open-240", status: "open", appName: "stacksmash", platform: "android", appVersion: "0.2.0", level: 240, difficultyTier: "normal", firstSeenAt: "2026-07-22T00:00:00.000Z", lastSeenAt: "2026-07-28T00:00:00.000Z", lastFailRate: 0.404, lastReachedPlayers: 23_400, threshold: 0.4 }]);
     mocks.deliver.mockResolvedValue({ delivered: 0, skipped: 1, configured: false });
 
-    const response = await GET(new Request("https://example.com/api/cron/gameplay-alerts", { headers: { authorization: "Bearer test-secret" } }));
+    const response = await GET(new Request("https://example.com/api/cron/gameplay-alerts?force=1", { headers: { authorization: "Bearer test-secret" } }));
 
     expect(await response.json()).toMatchObject({ dailyOpenDeliveryCount: 1, delivery: { configured: false }, failures: [] });
     expect(mocks.markStatusDelivered).not.toHaveBeenCalled();
+  });
+
+  it("runs only during the intended Melbourne morning window", () => {
+    // 08:30 AEST and 08:30 AEDT respectively.
+    expect(isGameplayAlertCronWindow(new Date("2026-08-04T22:30:00.000Z"))).toBe(true);
+    expect(isGameplayAlertCronWindow(new Date("2026-12-01T21:30:00.000Z"))).toBe(true);
+    expect(isGameplayAlertCronWindow(new Date("2026-08-04T21:30:00.000Z"))).toBe(false);
+    expect(isGameplayAlertCronWindow(new Date("2026-08-04T23:59:00.000Z"))).toBe(true);
   });
 });

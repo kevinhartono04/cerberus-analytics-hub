@@ -7,7 +7,7 @@ import CerberusShell from "@/components/CerberusShell";
 import { FunnelDateRangePicker, FunnelFilterDropdown, FunnelMultiSelect, FunnelVersionMultiSelect } from "@/components/LevelFunnelControls";
 import type { GameMonitoringFilters as Filters, GameMonitoringPoint as Point, GameMonitoringRunResponse as RunResponse } from "@/lib/game-monitoring";
 
-const appOptions = ["blockkingdom", "bloomsort", "bubblego", "bubblewordchain", "dotpaint", "hexago", "jelly", "mahjongbloom", "marble", "sizzle", "stacksmash", "treasureshot", "tripletile", "wooblast", "woodoku", "wordblast", "wordoku", "wordrush"] as const;
+const appOptions = ["blockkingdom", "bloomsort", "bubblego", "bubblewordchain", "dotpaint", "hexago", "hexastack", "jelly", "mahjongbloom", "marble", "sizzle", "stacksmash", "treasureshot", "tripletile", "wooblast", "woodoku", "wordblast", "wordoku", "wordrush"] as const;
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 const pendingStorageKey = "tech-launch:game-monitoring:pending-count-job";
 const slowQueryAfterMs = 45_000;

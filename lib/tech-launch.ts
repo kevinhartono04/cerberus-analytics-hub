@@ -13,6 +13,7 @@ const sqlPath = path.join(process.cwd(), "data", "tech_launch_telemetry_metrics.
 
 export const techLaunchAppOptions = [
   "hexago",
+  "hexastack",
   "marble",
   "tripletile",
   "wooblast",
@@ -36,6 +37,7 @@ export const techLaunchAppOptions = [
 // to immutable source IDs before generating SQL so Snowflake can prune early.
 export const techLaunchAppIds: Record<(typeof techLaunchAppOptions)[number], number> = {
   hexago: 18,
+  hexastack: 3008,
   marble: 22,
   tripletile: 9,
   wooblast: 28,
@@ -240,7 +242,7 @@ with events as (
     ep.app_version,
     ep.created_at::date as event_date
   from (
-      select * from tds_db.raw.ludios_telemetry_events_production where app_id in (3001, 3003, 3004, 3005, 3006, 3011, 3012, 3013)
+      select * from tds_db.raw.ludios_telemetry_events_production where app_id in (3001, 3003, 3004, 3005, 3006, 3008, 3011, 3012, 3013)
           union all
       select * from tds_db.raw.telemetry_events_production where app_id in (18,22,117,122)
   ) ep

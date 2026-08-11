@@ -62,8 +62,16 @@ describe("Tech Launch readiness helpers", () => {
   });
 
   it("keeps less-common app names in the same canonical map", () => {
+    expect(techLaunchAppIds.hexastack).toBe(3008);
     expect(techLaunchAppIds.wordoku).toBe(3013);
     expect(techLaunchAppIds.treasureshot).toBe(3012);
+  });
+
+  it("includes HexaStack in the Ludios telemetry app-version lookup", () => {
+    const sql = buildTechLaunchAppVersionsSql({ ...filters, appName: "hexastack" });
+
+    expect(sql).toContain("app_id in (3001, 3003, 3004, 3005, 3006, 3008, 3011, 3012, 3013)");
+    expect(sql).toContain("ep.app_id = 3008");
   });
 
   it("parses app version Count CSV previews", () => {

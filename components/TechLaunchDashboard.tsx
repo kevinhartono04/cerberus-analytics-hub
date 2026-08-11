@@ -38,6 +38,7 @@ const appOptions = [
   "bubblewordchain",
   "dotpaint",
   "hexago",
+  "hexastack",
   "jelly",
   "mahjongbloom",
   "marble",

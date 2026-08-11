@@ -13,9 +13,16 @@ import {
   type GameplayAlertTransition,
   undeliveredGameplayAlertTransitions,
 } from "@/lib/gameplay-alerts";
+import { isGameplayAlertCronWindow } from "@/lib/gameplay-alert-cron-window";
 
 export const runtime = "nodejs";
 
+/**
+ * Vercel evaluates cron expressions in UTC. We schedule a broad UTC range to
+ * cover both AEST and AEDT, then use Melbourne local time as the source of
+ * truth. Repeated calls are deliberate: the first submits the asynchronous
+ * Count job and later calls collect its result without holding a function open.
+ */
 function uniqueTransitions<T extends { type: string; state: { alertKey: string } }>(transitions: T[]) {
   return [...new Map(transitions.map((transition) => [`${transition.type}:${transition.state.alertKey}`, transition])).values()];
 }
@@ -23,6 +30,16 @@ function uniqueTransitions<T extends { type: string; state: { alertKey: string }
 export async function GET(request: Request) {
   if (!process.env.CRON_SECRET || request.headers.get("authorization") !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  // `force=1` preserves a safe, authenticated way to manually test the
+  // evaluator outside the scheduled Melbourne delivery window.
+  if (new URL(request.url).searchParams.get("force") !== "1" && !isGameplayAlertCronWindow()) {
+    return NextResponse.json({
+      requestedAt: new Date().toISOString(),
+      skipped: true,
+      reason: "Outside the 08:30–10:00 Australia/Melbourne alert window",
+    });
   }
 
   const settings = await getGameplayAlertSettings();

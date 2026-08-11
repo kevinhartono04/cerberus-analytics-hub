@@ -66,6 +66,7 @@ export type SpecCheckAppVersionsRequest = z.infer<typeof specCheckAppVersionsReq
 
 export const specCheckAppIds: Record<(typeof techLaunchAppOptions)[number], number> = {
   hexago: 18,
+  hexastack: 3008,
   marble: 22,
   tripletile: 9,
   wooblast: 28,
