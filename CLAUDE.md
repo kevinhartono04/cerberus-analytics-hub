@@ -62,7 +62,7 @@ npm run test:ui    # playwright (e2e); boots dev server on 127.0.0.1:3100
 - `tech-launch/readiness` + `tech-launch/readiness/status` — kick off / poll readiness job.
 - `tech-launch/level-fail-rate` — level-by-level unique-player fail-rate series and breach status.
 - `tech-launch/gameplay-alert-settings` — read global gameplay thresholds; admins can update them.
-- `cron/gameplay-alerts` — protected daily evaluator for gameplay alert state and Slack transitions.
+- `cron/gameplay-alerts` — protected 15-minute critical evaluator plus the Melbourne-window daily alert digest.
 - `spec-check` + `spec-check/status` — kick off / poll a spec-vs-live-data check (submit-then-poll like tech-launch).
 - `spec-check/app-versions` — app versions observed in the Ludios events union table.
 
@@ -92,7 +92,7 @@ Set in Vercel (not all present in `.env.local`):
 - **AI:** `OPENAI_API_KEY`, `OPENAI_MODEL`.
 - **Count / Snowflake:** `COUNT_API_KEY`, `COUNT_PROJECT_KEY`, `COUNT_CONNECTION_KEY`, `COUNT_QUERY_TIMEOUT_MS`, `COUNT_API_BASE_URL` (default `https://api.eu.count.co`); `SNOWFLAKE_*`.
 - **Caching:** `TECH_LAUNCH_CACHE_TTL_SECONDS` (default 900), `TECH_LAUNCH_APP_VERSION_CACHE_TTL_SECONDS` (default 3600), `SPEC_CHECK_CACHE_TTL_SECONDS` (default 900), `SPEC_CHECK_APP_VERSION_CACHE_TTL_SECONDS` (default 3600).
-- **Gameplay alerts:** `CRON_SECRET` (authorizes the protected alert endpoint) and `SLACK_GAMEPLAY_ALERT_WEBHOOK_URL` (primary incoming webhook). Optionally set `SLACK_GAMEPLAY_ALERT_ADDITIONAL_WEBHOOK_URL` to mirror the same alerts to a second Slack channel. The daily scheduler is Vercel Cron, configured in `vercel.json`. It invokes the endpoint every five minutes around the Melbourne 08:30 delivery window so the asynchronous Count job can be submitted and then collected. Vercel supplies the `CRON_SECRET` authorization header automatically; no GitHub Actions secrets are required.
+- **Gameplay alerts:** `CRON_SECRET` (authorizes the protected alert endpoint) and `SLACK_GAMEPLAY_ALERT_WEBHOOK_URL` (primary incoming webhook). Optionally set `SLACK_GAMEPLAY_ALERT_ADDITIONAL_WEBHOOK_URL` to mirror the same alerts to a second Slack channel. Vercel Cron invokes the protected endpoint every 15 minutes: it runs a rolling 48-hour critical check all day and retains the Melbourne 08:30 daily status delivery window. Vercel supplies the `CRON_SECRET` authorization header automatically; no GitHub Actions secrets are required.
 
 ## Conventions
 

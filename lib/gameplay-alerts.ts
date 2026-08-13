@@ -22,10 +22,14 @@ import { getCountQuery, runCountSql, submitCountSql, type CountQuery } from "@/l
 import { normalizedTechLaunchFilters, techLaunchAppIds, techLaunchAppOptions, techLaunchFilterSchema, techLaunchPlatformOptions, type TechLaunchFilters } from "@/lib/tech-launch";
 
 const sqlPath = path.join(process.cwd(), "data", "tech_launch_level_fail_rate.sql");
+const criticalSqlPath = path.join(process.cwd(), "data", "tech_launch_critical_level_fail_rate.sql");
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 export const allAppVersionsAlertScope = "__all_versions__";
 export const allPlatformsAlertScope = "__all_platforms__";
 export const gameplayAlertTimeZone = "Australia/Melbourne";
+export const criticalGameplayAlertThreshold = 0.7;
+export const criticalGameplayAlertMinPlayers = 50;
+export type GameplayAlertKind = "daily" | "critical";
 
 export const gameplayAlertTargetSchema = z.object({
   appName: z.enum(techLaunchAppOptions),
@@ -39,6 +43,7 @@ export const gameplayAlertTargetSchema = z.object({
 
 export type GameplayAlertTarget = z.infer<typeof gameplayAlertTargetSchema>;
 type GameplayAlertStateScope = { appName: string; platform: string; appVersion: string };
+type GameplayAlertStateFilter = GameplayAlertStateScope & { alertKind: GameplayAlertKind };
 export type GameplayAlertCronFilters = GameplayAlertStateScope & {
   platforms: Array<"android" | "ios">;
   appVersions: string[];
@@ -167,6 +172,7 @@ export type LevelFailRateRunResponse = LevelFailRateResponse | LevelFailRatePend
 
 export type GameplayAlertState = {
   alertKey: string;
+  alertKind: GameplayAlertKind;
   appName: string;
   platform: string;
   appVersion: string;
@@ -203,6 +209,10 @@ function readBaseSql() {
   return fs.readFileSync(sqlPath, "utf8");
 }
 
+function readCriticalSql() {
+  return fs.readFileSync(criticalSqlPath, "utf8");
+}
+
 function sqlLiteral(value: string) {
   return `'${value.replaceAll("'", "''")}'`;
 }
@@ -234,6 +244,30 @@ export function buildLevelFailRateSql(filtersInput: unknown) {
   );
   return sql;
 }
+
+/** A short, current-revision query used only by the all-day critical evaluator. */
+export function buildCriticalLevelFailRateSql(filtersInput: unknown) {
+  const filters = normalizedLevelFunnelFilters(filtersInput);
+  const appId = techLaunchAppIds[filters.appName];
+  let sql = readCriticalSql();
+  sql = replaceRequired(sql, /ep\.app_id\s*=\s*\d+\s*-- modifiable parameter/, `ep.app_id = ${appId} -- modifiable parameter`);
+  sql = replaceRequired(sql, /ep\.platform\s+in\s*\([^)]*\)\s*-- modifiable parameter/, `ep.platform in (${sqlList(filters.platforms)}) -- modifiable parameter`);
+  sql = replaceRequired(sql, /ep\.app_version\s+in\s*\([^)]*\)\s*-- modifiable parameter/, filters.appVersions.length ? `ep.app_version in (${sqlList(filters.appVersions)}) -- modifiable parameter` : "1 = 1 -- modifiable parameter");
+  return sql;
+}
+
+export const criticalLevelFailRatePointSchema = z.object({
+  level: z.number().int().nonnegative(),
+  levelId: z.string().optional(),
+  layoutBankId: z.string().min(1),
+  layoutHash: z.string().optional(),
+  difficultyTier: z.enum(["normal", "hard"]),
+  reachedPlayers: z.number().int().nonnegative(),
+  failedPlayers: z.number().int().nonnegative(),
+  failRate: z.number().min(0).max(1),
+});
+
+export type CriticalLevelFailRatePoint = z.infer<typeof criticalLevelFailRatePointSchema>;
 
 function rowValue(row: Record<string, unknown>, key: string) {
   return row[key] ?? row[key.toUpperCase()] ?? row[key.toLowerCase()];
@@ -315,6 +349,31 @@ export function parseLevelFailRateRows(resultPreview: string | undefined, settin
     .sort((a, b) => a.level - b.level || a.difficultyTier.localeCompare(b.difficultyTier));
 }
 
+export function parseCriticalLevelFailRateRows(resultPreview: string | undefined): CriticalLevelFailRatePoint[] {
+  if (!resultPreview?.trim()) return [];
+  const rows = parseCsv(resultPreview, { columns: true, skip_empty_lines: true, trim: true }) as Array<Record<string, unknown>>;
+  return rows
+    .map((row) => {
+      const levelId = String(rowValue(row, "level_id") ?? "").trim();
+      const layoutBankId = String(rowValue(row, "layout_bank_id") ?? "").trim();
+      const layoutHash = String(rowValue(row, "layout_hash") ?? "").trim();
+      const reachedPlayers = Math.max(0, Math.round(toNumber(rowValue(row, "reached_players"))));
+      const failedPlayers = Math.min(reachedPlayers, Math.max(0, Math.round(toNumber(rowValue(row, "failed_players")))));
+      return {
+        level: Math.round(toNumber(rowValue(row, "level"))),
+        ...(levelId ? { levelId } : {}),
+        layoutBankId,
+        ...(layoutHash ? { layoutHash } : {}),
+        difficultyTier: String(rowValue(row, "difficulty_tier")).toLowerCase() === "hard" ? "hard" as const : "normal" as const,
+        reachedPlayers,
+        failedPlayers,
+        failRate: Math.min(1, Math.max(0, toNumber(rowValue(row, "fail_rate")))),
+      };
+    })
+    .filter((point) => point.level >= 0 && Boolean(point.layoutBankId))
+    .sort((first, second) => first.level - second.level);
+}
+
 function settingsFromRecord(record: GameplayAlertSettingsRecord | null): GameplayAlertSettings {
   if (!record) return defaultSettings;
   return gameplayAlertSettingsSchema.parse({
@@ -361,7 +420,7 @@ async function completedLevelFailRateResponse(query: CountQuery, filters: LevelF
   const points = parseLevelFailRateRows(query.result_preview, settings);
   const openStatesByLevel = new Map<number, GameplayAlertState[]>();
   const persistedStateFilters = filters.platforms.length === 1 && filters.appVersions.length === 1
-    ? { appName: filters.appName, platform: filters.platforms[0], appVersion: filters.appVersions[0] }
+    ? { appName: filters.appName, platform: filters.platforms[0], appVersion: filters.appVersions[0], alertKind: "daily" as const }
     : null;
   for (const record of persistedStateFilters ? await listGameplayAlertStates(persistedStateFilters) : []) {
     const state = stateFromRecord(record);
@@ -475,22 +534,23 @@ export async function recordGameplayAlertDashboardObservation(filtersInput: unkn
   });
 }
 
-function gameplayAlertStateScope(input: unknown): GameplayAlertStateScope {
+function gameplayAlertStateScope(input: unknown, alertKind: GameplayAlertKind = "daily"): GameplayAlertStateFilter {
   const source = input && typeof input === "object" ? input as Record<string, unknown> : {};
   const appName = String(source.appName ?? "").trim();
   const platform = String(source.platform ?? "").trim();
   const appVersion = String(source.appVersion ?? "").trim();
   if (!appName || !platform || !appVersion) throw new Error("Gameplay alert state scope is incomplete");
-  return { appName, platform, appVersion };
+  return { appName, platform, appVersion, alertKind };
 }
 
-export function levelAlertKey(point: Pick<LevelFailRatePoint, "level" | "layoutBankId" | "layoutHash" | "difficultyTier">, filters: GameplayAlertStateScope) {
-  return `${filters.appName}:${filters.platform}:${filters.appVersion}:${point.level}:${point.layoutHash ?? `bank:${point.layoutBankId}`}:${point.difficultyTier}`;
+export function levelAlertKey(point: Pick<LevelFailRatePoint, "level" | "layoutBankId" | "layoutHash" | "difficultyTier">, filters: GameplayAlertStateScope, alertKind: GameplayAlertKind = "daily") {
+  return `${alertKind}:${filters.appName}:${filters.platform}:${filters.appVersion}:${point.level}:${point.layoutHash ?? `bank:${point.layoutBankId}`}:${point.difficultyTier}`;
 }
 
 function stateFromRecord(record: GameplayAlertStateRecord): GameplayAlertState {
   return {
     alertKey: record.alertKey,
+    alertKind: record.alertKind === "critical" ? "critical" : "daily",
     appName: record.appName,
     platform: record.platform,
     appVersion: record.appVersion,
@@ -512,9 +572,10 @@ function stateFromRecord(record: GameplayAlertStateRecord): GameplayAlertState {
   };
 }
 
-async function reconcileGameplayAlertResponse(filters: GameplayAlertStateScope, response: LevelFailRateResponse) {
+async function reconcileGameplayAlertResponse(filters: GameplayAlertStateScope, response: LevelFailRateResponse, alertKind: GameplayAlertKind = "daily") {
   const now = new Date().toISOString();
-  const existing = new Map((await listGameplayAlertStates(filters)).map((record) => [record.alertKey, stateFromRecord(record)]));
+  const stateFilters = { ...filters, alertKind };
+  const existing = new Map((await listGameplayAlertStates(stateFilters)).map((record) => [record.alertKey, stateFromRecord(record)]));
   if (response.status !== "completed") {
     await saveGameplayAlertEvaluationRun({ id: crypto.randomUUID(), evaluatedAt: now, filters: JSON.stringify(filters), result: JSON.stringify(response), transitionCount: 0 });
     return { response, transitions: [] as GameplayAlertTransition[] };
@@ -528,7 +589,7 @@ async function reconcileGameplayAlertResponse(filters: GameplayAlertStateScope, 
   const current = new Map<string, LevelFailRatePoint>();
   for (const point of response.points.filter((candidate) => candidate.breached)) {
     const matchingOpenState = [...existing.values()].find((state) => state.status === "open" && state.level === point.level && state.difficultyTier === point.difficultyTier && stateMatchesRevision(state, point));
-    current.set(matchingOpenState?.alertKey ?? levelAlertKey(point, filters), point);
+    current.set(matchingOpenState?.alertKey ?? levelAlertKey(point, filters, alertKind), point);
   }
   const next: GameplayAlertState[] = [];
   const transitions: GameplayAlertTransition[] = [];
@@ -536,7 +597,7 @@ async function reconcileGameplayAlertResponse(filters: GameplayAlertStateScope, 
   for (const [key, point] of current) {
     const previous = existing.get(key);
     const state: GameplayAlertState = {
-      alertKey: key, appName: filters.appName, platform: filters.platform, appVersion: filters.appVersion,
+      alertKey: key, alertKind, appName: filters.appName, platform: filters.platform, appVersion: filters.appVersion,
       level: point.level, layoutBankId: point.layoutBankId, ...(point.layoutHash ? { layoutHash: point.layoutHash } : {}), difficultyTier: point.difficultyTier, status: "open",
       firstSeenAt: previous?.status === "open" ? previous.firstSeenAt : now,
       lastSeenAt: now, lastFailRate: point.failRate, lastReachedPlayers: point.reachedPlayers, threshold: point.threshold,
@@ -590,14 +651,81 @@ export async function reconcileGameplayAlertsFromQuery(filtersInput: unknown, qu
   return reconcileGameplayAlertResponse(filters, await completedLevelFailRateResponse(query, normalizedLevelFunnelFilters(queryFiltersInput), settings));
 }
 
-export async function undeliveredGameplayAlertTransitions(filtersInput: unknown): Promise<GameplayAlertTransition[]> {
-  const filters = gameplayAlertStateScope(filtersInput);
+function criticalStateMatchesRevision(state: GameplayAlertState, point: CriticalLevelFailRatePoint) {
+  if (point.layoutHash) return state.layoutHash ? state.layoutHash === point.layoutHash : state.layoutBankId === point.layoutBankId;
+  return !state.layoutHash && state.layoutBankId === point.layoutBankId;
+}
+
+/** Reconciles the short-window alert independently of the daily stability rules. */
+export async function reconcileCriticalGameplayAlertsFromQuery(filtersInput: unknown, query: CountQuery) {
+  const filters = gameplayAlertStateScope(filtersInput, "critical");
+  if (query.status === "error") throw new Error(query.error ?? "Count query failed");
+  if (query.status !== "completed") throw new Error("Count query is still running");
+
+  const now = new Date().toISOString();
+  const points = parseCriticalLevelFailRateRows(query.result_preview);
+  const existing = new Map((await listGameplayAlertStates(filters)).map((record) => [record.alertKey, stateFromRecord(record)]));
+  const current = new Map<string, CriticalLevelFailRatePoint>();
+  for (const point of points) {
+    if (point.reachedPlayers < criticalGameplayAlertMinPlayers || point.failRate <= criticalGameplayAlertThreshold) continue;
+    const matchingOpenState = [...existing.values()].find((state) => state.status === "open" && state.level === point.level && criticalStateMatchesRevision(state, point));
+    const key = matchingOpenState?.alertKey ?? `critical:${filters.appName}:${filters.platform}:${filters.appVersion}:${point.level}:${point.layoutHash ?? `bank:${point.layoutBankId}`}`;
+    current.set(key, point);
+  }
+
+  const next: GameplayAlertState[] = [];
+  const transitions: GameplayAlertTransition[] = [];
+  for (const [key, point] of current) {
+    const previous = existing.get(key);
+    const state: GameplayAlertState = {
+      alertKey: key,
+      alertKind: "critical",
+      appName: filters.appName,
+      platform: filters.platform,
+      appVersion: filters.appVersion,
+      level: point.level,
+      layoutBankId: point.layoutBankId,
+      ...(point.layoutHash ? { layoutHash: point.layoutHash } : {}),
+      difficultyTier: point.difficultyTier,
+      status: "open",
+      firstSeenAt: previous?.status === "open" ? previous.firstSeenAt : now,
+      lastSeenAt: now,
+      lastFailRate: point.failRate,
+      lastReachedPlayers: point.reachedPlayers,
+      threshold: criticalGameplayAlertThreshold,
+      ...(previous?.slackOpenDeliveredAt ? { slackOpenDeliveredAt: previous.slackOpenDeliveredAt } : {}),
+    };
+    next.push(state);
+    if (previous?.status !== "open" || !previous.slackOpenDeliveredAt) transitions.push({ type: "opened", state });
+  }
+
+  for (const [key, previous] of existing) {
+    if (current.has(key) || previous.status !== "open") continue;
+    // Critical recoveries are persisted so a later re-breach can notify again,
+    // but they deliberately do not create a Slack resolution message.
+    next.push({ ...previous, status: "resolved", lastSeenAt: now, resolvedAt: now });
+  }
+
+  await saveGameplayAlertStateRecords(next);
+  await saveGameplayAlertEvaluationRun({
+    id: crypto.randomUUID(),
+    evaluatedAt: now,
+    filters: JSON.stringify(filters),
+    result: JSON.stringify({ status: "completed", points, threshold: criticalGameplayAlertThreshold, minPlayers: criticalGameplayAlertMinPlayers }),
+    transitionCount: transitions.length,
+    source: "critical",
+  });
+  return { points, transitions };
+}
+
+export async function undeliveredGameplayAlertTransitions(filtersInput: unknown, alertKind: GameplayAlertKind = "daily"): Promise<GameplayAlertTransition[]> {
+  const filters = gameplayAlertStateScope(filtersInput, alertKind);
   const transitions: GameplayAlertTransition[] = [];
   for (const record of await listGameplayAlertStates(filters)) {
     const state = stateFromRecord(record);
     if (state.status === "open" && !state.slackOpenDeliveredAt) transitions.push({ type: "opened", state });
-    if (state.status === "pending" && state.slackOpenDeliveredAt && !state.slackPendingDeliveredAt) transitions.push({ type: "pending", state });
-    if (state.status === "resolved" && state.slackOpenDeliveredAt && !state.slackResolvedDeliveredAt) transitions.push({ type: "resolved", state });
+    if (alertKind === "daily" && state.status === "pending" && state.slackOpenDeliveredAt && !state.slackPendingDeliveredAt) transitions.push({ type: "pending", state });
+    if (alertKind === "daily" && state.status === "resolved" && state.slackOpenDeliveredAt && !state.slackResolvedDeliveredAt) transitions.push({ type: "resolved", state });
   }
   return transitions;
 }
@@ -655,7 +783,8 @@ export function formatGameplayAlertSlackMessage(transitions: GameplayAlertTransi
   }
 
   const sectionOrder = ["open", "pending", "resolved"];
-  return ["*Gameplay Difficulty Alerts*", ...[...groups.values()].map((group) => {
+  const critical = transitions.length > 0 && transitions.every((transition) => transition.state.alertKind === "critical");
+  return [critical ? "*Critical Gameplay Alert*" : "*Gameplay Difficulty Alerts*", ...[...groups.values()].map((group) => {
     const platform = group.state.platform === allPlatformsAlertScope ? "All platforms" : group.state.platform;
     const appVersion = group.state.appVersion === allAppVersionsAlertScope ? "All versions" : group.state.appVersion;
     const sections = sectionOrder.flatMap((key) => {
@@ -664,7 +793,7 @@ export function formatGameplayAlertSlackMessage(transitions: GameplayAlertTransi
       const levels = section.states
         .sort((a, b) => a.level - b.level || a.difficultyTier.localeCompare(b.difficultyTier))
         .map((state) => `• Level ${state.level} · ${state.difficultyTier} · ${(state.lastFailRate * 100).toFixed(1)}% · ${compactPlayerCount(state.lastReachedPlayers)} players`);
-      return [`*${section.heading} (${levels.length})*`, ...levels];
+      return [`*${critical ? "Critical levels (>70% fail rate, 50+ players)" : section.heading} (${levels.length})*`, ...levels];
     });
     return [`*Game:* ${group.state.appName}`, `*Platform:* ${platform}`, `*Version:* ${appVersion}`, `*Checked:* ${checkedAtLabel(checkedAt)}`, "", ...sections].join("\n");
   })].join("\n\n");
@@ -728,6 +857,11 @@ export function gameplayAlertCronFilters(settings: GameplayAlertSettings, today 
 
 export function gameplayAlertEvaluationKey(filters: GameplayAlertStateScope & Pick<LevelFunnelFilters, "startDate" | "endDate">) {
   return [filters.appName, filters.platform, filters.appVersion, filters.startDate, filters.endDate].join(":");
+}
+
+/** One asynchronous job per target; a completed critical job is replaced on the next 15-minute run. */
+export function criticalGameplayAlertEvaluationKey(filters: GameplayAlertStateScope) {
+  return ["critical", filters.appName, filters.platform, filters.appVersion].join(":");
 }
 
 export function dailyGameplayAlertFilters(today = new Date()) {

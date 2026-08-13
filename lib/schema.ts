@@ -44,6 +44,7 @@ export const gameplayAlertSettings = pgTable("gameplay_alert_settings", {
 
 export const gameplayAlertStates = pgTable("gameplay_alert_states", {
   alertKey: text("alert_key").primaryKey(),
+  alertKind: text("alert_kind").notNull().default("daily"),
   appName: text("app_name").notNull(),
   platform: text("platform").notNull(),
   appVersion: text("app_version").notNull(),

@@ -4,11 +4,14 @@ const mocks = vi.hoisted(() => ({
   getSettings: vi.fn(),
   cronFilters: vi.fn(),
   evaluationKey: vi.fn(),
+  criticalEvaluationKey: vi.fn(),
   reconcile: vi.fn(),
+  reconcileCritical: vi.fn(),
   openStates: vi.fn(),
   undelivered: vi.fn(),
   deliver: vi.fn(),
   buildSql: vi.fn(),
+  buildCriticalSql: vi.fn(),
   listJobs: vi.fn(),
   saveJobs: vi.fn(),
   markStatusDelivered: vi.fn(),
@@ -21,11 +24,14 @@ vi.mock("@/lib/gameplay-alerts", () => ({
   getGameplayAlertSettings: mocks.getSettings,
   gameplayAlertCronFilters: mocks.cronFilters,
   gameplayAlertEvaluationKey: mocks.evaluationKey,
+  criticalGameplayAlertEvaluationKey: mocks.criticalEvaluationKey,
   reconcileGameplayAlertsFromQuery: mocks.reconcile,
+  reconcileCriticalGameplayAlertsFromQuery: mocks.reconcileCritical,
   openGameplayAlertStates: mocks.openStates,
   undeliveredGameplayAlertTransitions: mocks.undelivered,
   deliverGameplayAlertTransitions: mocks.deliver,
   buildLevelFailRateSql: mocks.buildSql,
+  buildCriticalLevelFailRateSql: mocks.buildCriticalSql,
 }));
 vi.mock("@/lib/db", () => ({ listGameplayAlertQueryJobs: mocks.listJobs, saveGameplayAlertQueryJobRecords: mocks.saveJobs, markGameplayAlertQueryJobsSlackStatusDelivered: mocks.markStatusDelivered }));
 vi.mock("@/lib/count-api", () => ({ submitCountSql: mocks.submit, getCountQuery: mocks.getQuery }));
@@ -41,13 +47,16 @@ describe("gameplay alert cron", () => {
     mocks.getSettings.mockReset().mockResolvedValue({});
     mocks.cronFilters.mockReset().mockReturnValue([filters]);
     mocks.evaluationKey.mockReset().mockReturnValue("stacksmash:android:0.2.0:2026-07-22:2026-07-28");
+    mocks.criticalEvaluationKey.mockReset().mockReturnValue("critical:stacksmash:android:0.2.0");
     mocks.buildSql.mockReset().mockReturnValue("select 1");
+    mocks.buildCriticalSql.mockReset().mockReturnValue("select critical");
     mocks.listJobs.mockReset().mockResolvedValue([]);
     mocks.saveJobs.mockReset().mockResolvedValue(undefined);
     mocks.markStatusDelivered.mockReset().mockResolvedValue(undefined);
     mocks.submit.mockReset().mockResolvedValue({ query: { job_key: "count-job", status: "running" } });
     mocks.getQuery.mockReset();
     mocks.reconcile.mockReset().mockResolvedValue({ transitions: [] });
+    mocks.reconcileCritical.mockReset().mockResolvedValue({ transitions: [] });
     mocks.openStates.mockReset().mockResolvedValue([]);
     mocks.undelivered.mockReset().mockResolvedValue([]);
     mocks.deliver.mockReset().mockResolvedValue({ delivered: 0, skipped: 0, configured: true });
@@ -57,10 +66,10 @@ describe("gameplay alert cron", () => {
     const response = await GET(new Request("https://example.com/api/cron/gameplay-alerts?force=1", { headers: { authorization: "Bearer test-secret" } }));
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ targetCount: 1, submittedCount: 1, completedCount: 0, runningCount: 1, failures: [] });
+    expect(await response.json()).toMatchObject({ targetCount: 1, submittedCount: 1, completedCount: 0, runningCount: 1, criticalSubmittedCount: 1, criticalRunningCount: 1, failures: [] });
     expect(mocks.getQuery).not.toHaveBeenCalled();
     expect(mocks.submit).toHaveBeenCalledWith("select 1", { cacheStrategy: "force" });
-    expect(mocks.saveJobs).toHaveBeenCalledWith([expect.objectContaining({ jobKey: "count-job", status: "running" })]);
+    expect(mocks.saveJobs).toHaveBeenCalledWith(expect.arrayContaining([expect.objectContaining({ jobKey: "count-job", status: "running" })]));
   });
 
   it("polls a saved job and reconciles it only after Count completes", async () => {
@@ -70,9 +79,9 @@ describe("gameplay alert cron", () => {
     const response = await GET(new Request("https://example.com/api/cron/gameplay-alerts?force=1", { headers: { authorization: "Bearer test-secret" } }));
 
     expect(await response.json()).toMatchObject({ targetCount: 1, submittedCount: 0, completedCount: 1, runningCount: 0, failures: [] });
-    expect(mocks.submit).not.toHaveBeenCalled();
+    expect(mocks.submit).toHaveBeenCalledWith("select critical", { cacheStrategy: "force" });
     expect(mocks.reconcile).toHaveBeenCalledWith(filters, expect.objectContaining({ job_key: "count-job", status: "completed" }), { appName: "stacksmash", platforms: ["android"], appVersions: ["0.2.0"], startDate: "2026-07-22", endDate: "2026-07-28" });
-    expect(mocks.saveJobs).toHaveBeenCalledWith([expect.objectContaining({ jobKey: "count-job", status: "completed" })]);
+    expect(mocks.saveJobs).toHaveBeenCalledWith(expect.arrayContaining([expect.objectContaining({ jobKey: "count-job", status: "completed" })]));
     expect(mocks.markStatusDelivered).toHaveBeenCalledWith(["stacksmash:android:0.2.0:2026-07-22:2026-07-28"], expect.any(String));
   });
 

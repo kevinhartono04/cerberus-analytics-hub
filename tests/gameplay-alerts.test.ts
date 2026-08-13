@@ -44,11 +44,11 @@ describe("gameplay difficulty alerts", () => {
     const message = formatGameplayAlertSlackMessage([
       {
         type: "daily-open",
-        state: { alertKey: "level-556", appName: "stacksmash", platform: allPlatformsAlertScope, appVersion: allAppVersionsAlertScope, level: 556, layoutBankId: "4860", layoutHash: "long-internal-layout-hash", difficultyTier: "normal", status: "open", firstSeenAt: "2026-08-01T00:00:00.000Z", lastSeenAt: "2026-08-04T04:30:00.000Z", lastFailRate: 0.507, lastReachedPlayers: 11_999, threshold: 0.4 },
+        state: { alertKey: "level-556", alertKind: "daily", appName: "stacksmash", platform: allPlatformsAlertScope, appVersion: allAppVersionsAlertScope, level: 556, layoutBankId: "4860", layoutHash: "long-internal-layout-hash", difficultyTier: "normal", status: "open", firstSeenAt: "2026-08-01T00:00:00.000Z", lastSeenAt: "2026-08-04T04:30:00.000Z", lastFailRate: 0.507, lastReachedPlayers: 11_999, threshold: 0.4 },
       },
       {
         type: "daily-open",
-        state: { alertKey: "level-202", appName: "stacksmash", platform: allPlatformsAlertScope, appVersion: allAppVersionsAlertScope, level: 202, difficultyTier: "normal", status: "open", firstSeenAt: "2026-08-01T00:00:00.000Z", lastSeenAt: "2026-08-04T04:30:00.000Z", lastFailRate: 0.532, lastReachedPlayers: 17_029, threshold: 0.4 },
+        state: { alertKey: "level-202", alertKind: "daily", appName: "stacksmash", platform: allPlatformsAlertScope, appVersion: allAppVersionsAlertScope, level: 202, difficultyTier: "normal", status: "open", firstSeenAt: "2026-08-01T00:00:00.000Z", lastSeenAt: "2026-08-04T04:30:00.000Z", lastFailRate: 0.532, lastReachedPlayers: 17_029, threshold: 0.4 },
       },
     ], new Date("2026-08-04T04:30:00.000Z"));
 
