@@ -13,7 +13,7 @@ const filters = {
 const settings = { normalThreshold: 0.5, hardThreshold: 0.7, minPlayers: 50, alertTargets: [] };
 
 describe("gameplay difficulty alerts", () => {
-  it("supports explicit, version-pinned Slack targets and defaults the daily evaluator to a rolling seven-day Stacksmash window including today", () => {
+  it("supports explicit, version-pinned Slack targets and defaults the daily evaluator to a rolling seven-day all-version Stacksmash window including today", () => {
     expect(gameplayAlertSettingsInputSchema.parse({
       normalThreshold: 0.5,
       hardThreshold: 0.7,
@@ -22,14 +22,14 @@ describe("gameplay difficulty alerts", () => {
     }).alertTargets).toEqual([{ appName: "stacksmash", platforms: ["android", "ios"], appVersion: "0.2.0" }]);
 
     expect(dailyGameplayAlertFilters(new Date("2026-07-29T12:00:00.000Z"))).toEqual([
-      { appName: "stacksmash", platform: allPlatformsAlertScope, platforms: ["android", "ios"], appVersion: "0.2.0", appVersions: ["0.2.0"], startDate: "2026-07-23", endDate: "2026-07-29" },
+      { appName: "stacksmash", platform: allPlatformsAlertScope, platforms: ["android", "ios"], appVersion: allAppVersionsAlertScope, appVersions: [], startDate: "2026-07-23", endDate: "2026-07-29" },
     ]);
   });
 
   it("uses the Melbourne calendar date for the scheduled window, including before UTC reaches that date", () => {
     expect(gameplayAlertTimeZone).toBe("Australia/Melbourne");
     expect(dailyGameplayAlertFilters(new Date("2026-08-04T20:38:30.251Z"))).toEqual([
-      { appName: "stacksmash", platform: allPlatformsAlertScope, platforms: ["android", "ios"], appVersion: "0.2.0", appVersions: ["0.2.0"], startDate: "2026-07-30", endDate: "2026-08-05" },
+      { appName: "stacksmash", platform: allPlatformsAlertScope, platforms: ["android", "ios"], appVersion: allAppVersionsAlertScope, appVersions: [], startDate: "2026-07-30", endDate: "2026-08-05" },
     ]);
   });
 

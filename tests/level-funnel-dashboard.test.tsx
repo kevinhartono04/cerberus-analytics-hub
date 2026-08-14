@@ -118,4 +118,25 @@ describe("LevelFunnelDashboard Count polling", () => {
       expect(JSON.parse(String((call?.[1] as RequestInit).body))).toMatchObject({ forceRefresh: true });
     });
   });
+
+  it("shows the real-time critical alert policy alongside the daily configuration for admins", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/me") return Promise.resolve(jsonResponse({ authenticated: true, user: { role: "admin" }, access: { techLaunchApps: ["stacksmash"] } }));
+      if (url === "/api/tech-launch/app-versions") return Promise.resolve(jsonResponse({ versions: [{ appVersion: "0.2.0", sampleCount: 100 }] }));
+      if (url === "/api/tech-launch/level-fail-rate") return Promise.resolve(jsonResponse(unavailableResult()));
+      return Promise.reject(new Error(`Unexpected request: ${url}`));
+    });
+
+    render(<LevelFunnelDashboard />);
+    fireEvent.click(await screen.findByRole("button", { name: /^run$/i }));
+    fireEvent.click(await screen.findByText("Alert delivery and thresholds (admin)"));
+
+    expect(await screen.findByRole("region", { name: "Real-time critical alert configuration" })).toBeInTheDocument();
+    expect(screen.getByText("Runs every 15 minutes across the same Slack targets. A recovered level can alert again if it re-breaches.")).toBeInTheDocument();
+    expect(screen.getByText(">70%")).toBeInTheDocument();
+    expect(screen.getByText("Last 48h")).toBeInTheDocument();
+    expect(screen.getByText(/Each target is used by both daily and real-time alerts/i)).toBeInTheDocument();
+  });
 });

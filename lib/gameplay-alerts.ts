@@ -202,7 +202,7 @@ const defaultSettings: GameplayAlertSettings = {
   normalThreshold: 0.5,
   hardThreshold: 0.7,
   minPlayers: 50,
-  alertTargets: [{ appName: "stacksmash", platforms: ["android", "ios"], appVersion: "0.2.0" }],
+  alertTargets: [{ appName: "stacksmash", platforms: ["android", "ios"], appVersion: "" }],
 };
 
 function readBaseSql() {
