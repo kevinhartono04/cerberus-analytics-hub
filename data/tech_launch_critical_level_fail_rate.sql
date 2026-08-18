@@ -95,20 +95,36 @@ with source_events as (
   where e.name = 'Game_End'
     and e.level is not null
     and e.level >= 0
-), revision_metrics as (
+), start_metrics as (
   select
-    a.level,
-    a.revision_key,
-    count(distinct s.user_id) as reached_players,
-    count(distinct case when e.outcome in ('lose', 'loss', 'fail', 'failed') then e.user_id end) as failed_players
+    s.level,
+    s.revision_key,
+    count(distinct s.user_id) as reached_players
   from active_revisions a
   join starts s
     on s.level = a.level
     and s.revision_key = a.revision_key
-  left join ended_games e
+  group by 1, 2
+), end_metrics as (
+  select
+    e.level,
+    e.revision_key,
+    count(distinct case when e.outcome in ('lose', 'loss', 'fail', 'failed') then e.user_id end) as failed_players
+  from active_revisions a
+  join ended_games e
     on e.level = a.level
     and e.revision_key = a.revision_key
   group by 1, 2
+), revision_metrics as (
+  select
+    sm.level,
+    sm.revision_key,
+    sm.reached_players,
+    coalesce(em.failed_players, 0) as failed_players
+  from start_metrics sm
+  left join end_metrics em
+    on em.level = sm.level
+    and em.revision_key = sm.revision_key
 )
 select
   a.level,

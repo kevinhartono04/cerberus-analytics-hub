@@ -52,9 +52,14 @@ describe("critical gameplay alerts", () => {
     expect(sql).toContain("ep.created_at >= dateadd(hour, -48, current_timestamp()) -- modifiable parameter");
     expect(sql).toContain("ep.created_at < current_timestamp() -- modifiable parameter");
     expect(sql).toContain("ep.app_id = 3011 -- modifiable parameter");
+    expect(sql).toContain("ep.platform in ('android') -- modifiable parameter");
+    expect(sql).toContain("ep.app_version in ('0.2.0') -- modifiable parameter");
     expect(sql).not.toContain("layout_is_stable");
     expect(sql).not.toContain("pending_revision_candidates");
     expect(sql).not.toContain("prior_layouts");
+    expect(sql).toContain("), start_metrics as (");
+    expect(sql).toContain("), end_metrics as (");
+    expect(sql).not.toContain("count(distinct s.user_id) as reached_players,\n    count(distinct case when e.outcome");
   });
 
   it("opens only for every-tier breaches strictly above 70% with at least 50 players", async () => {
