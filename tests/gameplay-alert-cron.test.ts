@@ -17,6 +17,12 @@ const mocks = vi.hoisted(() => ({
   markStatusDelivered: vi.fn(),
   submit: vi.fn(),
   getQuery: vi.fn(),
+  adMetricKey: vi.fn(),
+  buildAdMetricSql: vi.fn(),
+  reconcileAdMetrics: vi.fn(),
+  undeliveredAdMetrics: vi.fn(),
+  deliverAdMetrics: vi.fn(),
+  adMetricCronWindow: vi.fn(),
 }));
 
 vi.mock("@/lib/gameplay-alerts", () => ({
@@ -35,6 +41,14 @@ vi.mock("@/lib/gameplay-alerts", () => ({
 }));
 vi.mock("@/lib/db", () => ({ listGameplayAlertQueryJobs: mocks.listJobs, saveGameplayAlertQueryJobRecords: mocks.saveJobs, markGameplayAlertQueryJobsSlackStatusDelivered: mocks.markStatusDelivered }));
 vi.mock("@/lib/count-api", () => ({ submitCountSql: mocks.submit, getCountQuery: mocks.getQuery }));
+vi.mock("@/lib/ad-metric-alerts", () => ({
+  adMetricAlertEvaluationKey: mocks.adMetricKey,
+  buildAdMetricAlertSql: mocks.buildAdMetricSql,
+  reconcileAdMetricAlertsFromQuery: mocks.reconcileAdMetrics,
+  undeliveredAdMetricAlertTransitions: mocks.undeliveredAdMetrics,
+  deliverAdMetricAlertTransitions: mocks.deliverAdMetrics,
+  isAdMetricAlertCronWindow: mocks.adMetricCronWindow,
+}));
 
 import { GET } from "@/app/api/cron/gameplay-alerts/route";
 import { isGameplayAlertCronWindow } from "@/lib/gameplay-alert-cron-window";
@@ -50,6 +64,12 @@ describe("gameplay alert cron", () => {
     mocks.criticalEvaluationKey.mockReset().mockReturnValue("critical:stacksmash:android:0.2.0");
     mocks.buildSql.mockReset().mockReturnValue("select 1");
     mocks.buildCriticalSql.mockReset().mockReturnValue("select critical");
+    mocks.adMetricKey.mockReset().mockReturnValue("ad-metrics:stacksmash:android:0.2.0:2026-07-28");
+    mocks.buildAdMetricSql.mockReset().mockReturnValue("select ad metrics");
+    mocks.reconcileAdMetrics.mockReset().mockResolvedValue({ transitions: [] });
+    mocks.undeliveredAdMetrics.mockReset().mockResolvedValue([]);
+    mocks.deliverAdMetrics.mockReset().mockResolvedValue({ delivered: 0, skipped: 0, configured: true });
+    mocks.adMetricCronWindow.mockReset().mockReturnValue(true);
     mocks.listJobs.mockReset().mockResolvedValue([]);
     mocks.saveJobs.mockReset().mockResolvedValue(undefined);
     mocks.markStatusDelivered.mockReset().mockResolvedValue(undefined);
@@ -100,6 +120,7 @@ describe("gameplay alert cron", () => {
     mocks.listJobs.mockResolvedValue([{ evaluationKey: "stacksmash:android:0.2.0:2026-07-22:2026-07-28", jobKey: "count-job", filters: JSON.stringify(filters), status: "completed", submittedAt: "2026-07-29T00:00:00.000Z" }]);
     mocks.openStates.mockResolvedValue([{ alertKey: "open-240", status: "open", appName: "stacksmash", platform: "android", appVersion: "0.2.0", level: 240, difficultyTier: "normal", firstSeenAt: "2026-07-22T00:00:00.000Z", lastSeenAt: "2026-07-28T00:00:00.000Z", lastFailRate: 0.404, lastReachedPlayers: 23_400, threshold: 0.4 }]);
     mocks.deliver.mockResolvedValue({ delivered: 0, skipped: 1, configured: false });
+    mocks.deliverAdMetrics.mockResolvedValue({ delivered: 0, skipped: 0, configured: false });
 
     const response = await GET(new Request("https://example.com/api/cron/gameplay-alerts?force=1", { headers: { authorization: "Bearer test-secret" } }));
 

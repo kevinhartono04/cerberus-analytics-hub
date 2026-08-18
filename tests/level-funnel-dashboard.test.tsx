@@ -25,6 +25,21 @@ function unavailableResult() {
   };
 }
 
+function multiLayoutResult() {
+  return {
+    status: "completed",
+    filters,
+    settings: { normalThreshold: 0.5, hardThreshold: 0.7, minPlayers: 50, alertTargets: [] },
+    points: [
+      { level: 10, layoutBankId: "bank-a", layoutHash: "hash-a", layoutShare: 1, layoutCoverage: 1, layoutAgeHours: 48, hasRecentActivity: true, layoutStable: true, layoutUpdatePending: false, difficultyTier: "normal", usedDifficultyFallback: false, reachedPlayers: 100, failedPlayers: 20, failRate: 0.2, threshold: 0.5, eligible: true, breached: false },
+      { level: 10, layoutBankId: "bank-b", layoutHash: "hash-b", layoutShare: 1, layoutCoverage: 1, layoutAgeHours: 8, hasRecentActivity: true, layoutStable: false, layoutUpdatePending: true, difficultyTier: "normal", usedDifficultyFallback: false, reachedPlayers: 40, failedPlayers: 30, failRate: 0.75, threshold: 0.5, eligible: false, breached: false },
+      { level: 11, layoutBankId: "retired-bank", layoutHash: "hash-old", layoutShare: 0, layoutCoverage: 1, layoutAgeHours: 240, hasRecentActivity: false, layoutStable: false, layoutUpdatePending: false, difficultyTier: "normal", usedDifficultyFallback: false, reachedPlayers: 200, failedPlayers: 120, failRate: 0.6, threshold: 0.5, eligible: false, breached: false },
+    ],
+    summary: { breachCount: 0, eligibleLevelCount: 1 },
+    metadata: { executedAt: "2026-08-18T00:00:00.000Z" },
+  };
+}
+
 describe("LevelFunnelDashboard Count polling", () => {
   afterEach(() => {
     cleanup();
@@ -138,5 +153,33 @@ describe("LevelFunnelDashboard Count polling", () => {
     expect(screen.getByText(">70%")).toBeInTheDocument();
     expect(screen.getByText("Last 48h")).toBeInTheDocument();
     expect(screen.getByText(/Each target is used by both daily and real-time alerts/i)).toBeInTheDocument();
+  });
+
+  it("uses a scatter plot for concurrent layouts and hides inactive layout candidates by default", async () => {
+    vi.stubGlobal("ResizeObserver", class {
+      observe() {}
+      disconnect() {}
+    });
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/me") return Promise.resolve(jsonResponse({ authenticated: true, user: { role: "viewer" }, access: { techLaunchApps: ["stacksmash"] } }));
+      if (url === "/api/tech-launch/app-versions") return Promise.resolve(jsonResponse({ versions: [{ appVersion: "0.2.0", sampleCount: 100 }] }));
+      if (url === "/api/tech-launch/level-fail-rate") return Promise.resolve(jsonResponse(multiLayoutResult()));
+      return Promise.reject(new Error(`Unexpected request: ${url}`));
+    });
+
+    render(<LevelFunnelDashboard />);
+    fireEvent.click(await screen.findByRole("button", { name: /^run$/i }));
+
+    const chart = await screen.findByRole("img", { name: "Level fail rate layout scatter plot" });
+    expect(screen.getByText("Each dot is a layout revision. Layouts on the same level are shown side-by-side.")).toBeInTheDocument();
+    expect(chart.querySelector("path")).toBeNull();
+    expect(screen.getByRole("button", { name: "Show 1 inactive" })).toBeInTheDocument();
+    expect([...chart.querySelectorAll("title")].some((title) => title.textContent?.includes("retired-bank"))).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "Show 1 inactive" }));
+    expect(screen.getByRole("button", { name: "Hide 1 inactive" })).toBeInTheDocument();
+    expect([...chart.querySelectorAll("title")].some((title) => title.textContent?.includes("retired-bank"))).toBe(true);
   });
 });

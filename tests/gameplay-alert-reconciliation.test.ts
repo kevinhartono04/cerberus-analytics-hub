@@ -90,4 +90,21 @@ describe("layout-bank gameplay alert reconciliation", () => {
     });
     expect(mocks.saveStates).toHaveBeenCalledWith([expect.objectContaining({ status: "pending", layoutBankId: "bank-a", lastSeenAt: expect.any(String) })]);
   });
+
+  it("does not put one layout pending merely because another app-version layout is warming up", async () => {
+    mocks.listStates.mockResolvedValue([openState("bank-a", "hash-a")]);
+    mocks.runCountSql.mockResolvedValueOnce({ query: {
+      status: "completed",
+      result_metadata: {},
+      result_preview: [
+        "level,layout_bank_id,layout_hash,difficulty_tier,used_difficulty_fallback,reached_players,failed_players,fail_rate,layout_share,layout_coverage,layout_age_hours,layout_is_stable,layout_update_pending",
+        "10,bank-a,hash-a,normal,false,100,20,0.2,1,1,48,true,false",
+        "10,bank-b,hash-b,normal,false,20,16,0.8,1,1,6,false,true",
+      ].join("\n"),
+    } });
+
+    await reconcileGameplayAlerts(filters);
+
+    expect(mocks.saveStates).toHaveBeenCalledWith([expect.objectContaining({ status: "resolved", layoutBankId: "bank-a" })]);
+  });
 });

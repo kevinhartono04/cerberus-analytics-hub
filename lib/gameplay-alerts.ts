@@ -55,6 +55,7 @@ export const gameplayAlertSettingsSchema = z.object({
   normalThreshold: z.number().min(0).max(1),
   hardThreshold: z.number().min(0).max(1),
   minPlayers: z.number().int().min(1).max(1_000_000),
+  adMetricZScoreThreshold: z.number().min(0.5).max(5).default(2),
   alertTargets: z.array(gameplayAlertTargetSchema).max(25).default([]),
   updatedAt: z.string().optional(),
   updatedBy: z.string().optional(),
@@ -99,6 +100,7 @@ export const gameplayAlertSettingsInputSchema = gameplayAlertSettingsSchema.pick
   normalThreshold: true,
   hardThreshold: true,
   minPlayers: true,
+  adMetricZScoreThreshold: true,
   alertTargets: true,
 });
 
@@ -202,6 +204,7 @@ const defaultSettings: GameplayAlertSettings = {
   normalThreshold: 0.5,
   hardThreshold: 0.7,
   minPlayers: 50,
+  adMetricZScoreThreshold: 2,
   alertTargets: [{ appName: "stacksmash", platforms: ["android", "ios"], appVersion: "" }],
 };
 
@@ -380,6 +383,7 @@ function settingsFromRecord(record: GameplayAlertSettingsRecord | null): Gamepla
     normalThreshold: record.normalThreshold,
     hardThreshold: record.hardThreshold,
     minPlayers: record.minPlayers,
+    adMetricZScoreThreshold: record.adMetricZScoreThreshold,
     alertTargets: record.alertTargets,
     updatedAt: record.updatedAt,
     updatedBy: record.updatedBy,
@@ -580,12 +584,16 @@ async function reconcileGameplayAlertResponse(filters: GameplayAlertStateScope, 
     await saveGameplayAlertEvaluationRun({ id: crypto.randomUUID(), evaluatedAt: now, filters: JSON.stringify(filters), result: JSON.stringify(response), transitionCount: 0 });
     return { response, transitions: [] as GameplayAlertTransition[] };
   }
-  const activeLayoutByLevel = new Map(response.points.map((point) => [point.level, point]));
-  const pendingLayoutByLevel = new Map(response.points.filter((point) => point.layoutUpdatePending).map((point) => [point.level, point]));
   const stateMatchesRevision = (state: GameplayAlertState, point: LevelFailRatePoint) => {
     if (point.layoutHash) return state.layoutHash ? state.layoutHash === point.layoutHash : state.layoutBankId === point.layoutBankId;
     return !state.layoutHash && state.layoutBankId === point.layoutBankId;
   };
+  const activeLayoutsByLevel = new Map<number, LevelFailRatePoint[]>();
+  for (const point of response.points) {
+    const points = activeLayoutsByLevel.get(point.level) ?? [];
+    points.push(point);
+    activeLayoutsByLevel.set(point.level, points);
+  }
   const current = new Map<string, LevelFailRatePoint>();
   for (const point of response.points.filter((candidate) => candidate.breached)) {
     const matchingOpenState = [...existing.values()].find((state) => state.status === "open" && state.level === point.level && state.difficultyTier === point.difficultyTier && stateMatchesRevision(state, point));
@@ -609,7 +617,9 @@ async function reconcileGameplayAlertResponse(filters: GameplayAlertStateScope, 
 
   for (const [key, previous] of existing) {
     if (current.has(key) || (previous.status !== "open" && previous.status !== "pending")) continue;
-    if (pendingLayoutByLevel.has(previous.level)) {
+    const layoutsForLevel = activeLayoutsByLevel.get(previous.level) ?? [];
+    const matchingLayout = layoutsForLevel.find((point) => stateMatchesRevision(previous, point));
+    if (matchingLayout?.layoutUpdatePending) {
       // Match the funnel: a new revision means the old-bank breach is no
       // longer an open alert. Retain it only as a pending recheck until the
       // current revision has enough stable, adopted traffic.
@@ -618,21 +628,21 @@ async function reconcileGameplayAlertResponse(filters: GameplayAlertStateScope, 
       if (previous.status === "open" && previous.slackOpenDeliveredAt && !previous.slackPendingDeliveredAt) transitions.push({ type: "pending", state });
       continue;
     }
-    const activeLayout = activeLayoutByLevel.get(previous.level);
-    if (!activeLayout || !activeLayout.layoutStable) {
+    if (matchingLayout?.layoutStable) {
+      const state = { ...previous, status: "resolved" as const, lastSeenAt: now, resolvedAt: now };
+      next.push(state);
+      // A resolution is useful only when the team was previously told that the
+      // breach opened; otherwise a delayed webhook configuration would produce
+      // a confusing standalone "resolved" notification.
+      if (previous.slackOpenDeliveredAt && !previous.slackResolvedDeliveredAt) transitions.push({ type: "resolved", state });
+      continue;
+    }
+    const hasStableReplacement = layoutsForLevel.some((point) => point.layoutStable);
+    if (!hasStableReplacement) {
       next.push(previous);
       continue;
     }
-    if (!stateMatchesRevision(previous, activeLayout)) {
-      next.push({ ...previous, status: "superseded", lastSeenAt: now, supersededAt: now });
-      continue;
-    }
-    const state = { ...previous, status: "resolved" as const, lastSeenAt: now, resolvedAt: now };
-    next.push(state);
-    // A resolution is useful only when the team was previously told that the
-    // breach opened; otherwise a delayed webhook configuration would produce
-    // a confusing standalone "resolved" notification.
-    if (previous.slackOpenDeliveredAt && !previous.slackResolvedDeliveredAt) transitions.push({ type: "resolved", state });
+    next.push({ ...previous, status: "superseded", lastSeenAt: now, supersededAt: now });
   }
 
   await saveGameplayAlertStateRecords(next);

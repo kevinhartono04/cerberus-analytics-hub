@@ -33,7 +33,7 @@ describe("gameplay difficulty alerts", () => {
     ]);
   });
 
-  it("treats a blank alert-target version as an all-version aggregate without sharing version-specific state", () => {
+  it("treats a blank alert-target version as an all-version layout aggregate", () => {
     const filters = gameplayAlertCronFilters({ normalThreshold: 0.5, hardThreshold: 0.7, minPlayers: 50, alertTargets: [{ appName: "stacksmash", platforms: ["android"], appVersion: "" }] }, new Date("2026-07-29T12:00:00.000Z"));
 
     expect(filters).toEqual([expect.objectContaining({ platform: "android", platforms: ["android"], appVersion: allAppVersionsAlertScope, appVersions: [] })]);
@@ -72,6 +72,7 @@ describe("gameplay difficulty alerts", () => {
   it("builds a query with the selected release filters and unique player contract", () => {
     const sql = buildLevelFailRateSql(filters);
     expect(sql).toContain("user_id::string as user_id");
+    expect(sql).toContain("app_version,");
     expect(sql).toContain("payload:level_id::string");
     expect(sql).toContain("coalesce(payload:layout_bank_id::string, payload:level_bank_id::string, '')");
     expect(sql).toContain("payload:layout_hash::string");
@@ -82,12 +83,15 @@ describe("gameplay difficulty alerts", () => {
     expect(sql).toContain("regexp_replace(lower(coalesce(max_by(s.raw_difficulty, s.created_at), '')), '[[:space:]_-]', '')");
     expect(sql).toContain("in ('hard', 'superhard', 'veryhard') then 'hard'");
     expect(sql).toContain("in ('normal', 'hard', 'superhard', 'veryhard') as used_difficulty_fallback");
-    expect(sql).toContain("a.layout_share >= 0.7");
-    expect(sql).toContain("a.layout_coverage >= 0.95");
+    expect(sql).toContain("r.recent_players / nullif(t.total_recent_players, 0)::float >= 0.7");
+    expect(sql).toContain("t.layout_covered_recent_players / nullif(t.total_recent_players, 0)::float >= 0.95");
     expect(sql).toContain("revision_metrics as");
-    expect(sql).toContain("active_revisions as");
+    expect(sql).toContain("active_revision_candidates as");
+    expect(sql).toContain("partition by m.app_version, m.level");
+    expect(sql).toContain("layout_rollups as");
+    expect(sql).toContain("boolor_agg(a.layout_is_stable) as layout_is_stable");
     expect(sql).toContain("case when m.recent_players > 0 then 1 else 0 end desc");
-    expect(sql).toContain("a.recent_players > 0 as has_recent_activity");
+    expect(sql).toContain("boolor_agg(a.recent_players > 0) as has_recent_activity");
     expect(sql).toContain("pending_revision_candidates as");
     expect(sql).toContain("revision_banks as");
     expect(sql).toContain("canonical_bank_rank");

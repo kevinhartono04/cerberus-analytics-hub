@@ -34,6 +34,7 @@ type GameplayAlertSettings = {
   normalThreshold: number;
   hardThreshold: number;
   minPlayers: number;
+  adMetricZScoreThreshold?: number;
   alertTargets: GameplayAlertTarget[];
   updatedAt?: string;
 };
@@ -48,6 +49,7 @@ type LevelFailRatePoint = {
   level: number;
   levelId?: string;
   layoutBankId: string;
+  layoutHash?: string;
   layoutShare: number;
   layoutCoverage: number;
   layoutAgeHours: number;
@@ -242,10 +244,11 @@ async function responseMessage(response: Response) {
   }
 }
 
-function AlertSettings({ settings, canManage, onSave }: { settings: GameplayAlertSettings; canManage: boolean; onSave: (value: Pick<GameplayAlertSettings, "normalThreshold" | "hardThreshold" | "minPlayers" | "alertTargets">) => Promise<void> }) {
+function AlertSettings({ settings, canManage, onSave }: { settings: GameplayAlertSettings; canManage: boolean; onSave: (value: Pick<GameplayAlertSettings, "normalThreshold" | "hardThreshold" | "minPlayers" | "adMetricZScoreThreshold" | "alertTargets">) => Promise<void> }) {
   const [normal, setNormal] = useState(String(Math.round(settings.normalThreshold * 100)));
   const [hard, setHard] = useState(String(Math.round(settings.hardThreshold * 100)));
   const [minimum, setMinimum] = useState(String(settings.minPlayers));
+  const [adMetricZScore, setAdMetricZScore] = useState(String(settings.adMetricZScoreThreshold ?? 2));
   const [targets, setTargets] = useState<GameplayAlertTarget[]>(settings.alertTargets);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
@@ -254,6 +257,7 @@ function AlertSettings({ settings, canManage, onSave }: { settings: GameplayAler
     setNormal(String(Math.round(settings.normalThreshold * 100)));
     setHard(String(Math.round(settings.hardThreshold * 100)));
     setMinimum(String(settings.minPlayers));
+    setAdMetricZScore(String(settings.adMetricZScoreThreshold ?? 2));
     setTargets(settings.alertTargets);
   }, [settings]);
 
@@ -269,6 +273,11 @@ function AlertSettings({ settings, canManage, onSave }: { settings: GameplayAler
           <div className="rounded border border-line/70 bg-surface-popover px-2 py-1.5"><span className="font-mono text-[10px] uppercase text-slate-500">Data window</span><p className="mt-0.5 font-mono text-sm font-bold text-slate-200">Last 48h</p></div>
           <div className="rounded border border-line/70 bg-surface-popover px-2 py-1.5"><span className="font-mono text-[10px] uppercase text-slate-500">Version scope</span><p className="mt-0.5 font-mono text-sm font-bold text-slate-200">Per target below</p></div>
         </div>
+      </section>
+      <section className="mt-3 rounded-[9px] border border-cobalt/30 bg-cobalt/5 p-3" aria-label="FIPG and RIPG anomaly alert configuration">
+        <div className="flex flex-wrap items-start justify-between gap-2"><div><p className="font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-cobalt">Hourly FIPG & RIPG anomaly alert</p><p className="mt-1 text-[11px] text-slate-400">Checks the last completed hour’s interstitial and rewarded impressions per completed game against the preceding 12 completed hours. Only downward anomalies are sent to the same Slack targets.</p></div><span className="rounded border border-cobalt/30 bg-cobalt/10 px-2 py-1 font-mono text-[10px] font-semibold text-cobalt">12-HOUR BASELINE</span></div>
+        <label className="mt-3 block max-w-[180px]"><span className="font-mono text-[10px] uppercase text-slate-500">Drop z-score</span><input aria-label="Ad metric drop z-score threshold" value={adMetricZScore} onChange={(event) => setAdMetricZScore(event.target.value)} type="number" min="0.5" max="5" step="0.1" className="mt-1 h-8 w-full rounded border border-line bg-surface-popover px-2 text-slate-200" /></label>
+        <p className="mt-2 text-[11px] text-slate-500">Alert when z-score is ≤ −{Number(adMetricZScore).toFixed(1) || "2.0"}; default is −2.0.</p>
       </section>
       <div className="mt-3 grid gap-2 sm:grid-cols-4">
         <label><span className="font-mono text-[10px] uppercase text-slate-500">Normal %</span><input aria-label="Normal fail threshold" value={normal} onChange={(event) => setNormal(event.target.value)} type="number" min="0" max="100" className="mt-1 h-8 w-full rounded border border-line bg-surface-popover px-2 text-slate-200" /></label>
@@ -288,8 +297,8 @@ function AlertSettings({ settings, canManage, onSave }: { settings: GameplayAler
         </div>
       </div>
       <button type="button" disabled={saving} onClick={() => {
-        const value = { normalThreshold: Number(normal) / 100, hardThreshold: Number(hard) / 100, minPlayers: Number(minimum), alertTargets: targets.map((target) => ({ ...target, appVersion: target.appVersion.trim() })) };
-        if (!Number.isFinite(value.normalThreshold) || !Number.isFinite(value.hardThreshold) || !Number.isInteger(value.minPlayers)) { setMessage("Enter valid thresholds and player count."); return; }
+        const value = { normalThreshold: Number(normal) / 100, hardThreshold: Number(hard) / 100, minPlayers: Number(minimum), adMetricZScoreThreshold: Number(adMetricZScore), alertTargets: targets.map((target) => ({ ...target, appVersion: target.appVersion.trim() })) };
+        if (!Number.isFinite(value.normalThreshold) || !Number.isFinite(value.hardThreshold) || !Number.isInteger(value.minPlayers) || !Number.isFinite(value.adMetricZScoreThreshold) || value.adMetricZScoreThreshold < 0.5 || value.adMetricZScoreThreshold > 5) { setMessage("Enter valid thresholds and player count."); return; }
         if (value.alertTargets.some((target) => !target.platforms.length)) { setMessage("Every alert target needs at least one platform."); return; }
         setSaving(true); setMessage("");
         void onSave(value).then(() => setMessage("Saved.")).catch((error) => setMessage(error instanceof Error ? error.message : "Could not save settings.")).finally(() => setSaving(false));
@@ -304,10 +313,12 @@ function FailRateChart({ data, loading }: { data: LevelFailRateResponse; loading
   const breaches = points.filter((point) => point.breached);
   const pendingUpdates = points.filter((point) => point.layoutUpdatePending);
   const pendingRechecks = pendingUpdates.filter((point) => point.previousBankAssessment || point.previousAlert);
+  const inactiveLayouts = points.filter((point) => !point.hasRecentActivity);
   const chartScrollRef = useRef<HTMLDivElement>(null);
   const [viewportWidth, setViewportWidth] = useState(1000);
   const [selectedPointKey, setSelectedPointKey] = useState<string | null>(null);
   const [hoveredPointKey, setHoveredPointKey] = useState<string | null>(null);
+  const [showInactiveLayouts, setShowInactiveLayouts] = useState(false);
   const xMin = Math.min(...points.map((point) => point.level));
   const xMax = Math.max(...points.map((point) => point.level));
   const pixelsPerLevel = Math.max(7, (viewportWidth - 86) / 100);
@@ -323,13 +334,32 @@ function FailRateChart({ data, loading }: { data: LevelFailRateResponse; loading
     Math.abs(rate - data.settings.normalThreshold) < 0.0001 ? `Normal ${percent(rate)}` : null,
     Math.abs(rate - data.settings.hardThreshold) < 0.0001 ? `Hard ${percent(rate)}` : null,
   ].filter(Boolean).join(" · ");
-  const path = points.map((point, index) => `${index ? "L" : "M"}${x(point.level)},${y(point.failRate)}`).join(" ");
-  const pointKey = (point: LevelFailRatePoint) => `${point.level}-${point.layoutBankId}-${point.difficultyTier}`;
+  const pointKey = (point: LevelFailRatePoint) => `${point.level}-${point.layoutHash ? `hash:${point.layoutHash}` : `bank:${point.layoutBankId}`}-${point.difficultyTier}`;
+  const visiblePoints = showInactiveLayouts ? points : points.filter((point) => point.hasRecentActivity);
+  const pointsByLevel = visiblePoints.reduce((groups, point) => {
+    const group = groups.get(point.level) ?? [];
+    group.push(point);
+    groups.set(point.level, group);
+    return groups;
+  }, new Map<number, LevelFailRatePoint[]>());
+  const pointX = (point: LevelFailRatePoint) => {
+    const group = pointsByLevel.get(point.level) ?? [point];
+    const position = group.findIndex((candidate) => pointKey(candidate) === pointKey(point));
+    return x(point.level) + (position - (group.length - 1) / 2) * 10;
+  };
+  const evaluationState = (point: LevelFailRatePoint) => {
+    if (!point.hasRecentActivity) return { label: "Inactive · not evaluated", color: "#64748b" };
+    if (point.layoutUpdatePending) return { label: "Layout update warming", color: "#fbbf24" };
+    if (!point.layoutStable) return { label: "Not stable · not evaluated", color: "#94a3b8" };
+    if (!point.eligible) return { label: "Insufficient sample · not evaluated", color: "#94a3b8" };
+    if (point.breached) return { label: "Eligible breach", color: "#fb7185" };
+    return { label: "Eligible", color: "#60a5fa" };
+  };
   const tickLevels = Array.from({ length: Math.floor((xMax - xMin) / 10) + 1 }, (_, index) => xMin + index * 10).filter((level) => level <= xMax);
   const hoveredPoint = points.find((point) => pointKey(point) === hoveredPointKey) ?? null;
-  const hoveredPrevious = hoveredPoint ? hoveredPoint.previousBankAssessment ?? hoveredPoint.previousAlert : null;
-  const hoveredTooltipX = hoveredPoint ? Math.max(plotStart, Math.min(plotEnd - 142, x(hoveredPoint.level) - 57)) : 0;
-  const hoveredTooltipY = hoveredPoint ? Math.max(8, y(hoveredPoint.failRate) - (hoveredPrevious ? 65 : 49)) : 0;
+  const hoveredState = hoveredPoint ? evaluationState(hoveredPoint) : null;
+  const hoveredTooltipX = hoveredPoint ? Math.max(plotStart, Math.min(plotEnd - 202, pointX(hoveredPoint) - 82)) : 0;
+  const hoveredTooltipY = hoveredPoint ? Math.max(8, y(hoveredPoint.failRate) - 62) : 0;
   const breachGroups = Array.from(breaches.reduce((groups, point) => {
     const group = groups.get(point.layoutBankId) ?? [];
     group.push(point);
@@ -374,18 +404,18 @@ function FailRateChart({ data, loading }: { data: LevelFailRateResponse; loading
       {data.status === "unavailable" ? <div className="px-[18px] py-10 text-center text-sm text-amber">{data.summary.unavailableReason ?? "Gameplay alert data is unavailable."}</div> : null}
       {data.status === "completed" && !points.length ? <div className="px-[18px] py-10 text-center text-sm text-slate-500">No gameplay events were found for this filter set.</div> : null}
       {data.status === "completed" && points.length ? <>
-        <div className="flex items-center justify-between gap-3 border-b border-line/40 px-[18px] py-2 font-mono text-[10px] text-slate-500"><span>Scroll horizontally to inspect the level timeline</span><span className="shrink-0">100 levels per view</span></div>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line/40 px-[18px] py-2 font-mono text-[10px] text-slate-500"><span>Each dot is a layout revision. Layouts on the same level are shown side-by-side.</span><div className="flex items-center gap-3"><button type="button" onClick={() => setShowInactiveLayouts((current) => !current)} className="focus-ring rounded border border-line/70 px-2 py-1 text-[10px] text-slate-400 hover:border-slate-500 hover:text-slate-200">{showInactiveLayouts ? "Hide" : "Show"} {inactiveLayouts.length} inactive</button><span className="shrink-0">100 levels per view</span></div></div>
         <div ref={chartScrollRef} className="overflow-x-auto overscroll-x-contain px-4 pb-2 pt-5" tabIndex={0} aria-label="Scrollable level fail rate chart">
-          <svg viewBox={`0 0 ${chartWidth} 215`} style={{ width: chartWidth, minWidth: chartWidth }} className="h-[230px] max-w-none" role="img" aria-label="Level fail rate line chart">
+          <svg viewBox={`0 0 ${chartWidth} 215`} style={{ width: chartWidth, minWidth: chartWidth }} className="h-[230px] max-w-none" role="img" aria-label="Level fail rate layout scatter plot">
             {referenceRates.map((rate) => <g key={rate}><line x1={plotStart} x2={plotEnd} y1={y(rate)} y2={y(rate)} stroke={isThreshold(rate) ? "#64748b" : "#263247"} strokeDasharray={isThreshold(rate) ? "4 4" : undefined} /><text x="6" y={y(rate) + 4} fill="var(--chart-label)" fontSize="10">{percent(rate)}</text>{isThreshold(rate) ? <text x={plotEnd + 7} y={y(rate) + 4} fill={Math.abs(rate - data.settings.hardThreshold) < 0.0001 ? "#c084fc" : "#94a3b8"} fontSize="10">{thresholdLabel(rate)}</text> : null}</g>)}
             {tickLevels.map((level) => <g key={level}><line x1={x(level)} x2={x(level)} y1="184" y2="188" stroke="var(--chart-axis)" /><text x={x(level)} y="204" textAnchor="middle" fill="var(--chart-label)" fontSize="10">{level}</text></g>)}
-            <path d={path} fill="none" stroke="#60a5fa" strokeWidth="2.5" />
-            {points.map((point) => {
+            {visiblePoints.map((point) => {
               const selected = pointKey(point) === selectedPointKey;
               const previous = point.previousBankAssessment ?? point.previousAlert;
-              return <g key={pointKey(point)}>{selected ? <><line x1={x(point.level)} x2={x(point.level)} y1="28" y2="185" stroke="#fbbf24" strokeDasharray="3 3" /><circle cx={x(point.level)} cy={y(point.failRate)} r="10" fill="none" stroke="#fbbf24" strokeWidth="2.5" /></> : null}<circle cx={x(point.level)} cy={y(point.failRate)} r={selected ? "6" : "5"} fill={previous ? "#fbbf24" : point.breached ? "#fb7185" : point.eligible ? "#60a5fa" : "#64748b"} onMouseEnter={() => setHoveredPointKey(pointKey(point))} onMouseLeave={() => setHoveredPointKey((current) => current === pointKey(point) ? null : current)} style={{ cursor: "pointer" }}><title>Level {point.level}{point.levelId ? ` (ID ${point.levelId})` : ""}; current bank {point.layoutBankId}: {percent(point.failRate)} fail rate; threshold {percent(point.threshold)}; {point.reachedPlayers} players reached; {point.failedPlayers} failed; {Math.round(point.layoutShare * 100)}% current-layout share; {Math.round(point.layoutAgeHours)}h active{previous ? `; previous bank ${previous.layoutBankId ?? "legacy"}: ${percent(previous.failRate)} breach, now warming bank ${point.pendingLayoutBankId}` : point.layoutUpdatePending ? `; new layout bank ${point.pendingLayoutBankId} is warming up` : ""}{!point.hasRecentActivity ? "; no starts in the latest 24h; shown from the last observed layout" : !point.layoutStable ? "; migration or warm-up pending" : ""}{point.usedDifficultyFallback ? "; difficulty fallback used" : ""}</title></circle></g>;
+              const state = evaluationState(point);
+              return <g key={pointKey(point)}>{selected ? <><line x1={pointX(point)} x2={pointX(point)} y1="28" y2="185" stroke="#fbbf24" strokeDasharray="3 3" /><circle cx={pointX(point)} cy={y(point.failRate)} r="10" fill="none" stroke="#fbbf24" strokeWidth="2.5" /></> : null}<circle cx={pointX(point)} cy={y(point.failRate)} r={selected ? "6" : "5"} fill={previous ? "#fbbf24" : state.color} opacity={point.hasRecentActivity ? 1 : 0.58} onMouseEnter={() => setHoveredPointKey(pointKey(point))} onMouseLeave={() => setHoveredPointKey((current) => current === pointKey(point) ? null : current)} style={{ cursor: "pointer" }}><title>Level {point.level}{point.levelId ? ` (ID ${point.levelId})` : ""}; layout bank {point.layoutBankId}{point.layoutHash ? `; hash ${point.layoutHash}` : ""}; {state.label}; {percent(point.failRate)} fail rate; threshold {percent(point.threshold)}; {point.reachedPlayers} players reached; {point.failedPlayers} failed; {Math.round(point.layoutShare * 100)}% layout share; {Math.round(point.layoutAgeHours)}h observed{previous ? `; previous bank ${previous.layoutBankId ?? "legacy"}: ${percent(previous.failRate)} breach` : ""}{point.usedDifficultyFallback ? "; difficulty fallback used" : ""}</title></circle></g>;
             })}
-            {hoveredPoint ? <g pointerEvents="none"><rect x={hoveredTooltipX} y={hoveredTooltipY} width="142" height={hoveredPrevious ? "53" : "37"} rx="6" fill="var(--chart-tooltip)" stroke="var(--chart-tooltip-line)" /><text x={hoveredTooltipX + 8} y={hoveredTooltipY + 15} fill="var(--chart-tooltip-ink)" fontSize="11" fontWeight="700">Level {hoveredPoint.level}</text><text x={hoveredTooltipX + 8} y={hoveredTooltipY + 30} fill="var(--chart-label)" fontSize="10">Current: {percent(hoveredPoint.failRate)} · bank {hoveredPoint.layoutBankId}</text>{hoveredPrevious ? <text x={hoveredTooltipX + 8} y={hoveredTooltipY + 45} fill="#fbbf24" fontSize="10">Previous: {percent(hoveredPrevious.failRate)} · bank {hoveredPrevious.layoutBankId ?? "legacy"}</text> : null}</g> : null}
+            {hoveredPoint && hoveredState ? <g pointerEvents="none"><rect x={hoveredTooltipX} y={hoveredTooltipY} width="202" height="53" rx="6" fill="var(--chart-tooltip)" stroke="var(--chart-tooltip-line)" /><text x={hoveredTooltipX + 8} y={hoveredTooltipY + 15} fill="var(--chart-tooltip-ink)" fontSize="11" fontWeight="700">Level {hoveredPoint.level} · bank {hoveredPoint.layoutBankId}</text><text x={hoveredTooltipX + 8} y={hoveredTooltipY + 30} fill="var(--chart-label)" fontSize="10">{percent(hoveredPoint.failRate)} fail · {new Intl.NumberFormat(undefined, { notation: "compact" }).format(hoveredPoint.reachedPlayers)} reached</text><text x={hoveredTooltipX + 8} y={hoveredTooltipY + 45} fill={hoveredState.color} fontSize="10">{hoveredState.label}</text></g> : null}
           </svg>
         </div>
         <div className="border-t border-line/60 px-[18px] py-4">
@@ -619,7 +649,7 @@ export default function LevelFunnelDashboard() {
     writeFiltersToUrl(filters, false);
   }, [filters, pendingUrlRun]);
 
-  async function saveSettings(value: Pick<GameplayAlertSettings, "normalThreshold" | "hardThreshold" | "minPlayers" | "alertTargets">) {
+  async function saveSettings(value: Pick<GameplayAlertSettings, "normalThreshold" | "hardThreshold" | "minPlayers" | "adMetricZScoreThreshold" | "alertTargets">) {
     const response = await fetch("/api/tech-launch/gameplay-alert-settings", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(value) });
     if (!response.ok) throw new Error(await responseMessage(response));
     const settings = (await response.json()) as GameplayAlertSettings;

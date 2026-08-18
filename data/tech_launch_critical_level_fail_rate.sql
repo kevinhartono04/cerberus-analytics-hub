@@ -1,5 +1,6 @@
 with source_events as (
   select
+    ep.app_version,
     ep.name,
     ep.created_at,
     ep.user_id,
@@ -15,6 +16,7 @@ with source_events as (
     and ep.user_id is not null
 ), gameplay_events as (
   select
+    app_version,
     user_id::string as user_id,
     name,
     created_at,
@@ -28,6 +30,7 @@ with source_events as (
   from source_events
 ), end_round_hashes as (
   select
+    app_version,
     user_id,
     level,
     game_round_id,
@@ -38,9 +41,10 @@ with source_events as (
     and level >= 0
     and game_round_id is not null
     and layout_hash is not null
-  group by 1, 2, 3
+  group by 1, 2, 3, 4
 ), starts as (
   select
+    s.app_version,
     s.user_id,
     s.created_at,
     s.level,
@@ -52,7 +56,8 @@ with source_events as (
     coalesce(s.layout_hash, r.layout_hash, concat('__bank_fallback__:', s.layout_bank_id)) as revision_key
   from gameplay_events s
   left join end_round_hashes r
-    on r.user_id = s.user_id
+    on r.app_version = s.app_version
+    and r.user_id = s.user_id
     and r.level = s.level
     and r.game_round_id = s.game_round_id
   where s.name = 'Game_Start'
@@ -61,6 +66,7 @@ with source_events as (
     and s.layout_bank_id is not null
 ), active_revision_candidates as (
   select
+    app_version,
     level,
     revision_key,
     max_by(level_id, created_at) as level_id,
@@ -71,15 +77,26 @@ with source_events as (
       else 'normal'
     end as difficulty_tier,
     max(created_at) as last_seen_at,
-    row_number() over (partition by level order by max(created_at) desc, revision_key) as revision_rank
+    row_number() over (partition by app_version, level order by max(created_at) desc, revision_key) as revision_rank
   from starts
-  group by 1, 2
+  group by 1, 2, 3
 ), active_revisions as (
   select *
   from active_revision_candidates
   where revision_rank = 1
+), active_layouts as (
+  select
+    level,
+    revision_key,
+    max_by(level_id, last_seen_at) as level_id,
+    max_by(layout_bank_id, last_seen_at) as layout_bank_id,
+    max_by(layout_hash, last_seen_at) as layout_hash,
+    max_by(difficulty_tier, last_seen_at) as difficulty_tier
+  from active_revisions
+  group by 1, 2
 ), ended_games as (
   select
+    e.app_version,
     e.user_id,
     e.level,
     coalesce(e.layout_hash, s.layout_hash) as layout_hash,
@@ -88,7 +105,8 @@ with source_events as (
     e.outcome
   from gameplay_events e
   left join starts s
-    on s.user_id = e.user_id
+    on s.app_version = e.app_version
+    and s.user_id = e.user_id
     and s.level = e.level
     and s.game_round_id is not null
     and s.game_round_id = e.game_round_id
@@ -97,22 +115,24 @@ with source_events as (
     and e.level >= 0
 ), start_metrics as (
   select
-    s.level,
-    s.revision_key,
+    a.level,
+    a.revision_key,
     count(distinct s.user_id) as reached_players
   from active_revisions a
   join starts s
-    on s.level = a.level
+    on s.app_version = a.app_version
+    and s.level = a.level
     and s.revision_key = a.revision_key
   group by 1, 2
 ), end_metrics as (
   select
-    e.level,
-    e.revision_key,
+    a.level,
+    a.revision_key,
     count(distinct case when e.outcome in ('lose', 'loss', 'fail', 'failed') then e.user_id end) as failed_players
   from active_revisions a
   join ended_games e
-    on e.level = a.level
+    on e.app_version = a.app_version
+    and e.level = a.level
     and e.revision_key = a.revision_key
   group by 1, 2
 ), revision_metrics as (
@@ -135,8 +155,8 @@ select
   m.reached_players,
   m.failed_players,
   m.failed_players / nullif(m.reached_players, 0)::float as fail_rate
-from active_revisions a
+from active_layouts a
 join revision_metrics m
   on m.level = a.level
   and m.revision_key = a.revision_key
-order by a.level asc
+order by a.level asc, a.revision_key

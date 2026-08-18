@@ -18,6 +18,15 @@ import {
   undeliveredGameplayAlertTransitions,
 } from "@/lib/gameplay-alerts";
 import { isGameplayAlertCronWindow } from "@/lib/gameplay-alert-cron-window";
+import {
+  adMetricAlertEvaluationKey,
+  buildAdMetricAlertSql,
+  deliverAdMetricAlertTransitions,
+  reconcileAdMetricAlertsFromQuery,
+  undeliveredAdMetricAlertTransitions,
+  isAdMetricAlertCronWindow,
+  type AdMetricAlertTransition,
+} from "@/lib/ad-metric-alerts";
 
 export const runtime = "nodejs";
 
@@ -30,6 +39,7 @@ type EvaluationResult = {
   completedCount: number;
   dailyStatusTargets: Array<{ evaluationKey: string; filters: AlertTarget }>;
 };
+type AdMetricEvaluationResult = Omit<EvaluationResult, "transitions"> & { transitions: AdMetricAlertTransition[] };
 
 function emptyEvaluationResult(): EvaluationResult {
   return { transitions: [], jobUpdates: [], failures: [], submittedCount: 0, completedCount: 0, dailyStatusTargets: [] };
@@ -179,23 +189,69 @@ async function evaluateCriticalTargets(targets: AlertTarget[], existingByKey: Ma
   return result;
 }
 
+/** FIPG/RIPG are evaluated once per completed hour, using its prior twelve completed hours as the baseline. */
+async function evaluateAdMetricTargets(targets: AlertTarget[], existingByKey: Map<string, GameplayAlertQueryJobRecord>, zScoreThreshold: number, now: Date, allowSubmission: boolean) {
+  const result: AdMetricEvaluationResult = { ...emptyEvaluationResult(), transitions: [] };
+  await Promise.all(targets.map(async (filters) => {
+    const evaluationKey = adMetricAlertEvaluationKey(filters, now);
+    const label = `${labelFor(filters)} ad metrics`;
+    let job = existingByKey.get(evaluationKey);
+    try {
+      if (job?.status === "running") {
+        const current = (await getCountQuery(job.jobKey, 1000)).query;
+        if (current.status === "error") {
+          result.jobUpdates.push({ ...job, status: "error", completedAt: new Date().toISOString(), error: current.error ?? "Count query failed" });
+          result.failures.push(`${label}: ${current.error ?? "Count query failed"}`);
+          return;
+        }
+        if (current.status === "running") return;
+        const reconciled = await reconcileAdMetricAlertsFromQuery(filters, current, zScoreThreshold, now);
+        result.transitions.push(...reconciled.transitions);
+        result.jobUpdates.push({ ...job, status: "completed", completedAt: new Date().toISOString(), error: undefined });
+        result.completedCount += 1;
+        return;
+      }
+      if (job || !allowSubmission) return;
+      const submitted = (await submitCountSql(buildAdMetricAlertSql(filters, now), { cacheStrategy: "force" })).query;
+      result.submittedCount += 1;
+      job = { evaluationKey, jobKey: submitted.job_key, filters: JSON.stringify(filters), status: "running", submittedAt: new Date().toISOString() };
+      if (submitted.status === "error") {
+        result.jobUpdates.push({ ...job, status: "error", completedAt: new Date().toISOString(), error: submitted.error ?? "Count query failed" });
+        result.failures.push(`${label}: ${submitted.error ?? "Count query failed"}`);
+        return;
+      }
+      result.jobUpdates.push(job);
+    } catch (error) {
+      result.failures.push(`${label}: ${error instanceof Error ? error.message : "evaluation failed"}`);
+    }
+  }));
+  return result;
+}
+
 export async function GET(request: Request) {
   if (!process.env.CRON_SECRET || request.headers.get("authorization") !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const now = new Date();
+  const force = new URL(request.url).searchParams.get("force") === "1";
   const settings = await getGameplayAlertSettings();
   const targets = gameplayAlertCronFilters(settings);
-  const shouldRunDaily = new URL(request.url).searchParams.get("force") === "1" || isGameplayAlertCronWindow();
+  const shouldRunDaily = force || isGameplayAlertCronWindow(now);
+  // This endpoint continues to run every 15 minutes for critical level alerts.
+  // FIPG/RIPG submits new work only at :00; later invocations only poll it.
+  const shouldSubmitHourlyAdMetrics = force || isAdMetricAlertCronWindow(now);
   const dailyKeys = shouldRunDaily ? targets.map(gameplayAlertEvaluationKey) : [];
   const criticalKeys = targets.map(criticalGameplayAlertEvaluationKey);
-  const existingByKey = new Map((await listGameplayAlertQueryJobs([...dailyKeys, ...criticalKeys])).map((job) => [job.evaluationKey, job]));
+  const adMetricKeys = targets.map((filters) => adMetricAlertEvaluationKey(filters, now));
+  const existingByKey = new Map((await listGameplayAlertQueryJobs([...dailyKeys, ...criticalKeys, ...adMetricKeys])).map((job) => [job.evaluationKey, job]));
 
-  const [daily, critical] = await Promise.all([
+  const [daily, critical, adMetrics] = await Promise.all([
     shouldRunDaily ? evaluateDailyTargets(targets, existingByKey) : Promise.resolve(emptyEvaluationResult()),
     evaluateCriticalTargets(targets, existingByKey),
+    evaluateAdMetricTargets(targets, existingByKey, settings.adMetricZScoreThreshold, now, shouldSubmitHourlyAdMetrics),
   ]);
-  await saveGameplayAlertQueryJobRecords([...daily.jobUpdates, ...critical.jobUpdates]);
+  await saveGameplayAlertQueryJobRecords([...daily.jobUpdates, ...critical.jobUpdates, ...adMetrics.jobUpdates]);
 
   const openStatesByEvaluationKey = new Map(await Promise.all((shouldRunDaily ? targets : []).map(async (filters) => [
     gameplayAlertEvaluationKey(filters),
@@ -207,6 +263,7 @@ export async function GET(request: Request) {
   const dailyOpenKeys = new Set(dailyStatusTransitions.map((transition) => transition.state.alertKey));
   const dailyRetryTransitions = (await Promise.all((shouldRunDaily ? targets : []).map((filters) => undeliveredGameplayAlertTransitions(filters)))).flat();
   const criticalRetryTransitions = (await Promise.all(targets.map((filters) => undeliveredGameplayAlertTransitions(filters, "critical")))).flat();
+  const adMetricRetryTransitions = (await Promise.all(targets.map(undeliveredAdMetricAlertTransitions))).flat();
 
   const failures = [...daily.failures, ...critical.failures];
   const deliveryParts: Array<{ delivered: number; skipped: number; configured: boolean }> = [];
@@ -231,10 +288,19 @@ export async function GET(request: Request) {
   } catch (error) {
     failures.push(`Slack critical: ${error instanceof Error ? error.message : "delivery failed"}`);
   }
+  try {
+    deliveryParts.push(await deliverAdMetricAlertTransitions([
+      ...adMetrics.transitions,
+      ...adMetricRetryTransitions,
+    ]));
+  } catch (error) {
+    failures.push(`Slack ad metrics: ${error instanceof Error ? error.message : "delivery failed"}`);
+  }
 
-  const jobFor = (key: string) => [...daily.jobUpdates, ...critical.jobUpdates].find((job) => job.evaluationKey === key) ?? existingByKey.get(key);
+  const jobFor = (key: string) => [...daily.jobUpdates, ...critical.jobUpdates, ...adMetrics.jobUpdates].find((job) => job.evaluationKey === key) ?? existingByKey.get(key);
   const dailyRunningCount = shouldRunDaily ? targets.filter((filters) => jobFor(gameplayAlertEvaluationKey(filters))?.status === "running").length : 0;
   const criticalRunningCount = targets.filter((filters) => jobFor(criticalGameplayAlertEvaluationKey(filters))?.status === "running").length;
+  const adMetricRunningCount = targets.filter((filters) => jobFor(adMetricAlertEvaluationKey(filters, now))?.status === "running").length;
   const delivery = deliveryParts.length ? {
     delivered: deliveryParts.reduce((total, part) => total + part.delivered, 0),
     skipped: deliveryParts.reduce((total, part) => total + part.skipped, 0),
@@ -268,8 +334,13 @@ export async function GET(request: Request) {
     criticalSubmittedCount: critical.submittedCount,
     criticalCompletedCount: critical.completedCount,
     criticalRunningCount,
+    adMetricSubmittedCount: adMetrics.submittedCount,
+    adMetricCompletedCount: adMetrics.completedCount,
+    adMetricRunningCount,
+    adMetricHourlySubmissionSkipped: !shouldSubmitHourlyAdMetrics,
     transitionCount: daily.transitions.length,
     criticalTransitionCount: critical.transitions.length,
+    adMetricTransitionCount: adMetrics.transitions.length,
     dailyOpenDeliveryCount: dailyStatusTransitions.length,
     delivery,
     failures,

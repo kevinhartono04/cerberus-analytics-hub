@@ -17,6 +17,7 @@ import type {
   UserRole,
 } from "@/lib/types";
 import type { GameplayAlertSettings, GameplayAlertState, GameplayAlertTarget } from "@/lib/gameplay-alerts";
+import type { AdMetricAlertState } from "@/lib/ad-metric-alerts";
 import { generatedSpecSchema, userRoleSchema } from "@/lib/types";
 
 const seedPath = path.join(process.cwd(), "data", "analytics_reference_library.json");
@@ -238,16 +239,37 @@ async function ensureGameplayAlertTables() {
           normal_threshold DOUBLE PRECISION NOT NULL,
           hard_threshold DOUBLE PRECISION NOT NULL,
           min_players INTEGER NOT NULL,
+          ad_metric_z_score_threshold DOUBLE PRECISION NOT NULL DEFAULT 2,
           alert_targets TEXT NOT NULL DEFAULT '[{"appName":"stacksmash","platforms":["android","ios"],"appVersion":""}]',
           updated_at TEXT NOT NULL,
           updated_by TEXT NOT NULL
         )
       `;
       await transaction`ALTER TABLE gameplay_alert_settings ADD COLUMN IF NOT EXISTS alert_targets TEXT`;
+      await transaction`ALTER TABLE gameplay_alert_settings ADD COLUMN IF NOT EXISTS ad_metric_z_score_threshold DOUBLE PRECISION NOT NULL DEFAULT 2`;
       await transaction`UPDATE gameplay_alert_settings SET alert_targets = '[{"appName":"stacksmash","platforms":["android","ios"],"appVersion":""}]' WHERE alert_targets IS NULL`;
       // Upgrade only the historical seeded target. Admin-configured target
       // lists remain untouched, while the default now evaluates all versions.
       await transaction`UPDATE gameplay_alert_settings SET alert_targets = '[{"appName":"stacksmash","platforms":["android","ios"],"appVersion":""}]' WHERE id = 'global' AND alert_targets = '[{"appName":"stacksmash","platforms":["android","ios"],"appVersion":"0.2.0"}]'`;
+      await transaction`
+        CREATE TABLE IF NOT EXISTS ad_metric_alert_states (
+          alert_key TEXT PRIMARY KEY NOT NULL,
+          metric TEXT NOT NULL,
+          app_name TEXT NOT NULL,
+          platform TEXT NOT NULL,
+          app_version TEXT NOT NULL,
+          status TEXT NOT NULL,
+          first_seen_at TEXT NOT NULL,
+          last_seen_at TEXT NOT NULL,
+          resolved_at TEXT,
+          current_value DOUBLE PRECISION NOT NULL,
+          baseline_mean DOUBLE PRECISION NOT NULL,
+          baseline_stddev DOUBLE PRECISION NOT NULL,
+          z_score DOUBLE PRECISION NOT NULL,
+          threshold DOUBLE PRECISION NOT NULL,
+          slack_open_delivered_at TEXT
+        )
+      `;
       await transaction`
         CREATE TABLE IF NOT EXISTS gameplay_alert_states (
           alert_key TEXT PRIMARY KEY NOT NULL,
@@ -312,6 +334,7 @@ function ensureSqliteGameplayAlertTables() {
     CREATE TABLE IF NOT EXISTS gameplay_alert_settings (
       id TEXT PRIMARY KEY NOT NULL, normal_threshold REAL NOT NULL, hard_threshold REAL NOT NULL,
       min_players INTEGER NOT NULL,
+      ad_metric_z_score_threshold REAL NOT NULL DEFAULT 2,
       alert_targets TEXT NOT NULL DEFAULT '[{"appName":"stacksmash","platforms":["android","ios"],"appVersion":""}]',
       updated_at TEXT NOT NULL, updated_by TEXT NOT NULL
     );
@@ -320,6 +343,12 @@ function ensureSqliteGameplayAlertTables() {
       level INTEGER NOT NULL, layout_bank_id TEXT, layout_hash TEXT, difficulty_tier TEXT NOT NULL, status TEXT NOT NULL, first_seen_at TEXT NOT NULL,
       last_seen_at TEXT NOT NULL, resolved_at TEXT, superseded_at TEXT, last_fail_rate REAL NOT NULL, last_reached_players INTEGER NOT NULL,
       threshold REAL NOT NULL, slack_open_delivered_at TEXT, slack_pending_delivered_at TEXT, slack_resolved_delivered_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS ad_metric_alert_states (
+      alert_key TEXT PRIMARY KEY NOT NULL, metric TEXT NOT NULL, app_name TEXT NOT NULL, platform TEXT NOT NULL, app_version TEXT NOT NULL,
+      status TEXT NOT NULL, first_seen_at TEXT NOT NULL, last_seen_at TEXT NOT NULL, resolved_at TEXT,
+      current_value REAL NOT NULL, baseline_mean REAL NOT NULL, baseline_stddev REAL NOT NULL, z_score REAL NOT NULL, threshold REAL NOT NULL,
+      slack_open_delivered_at TEXT
     );
     CREATE TABLE IF NOT EXISTS gameplay_alert_evaluation_runs (
       id TEXT PRIMARY KEY NOT NULL, evaluated_at TEXT NOT NULL, filters TEXT NOT NULL, result TEXT NOT NULL,
@@ -334,6 +363,7 @@ function ensureSqliteGameplayAlertTables() {
     sqliteExec("ALTER TABLE gameplay_alert_settings ADD COLUMN alert_targets TEXT");
     sqliteExec("UPDATE gameplay_alert_settings SET alert_targets = '[{\"appName\":\"stacksmash\",\"platforms\":[\"android\",\"ios\"],\"appVersion\":\"\"}]' WHERE alert_targets IS NULL");
   }
+  if (!sqliteColumnExists("gameplay_alert_settings", "ad_metric_z_score_threshold")) sqliteExec("ALTER TABLE gameplay_alert_settings ADD COLUMN ad_metric_z_score_threshold REAL NOT NULL DEFAULT 2");
   sqliteExec("UPDATE gameplay_alert_settings SET alert_targets = '[{\"appName\":\"stacksmash\",\"platforms\":[\"android\",\"ios\"],\"appVersion\":\"\"}]' WHERE id = 'global' AND alert_targets = '[{\"appName\":\"stacksmash\",\"platforms\":[\"android\",\"ios\"],\"appVersion\":\"0.2.0\"}]'");
   if (!sqliteColumnExists("gameplay_alert_states", "layout_bank_id")) sqliteExec("ALTER TABLE gameplay_alert_states ADD COLUMN layout_bank_id TEXT");
   if (!sqliteColumnExists("gameplay_alert_states", "alert_kind")) sqliteExec("ALTER TABLE gameplay_alert_states ADD COLUMN alert_kind TEXT NOT NULL DEFAULT 'daily'");
@@ -1142,6 +1172,7 @@ export async function saveTechLaunchReadinessCache(record: TechLaunchReadinessCa
 export type GameplayAlertSettingsRecord = GameplayAlertSettings & { updatedAt: string; updatedBy: string };
 
 export type GameplayAlertStateRecord = GameplayAlertState;
+export type AdMetricAlertStateRecord = AdMetricAlertState;
 
 export type GameplayAlertQueryJobRecord = {
   evaluationKey: string;
@@ -1165,6 +1196,7 @@ function rowToGameplayAlertSettings(row: Record<string, unknown>): GameplayAlert
   }
   return {
     normalThreshold: Number(row.normal_threshold), hardThreshold: Number(row.hard_threshold), minPlayers: Number(row.min_players),
+    adMetricZScoreThreshold: Number(row.ad_metric_z_score_threshold ?? 2),
     alertTargets,
     updatedAt: asString(row.updated_at), updatedBy: asString(row.updated_by),
   };
@@ -1184,6 +1216,16 @@ function rowToGameplayAlertState(row: Record<string, unknown>): GameplayAlertSta
   };
 }
 
+function rowToAdMetricAlertState(row: Record<string, unknown>): AdMetricAlertStateRecord {
+  return {
+    alertKey: asString(row.alert_key), metric: asString(row.metric) === "ripg" ? "ripg" : "fipg",
+    appName: asString(row.app_name), platform: asString(row.platform), appVersion: asString(row.app_version),
+    status: asString(row.status) === "resolved" ? "resolved" : "open", firstSeenAt: asString(row.first_seen_at), lastSeenAt: asString(row.last_seen_at),
+    ...(asString(row.resolved_at) ? { resolvedAt: asString(row.resolved_at) } : {}), currentValue: Number(row.current_value), baselineMean: Number(row.baseline_mean), baselineStddev: Number(row.baseline_stddev), zScore: Number(row.z_score), threshold: Number(row.threshold),
+    ...(asString(row.slack_open_delivered_at) ? { slackOpenDeliveredAt: asString(row.slack_open_delivered_at) } : {}),
+  };
+}
+
 function rowToGameplayAlertQueryJob(row: Record<string, unknown>): GameplayAlertQueryJobRecord {
   const status = asString(row.status);
   return {
@@ -1198,22 +1240,22 @@ function rowToGameplayAlertQueryJob(row: Record<string, unknown>): GameplayAlert
 export async function getGameplayAlertSettingsRecord(): Promise<GameplayAlertSettingsRecord | null> {
   if (shouldUseLocalSqlite()) {
     ensureSqliteGameplayAlertTables();
-    const [row] = sqliteJsonRows<Record<string, unknown>>(`SELECT normal_threshold, hard_threshold, min_players, alert_targets, updated_at, updated_by FROM gameplay_alert_settings WHERE id = 'global' LIMIT 1`);
+    const [row] = sqliteJsonRows<Record<string, unknown>>(`SELECT normal_threshold, hard_threshold, min_players, ad_metric_z_score_threshold, alert_targets, updated_at, updated_by FROM gameplay_alert_settings WHERE id = 'global' LIMIT 1`);
     return row ? rowToGameplayAlertSettings(row) : null;
   }
   const sql = await ensureGameplayAlertTables();
-  const [row] = await sql<Record<string, unknown>[]>`SELECT normal_threshold, hard_threshold, min_players, alert_targets, updated_at, updated_by FROM gameplay_alert_settings WHERE id = 'global' LIMIT 1`;
+  const [row] = await sql<Record<string, unknown>[]>`SELECT normal_threshold, hard_threshold, min_players, ad_metric_z_score_threshold, alert_targets, updated_at, updated_by FROM gameplay_alert_settings WHERE id = 'global' LIMIT 1`;
   return row ? rowToGameplayAlertSettings(row) : null;
 }
 
 export async function saveGameplayAlertSettingsRecord(record: GameplayAlertSettingsRecord) {
   if (shouldUseLocalSqlite()) {
     ensureSqliteGameplayAlertTables();
-    sqliteExec(`INSERT INTO gameplay_alert_settings (id, normal_threshold, hard_threshold, min_players, alert_targets, updated_at, updated_by) VALUES ('global', ${record.normalThreshold}, ${record.hardThreshold}, ${record.minPlayers}, ${sqliteLiteral(JSON.stringify(record.alertTargets))}, ${sqliteLiteral(record.updatedAt)}, ${sqliteLiteral(record.updatedBy)}) ON CONFLICT(id) DO UPDATE SET normal_threshold = excluded.normal_threshold, hard_threshold = excluded.hard_threshold, min_players = excluded.min_players, alert_targets = excluded.alert_targets, updated_at = excluded.updated_at, updated_by = excluded.updated_by`);
+    sqliteExec(`INSERT INTO gameplay_alert_settings (id, normal_threshold, hard_threshold, min_players, ad_metric_z_score_threshold, alert_targets, updated_at, updated_by) VALUES ('global', ${record.normalThreshold}, ${record.hardThreshold}, ${record.minPlayers}, ${record.adMetricZScoreThreshold}, ${sqliteLiteral(JSON.stringify(record.alertTargets))}, ${sqliteLiteral(record.updatedAt)}, ${sqliteLiteral(record.updatedBy)}) ON CONFLICT(id) DO UPDATE SET normal_threshold = excluded.normal_threshold, hard_threshold = excluded.hard_threshold, min_players = excluded.min_players, ad_metric_z_score_threshold = excluded.ad_metric_z_score_threshold, alert_targets = excluded.alert_targets, updated_at = excluded.updated_at, updated_by = excluded.updated_by`);
     return;
   }
   const sql = await ensureGameplayAlertTables();
-  await sql`INSERT INTO gameplay_alert_settings (id, normal_threshold, hard_threshold, min_players, alert_targets, updated_at, updated_by) VALUES ('global', ${record.normalThreshold}, ${record.hardThreshold}, ${record.minPlayers}, ${JSON.stringify(record.alertTargets)}, ${record.updatedAt}, ${record.updatedBy}) ON CONFLICT(id) DO UPDATE SET normal_threshold = excluded.normal_threshold, hard_threshold = excluded.hard_threshold, min_players = excluded.min_players, alert_targets = excluded.alert_targets, updated_at = excluded.updated_at, updated_by = excluded.updated_by`;
+  await sql`INSERT INTO gameplay_alert_settings (id, normal_threshold, hard_threshold, min_players, ad_metric_z_score_threshold, alert_targets, updated_at, updated_by) VALUES ('global', ${record.normalThreshold}, ${record.hardThreshold}, ${record.minPlayers}, ${record.adMetricZScoreThreshold}, ${JSON.stringify(record.alertTargets)}, ${record.updatedAt}, ${record.updatedBy}) ON CONFLICT(id) DO UPDATE SET normal_threshold = excluded.normal_threshold, hard_threshold = excluded.hard_threshold, min_players = excluded.min_players, ad_metric_z_score_threshold = excluded.ad_metric_z_score_threshold, alert_targets = excluded.alert_targets, updated_at = excluded.updated_at, updated_by = excluded.updated_by`;
 }
 
 export async function listGameplayAlertQueryJobs(evaluationKeys: string[]): Promise<GameplayAlertQueryJobRecord[]> {
@@ -1305,4 +1347,40 @@ export async function markGameplayAlertSlackDelivered(alertKeys: string[], type:
     else if (type === "pending") await sql`UPDATE gameplay_alert_states SET slack_pending_delivered_at = ${deliveredAt} WHERE alert_key = ${key}`;
     else await sql`UPDATE gameplay_alert_states SET slack_resolved_delivered_at = ${deliveredAt} WHERE alert_key = ${key}`;
   }
+}
+
+export async function listAdMetricAlertStates(filters: { appName: string; platform: string; appVersion: string }): Promise<AdMetricAlertStateRecord[]> {
+  if (shouldUseLocalSqlite()) {
+    ensureSqliteGameplayAlertTables();
+    return sqliteJsonRows<Record<string, unknown>>(`SELECT * FROM ad_metric_alert_states WHERE app_name = ${sqliteLiteral(filters.appName)} AND platform = ${sqliteLiteral(filters.platform)} AND app_version = ${sqliteLiteral(filters.appVersion)}`).map(rowToAdMetricAlertState);
+  }
+  const sql = await ensureGameplayAlertTables();
+  const rows = await sql<Record<string, unknown>[]>`SELECT * FROM ad_metric_alert_states WHERE app_name = ${filters.appName} AND platform = ${filters.platform} AND app_version = ${filters.appVersion}`;
+  return rows.map(rowToAdMetricAlertState);
+}
+
+export async function saveAdMetricAlertStates(records: AdMetricAlertStateRecord[]) {
+  if (!records.length) return;
+  if (shouldUseLocalSqlite()) {
+    ensureSqliteGameplayAlertTables();
+    for (const record of records) {
+      sqliteExec(`INSERT INTO ad_metric_alert_states (alert_key, metric, app_name, platform, app_version, status, first_seen_at, last_seen_at, resolved_at, current_value, baseline_mean, baseline_stddev, z_score, threshold, slack_open_delivered_at) VALUES (${sqliteLiteral(record.alertKey)}, ${sqliteLiteral(record.metric)}, ${sqliteLiteral(record.appName)}, ${sqliteLiteral(record.platform)}, ${sqliteLiteral(record.appVersion)}, ${sqliteLiteral(record.status)}, ${sqliteLiteral(record.firstSeenAt)}, ${sqliteLiteral(record.lastSeenAt)}, ${record.resolvedAt ? sqliteLiteral(record.resolvedAt) : "NULL"}, ${record.currentValue}, ${record.baselineMean}, ${record.baselineStddev}, ${record.zScore}, ${record.threshold}, ${record.slackOpenDeliveredAt ? sqliteLiteral(record.slackOpenDeliveredAt) : "NULL"}) ON CONFLICT(alert_key) DO UPDATE SET status = excluded.status, last_seen_at = excluded.last_seen_at, resolved_at = excluded.resolved_at, current_value = excluded.current_value, baseline_mean = excluded.baseline_mean, baseline_stddev = excluded.baseline_stddev, z_score = excluded.z_score, threshold = excluded.threshold, slack_open_delivered_at = excluded.slack_open_delivered_at`);
+    }
+    return;
+  }
+  const sql = await ensureGameplayAlertTables();
+  for (const record of records) {
+    await sql`INSERT INTO ad_metric_alert_states (alert_key, metric, app_name, platform, app_version, status, first_seen_at, last_seen_at, resolved_at, current_value, baseline_mean, baseline_stddev, z_score, threshold, slack_open_delivered_at) VALUES (${record.alertKey}, ${record.metric}, ${record.appName}, ${record.platform}, ${record.appVersion}, ${record.status}, ${record.firstSeenAt}, ${record.lastSeenAt}, ${record.resolvedAt ?? null}, ${record.currentValue}, ${record.baselineMean}, ${record.baselineStddev}, ${record.zScore}, ${record.threshold}, ${record.slackOpenDeliveredAt ?? null}) ON CONFLICT(alert_key) DO UPDATE SET status = excluded.status, last_seen_at = excluded.last_seen_at, resolved_at = excluded.resolved_at, current_value = excluded.current_value, baseline_mean = excluded.baseline_mean, baseline_stddev = excluded.baseline_stddev, z_score = excluded.z_score, threshold = excluded.threshold, slack_open_delivered_at = excluded.slack_open_delivered_at`;
+  }
+}
+
+export async function markAdMetricAlertSlackDelivered(alertKeys: string[], deliveredAt: string) {
+  if (!alertKeys.length) return;
+  if (shouldUseLocalSqlite()) {
+    ensureSqliteGameplayAlertTables();
+    for (const key of alertKeys) sqliteExec(`UPDATE ad_metric_alert_states SET slack_open_delivered_at = ${sqliteLiteral(deliveredAt)} WHERE alert_key = ${sqliteLiteral(key)}`);
+    return;
+  }
+  const sql = await ensureGameplayAlertTables();
+  for (const key of alertKeys) await sql`UPDATE ad_metric_alert_states SET slack_open_delivered_at = ${deliveredAt} WHERE alert_key = ${key}`;
 }
