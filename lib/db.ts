@@ -239,14 +239,16 @@ async function ensureGameplayAlertTables() {
           normal_threshold DOUBLE PRECISION NOT NULL,
           hard_threshold DOUBLE PRECISION NOT NULL,
           min_players INTEGER NOT NULL,
-          ad_metric_z_score_threshold DOUBLE PRECISION NOT NULL DEFAULT 2,
+          ad_metric_z_score_threshold DOUBLE PRECISION NOT NULL DEFAULT 3,
           alert_targets TEXT NOT NULL DEFAULT '[{"appName":"stacksmash","platforms":["android","ios"],"appVersion":""}]',
           updated_at TEXT NOT NULL,
           updated_by TEXT NOT NULL
         )
       `;
       await transaction`ALTER TABLE gameplay_alert_settings ADD COLUMN IF NOT EXISTS alert_targets TEXT`;
-      await transaction`ALTER TABLE gameplay_alert_settings ADD COLUMN IF NOT EXISTS ad_metric_z_score_threshold DOUBLE PRECISION NOT NULL DEFAULT 2`;
+      await transaction`ALTER TABLE gameplay_alert_settings ADD COLUMN IF NOT EXISTS ad_metric_z_score_threshold DOUBLE PRECISION NOT NULL DEFAULT 3`;
+      await transaction`ALTER TABLE gameplay_alert_settings ALTER COLUMN ad_metric_z_score_threshold SET DEFAULT 3`;
+      await transaction`UPDATE gameplay_alert_settings SET ad_metric_z_score_threshold = 3 WHERE ad_metric_z_score_threshold = 2`;
       await transaction`UPDATE gameplay_alert_settings SET alert_targets = '[{"appName":"stacksmash","platforms":["android","ios"],"appVersion":""}]' WHERE alert_targets IS NULL`;
       // Upgrade only the historical seeded target. Admin-configured target
       // lists remain untouched, while the default now evaluates all versions.
@@ -334,7 +336,7 @@ function ensureSqliteGameplayAlertTables() {
     CREATE TABLE IF NOT EXISTS gameplay_alert_settings (
       id TEXT PRIMARY KEY NOT NULL, normal_threshold REAL NOT NULL, hard_threshold REAL NOT NULL,
       min_players INTEGER NOT NULL,
-      ad_metric_z_score_threshold REAL NOT NULL DEFAULT 2,
+      ad_metric_z_score_threshold REAL NOT NULL DEFAULT 3,
       alert_targets TEXT NOT NULL DEFAULT '[{"appName":"stacksmash","platforms":["android","ios"],"appVersion":""}]',
       updated_at TEXT NOT NULL, updated_by TEXT NOT NULL
     );
@@ -363,7 +365,8 @@ function ensureSqliteGameplayAlertTables() {
     sqliteExec("ALTER TABLE gameplay_alert_settings ADD COLUMN alert_targets TEXT");
     sqliteExec("UPDATE gameplay_alert_settings SET alert_targets = '[{\"appName\":\"stacksmash\",\"platforms\":[\"android\",\"ios\"],\"appVersion\":\"\"}]' WHERE alert_targets IS NULL");
   }
-  if (!sqliteColumnExists("gameplay_alert_settings", "ad_metric_z_score_threshold")) sqliteExec("ALTER TABLE gameplay_alert_settings ADD COLUMN ad_metric_z_score_threshold REAL NOT NULL DEFAULT 2");
+  if (!sqliteColumnExists("gameplay_alert_settings", "ad_metric_z_score_threshold")) sqliteExec("ALTER TABLE gameplay_alert_settings ADD COLUMN ad_metric_z_score_threshold REAL NOT NULL DEFAULT 3");
+  sqliteExec("UPDATE gameplay_alert_settings SET ad_metric_z_score_threshold = 3 WHERE ad_metric_z_score_threshold = 2");
   sqliteExec("UPDATE gameplay_alert_settings SET alert_targets = '[{\"appName\":\"stacksmash\",\"platforms\":[\"android\",\"ios\"],\"appVersion\":\"\"}]' WHERE id = 'global' AND alert_targets = '[{\"appName\":\"stacksmash\",\"platforms\":[\"android\",\"ios\"],\"appVersion\":\"0.2.0\"}]'");
   if (!sqliteColumnExists("gameplay_alert_states", "layout_bank_id")) sqliteExec("ALTER TABLE gameplay_alert_states ADD COLUMN layout_bank_id TEXT");
   if (!sqliteColumnExists("gameplay_alert_states", "alert_kind")) sqliteExec("ALTER TABLE gameplay_alert_states ADD COLUMN alert_kind TEXT NOT NULL DEFAULT 'daily'");
@@ -1196,7 +1199,7 @@ function rowToGameplayAlertSettings(row: Record<string, unknown>): GameplayAlert
   }
   return {
     normalThreshold: Number(row.normal_threshold), hardThreshold: Number(row.hard_threshold), minPlayers: Number(row.min_players),
-    adMetricZScoreThreshold: Number(row.ad_metric_z_score_threshold ?? 2),
+    adMetricZScoreThreshold: Number(row.ad_metric_z_score_threshold ?? 3),
     alertTargets,
     updatedAt: asString(row.updated_at), updatedBy: asString(row.updated_by),
   };

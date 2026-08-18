@@ -64,7 +64,7 @@ function dailyQueryFilters(filters: AlertTarget) {
 }
 
 /** The daily evaluator keeps a single auditable query per target and date range. */
-async function evaluateDailyTargets(targets: AlertTarget[], existingByKey: Map<string, GameplayAlertQueryJobRecord>) {
+async function evaluateDailyTargets(targets: AlertTarget[], existingByKey: Map<string, GameplayAlertQueryJobRecord>, settings: Awaited<ReturnType<typeof getGameplayAlertSettings>>) {
   const result = emptyEvaluationResult();
   await Promise.all(targets.map(async (filters) => {
     const evaluationKey = gameplayAlertEvaluationKey(filters);
@@ -95,7 +95,7 @@ async function evaluateDailyTargets(targets: AlertTarget[], existingByKey: Map<s
         return;
       }
 
-      const submitted = (await submitCountSql(buildLevelFailRateSql(queryFilters), { cacheStrategy: "force" })).query;
+      const submitted = (await submitCountSql(buildLevelFailRateSql(queryFilters, settings), { cacheStrategy: "force" })).query;
       result.submittedCount += 1;
       job = { evaluationKey, jobKey: submitted.job_key, filters: JSON.stringify(filters), status: "running", submittedAt: new Date().toISOString() };
       if (submitted.status === "error") {
@@ -247,7 +247,7 @@ export async function GET(request: Request) {
   const existingByKey = new Map((await listGameplayAlertQueryJobs([...dailyKeys, ...criticalKeys, ...adMetricKeys])).map((job) => [job.evaluationKey, job]));
 
   const [daily, critical, adMetrics] = await Promise.all([
-    shouldRunDaily ? evaluateDailyTargets(targets, existingByKey) : Promise.resolve(emptyEvaluationResult()),
+    shouldRunDaily ? evaluateDailyTargets(targets, existingByKey, settings) : Promise.resolve(emptyEvaluationResult()),
     evaluateCriticalTargets(targets, existingByKey),
     evaluateAdMetricTargets(targets, existingByKey, settings.adMetricZScoreThreshold, now, shouldSubmitHourlyAdMetrics),
   ]);

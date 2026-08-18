@@ -55,7 +55,7 @@ export const gameplayAlertSettingsSchema = z.object({
   normalThreshold: z.number().min(0).max(1),
   hardThreshold: z.number().min(0).max(1),
   minPlayers: z.number().int().min(1).max(1_000_000),
-  adMetricZScoreThreshold: z.number().min(0.5).max(5).default(2),
+  adMetricZScoreThreshold: z.number().min(0.5).max(5).default(3),
   alertTargets: z.array(gameplayAlertTargetSchema).max(25).default([]),
   updatedAt: z.string().optional(),
   updatedBy: z.string().optional(),
@@ -109,6 +109,12 @@ export const levelFailRatePointSchema = z.object({
   levelId: z.string().optional(),
   layoutBankId: z.string(),
   layoutHash: z.string().optional(),
+  contributingAppVersions: z.string(),
+  layoutFirstSeenAt: z.string(),
+  layoutLastSeenAt: z.string(),
+  unhashedOutcomeEvents: z.number().int().nonnegative(),
+  hashCoverage: z.number().min(0).max(1),
+  status: z.enum(["alert", "warming_up", "pass"]),
   layoutShare: z.number().min(0).max(1),
   layoutCoverage: z.number().min(0).max(1),
   layoutAgeHours: z.number().nonnegative(),
@@ -204,7 +210,7 @@ const defaultSettings: GameplayAlertSettings = {
   normalThreshold: 0.5,
   hardThreshold: 0.7,
   minPlayers: 50,
-  adMetricZScoreThreshold: 2,
+  adMetricZScoreThreshold: 3,
   alertTargets: [{ appName: "stacksmash", platforms: ["android", "ios"], appVersion: "" }],
 };
 
@@ -233,9 +239,12 @@ function replaceRequired(sql: string, pattern: RegExp, replacement: string) {
   return sql.replace(pattern, replacement);
 }
 
-export function buildLevelFailRateSql(filtersInput: unknown) {
+export function buildLevelFailRateSql(filtersInput: unknown, policy: Pick<GameplayAlertSettings, "normalThreshold" | "hardThreshold" | "minPlayers"> = { normalThreshold: 0.4, hardThreshold: 0.7, minPlayers: 100 }) {
   const filters = normalizedLevelFunnelFilters(filtersInput);
   const appId = techLaunchAppIds[filters.appName];
+  const threshold = Math.min(1, Math.max(0, policy.normalThreshold));
+  const hardThreshold = Math.min(1, Math.max(0, policy.hardThreshold));
+  const minPlayers = Math.max(1, Math.round(policy.minPlayers));
   let sql = readBaseSql();
   sql = replaceRequired(sql, /ep\.app_id\s*=\s*\d+\s*-- modifiable parameter/, `ep.app_id = ${appId} -- modifiable parameter`);
   sql = replaceRequired(sql, /ep\.platform\s+in\s*\([^)]*\)\s*-- modifiable parameter/, `ep.platform in (${sqlList(filters.platforms)}) -- modifiable parameter`);
@@ -245,6 +254,12 @@ export function buildLevelFailRateSql(filtersInput: unknown) {
     /ep\.created_at\s*>=\s*current_date\(\)\s*-\s*7\s*-- modifiable parameter\s*and\s+ep\.created_at\s*<\s*dateadd\(day,\s*1,\s*current_date\(\)\)\s*-- modifiable parameter/i,
     `ep.created_at >= ${sqlDateLiteral(filters.startDate)} -- modifiable parameter\n    and ep.created_at < DATEADD(day, 1, ${sqlDateLiteral(filters.endDate)}) -- modifiable parameter`,
   );
+  sql = replaceRequired(sql, /when\s+l\.users\s*<=\s*\d+\s+then\s+'warming_up'/i, `when l.users <= ${minPlayers} then 'warming_up'`);
+  const thresholdMatches = sql.match(/0\.40/g)?.length ?? 0;
+  const hardThresholdMatches = sql.match(/0\.70/g)?.length ?? 0;
+  if (thresholdMatches < 2 || hardThresholdMatches < 2) throw new Error("Could not apply level-funnel threshold replacement");
+  sql = sql.replace(/0\.40/g, String(threshold));
+  sql = sql.replace(/0\.70/g, String(hardThreshold));
   return sql;
 }
 
@@ -262,7 +277,7 @@ export function buildCriticalLevelFailRateSql(filtersInput: unknown) {
 export const criticalLevelFailRatePointSchema = z.object({
   level: z.number().int().nonnegative(),
   levelId: z.string().optional(),
-  layoutBankId: z.string().min(1),
+  layoutBankId: z.string(),
   layoutHash: z.string().optional(),
   difficultyTier: z.enum(["normal", "hard"]),
   reachedPlayers: z.number().int().nonnegative(),
@@ -290,66 +305,47 @@ export function parseLevelFailRateRows(resultPreview: string | undefined, settin
   const rows = parseCsv(resultPreview, { columns: true, skip_empty_lines: true, trim: true }) as Array<Record<string, unknown>>;
   return rows
     .map((row) => {
-      const difficultyTier = String(rowValue(row, "difficulty_tier")).toLowerCase() === "hard" ? "hard" as const : "normal" as const;
       const levelId = String(rowValue(row, "level_id") ?? "").trim();
-      const reachedPlayers = Math.max(0, Math.round(toNumber(rowValue(row, "reached_players"))));
-      const failedPlayers = Math.min(reachedPlayers, Math.max(0, Math.round(toNumber(rowValue(row, "failed_players")))));
+      const reachedPlayers = Math.max(0, Math.round(toNumber(rowValue(row, "users") ?? rowValue(row, "reached_players"))));
+      const failedPlayers = Math.min(reachedPlayers, Math.max(0, Math.round(toNumber(rowValue(row, "fails") ?? rowValue(row, "failed_players")))));
       const failRate = Math.min(1, Math.max(0, toNumber(rowValue(row, "fail_rate"))));
-      const layoutBankId = String(rowValue(row, "layout_bank_id") ?? "").trim();
+      const layoutBankId = String(rowValue(row, "level_bank_id") ?? rowValue(row, "layout_bank_id") ?? "").trim();
       const layoutHash = String(rowValue(row, "layout_hash") ?? "").trim();
-      const layoutShare = Math.min(1, Math.max(0, toNumber(rowValue(row, "layout_share"))));
-      const layoutCoverage = Math.min(1, Math.max(0, toNumber(rowValue(row, "layout_coverage"))));
-      const layoutAgeHours = Math.max(0, toNumber(rowValue(row, "layout_age_hours")));
-      const hasRecentActivity = toBoolean(rowValue(row, "has_recent_activity"));
-      const layoutStable = toBoolean(rowValue(row, "layout_is_stable"));
-      const layoutUpdatePending = toBoolean(rowValue(row, "layout_update_pending"));
-      const pendingLayoutBankId = String(rowValue(row, "pending_layout_bank_id") ?? "").trim();
-      const pendingLayoutHash = String(rowValue(row, "pending_layout_hash") ?? "").trim();
-      const pendingLayoutShare = Math.min(1, Math.max(0, toNumber(rowValue(row, "pending_layout_share"))));
-      const pendingLayoutRecentPlayers = Math.max(0, Math.round(toNumber(rowValue(row, "pending_layout_recent_players"))));
-      const pendingLayoutAgeHours = Math.max(0, toNumber(rowValue(row, "pending_layout_age_hours")));
-      const previousLayoutBankId = String(rowValue(row, "previous_layout_bank_id") ?? "").trim();
-      const previousLayoutHash = String(rowValue(row, "previous_layout_hash") ?? "").trim();
-      const previousLayoutDifficultyTier = String(rowValue(row, "previous_layout_difficulty_tier")).toLowerCase() === "hard" ? "hard" as const : "normal" as const;
-      const previousLayoutReachedPlayers = Math.max(0, Math.round(toNumber(rowValue(row, "previous_layout_reached_players"))));
-      const previousLayoutFailRate = Math.min(1, Math.max(0, toNumber(rowValue(row, "previous_layout_fail_rate"))));
-      const previousLayoutThreshold = previousLayoutDifficultyTier === "hard" ? settings.hardThreshold : settings.normalThreshold;
-      const threshold = difficultyTier === "hard" ? settings.hardThreshold : settings.normalThreshold;
-      const eligible = Boolean(layoutBankId) && layoutStable && !layoutUpdatePending && reachedPlayers >= settings.minPlayers;
+      const rawStatus = String(rowValue(row, "status")).toLowerCase();
+      const status = rawStatus === "alert" ? "alert" as const : rawStatus === "pass" ? "pass" as const : "warming_up" as const;
+      const firstSeen = String(rowValue(row, "layout_first_seen_at") ?? "").trim();
+      const firstSeenAt = Date.parse(firstSeen);
+      const layoutAgeHours = Number.isFinite(firstSeenAt) ? Math.max(0, (Date.now() - firstSeenAt) / 3_600_000) : 0;
+      const hashCoverage = Math.min(1, Math.max(0, toNumber(rowValue(row, "hash_coverage"))));
       return {
         level: Math.round(toNumber(rowValue(row, "level"))),
         ...(levelId ? { levelId } : {}),
         layoutBankId,
         ...(layoutHash ? { layoutHash } : {}),
-        layoutShare,
-        layoutCoverage,
+        contributingAppVersions: String(rowValue(row, "contributing_app_versions") ?? "").trim(),
+        layoutFirstSeenAt: firstSeen,
+        layoutLastSeenAt: String(rowValue(row, "layout_last_seen_at") ?? "").trim(),
+        unhashedOutcomeEvents: Math.max(0, Math.round(toNumber(rowValue(row, "unhashed_outcome_events")))),
+        hashCoverage,
+        status,
+        layoutShare: 1,
+        layoutCoverage: hashCoverage,
         layoutAgeHours,
-        hasRecentActivity,
-        layoutStable,
-        layoutUpdatePending,
-        ...(pendingLayoutBankId ? { pendingLayoutBankId, ...(pendingLayoutHash ? { pendingLayoutHash } : {}), pendingLayoutShare, pendingLayoutRecentPlayers, pendingLayoutAgeHours } : {}),
-        ...(previousLayoutBankId && previousLayoutReachedPlayers >= settings.minPlayers && previousLayoutFailRate >= previousLayoutThreshold ? {
-          previousBankAssessment: {
-            layoutBankId: previousLayoutBankId,
-            ...(previousLayoutHash ? { layoutHash: previousLayoutHash } : {}),
-            difficultyTier: previousLayoutDifficultyTier,
-            failRate: previousLayoutFailRate,
-            reachedPlayers: previousLayoutReachedPlayers,
-            threshold: previousLayoutThreshold,
-          },
-        } : {}),
-        difficultyTier,
-        usedDifficultyFallback: toBoolean(rowValue(row, "used_difficulty_fallback")),
+        hasRecentActivity: true,
+        layoutStable: status !== "warming_up",
+        layoutUpdatePending: status === "warming_up",
+        difficultyTier: String(rowValue(row, "difficulty_tier")).toLowerCase() === "hard" ? "hard" as const : "normal" as const,
+        usedDifficultyFallback: false,
         reachedPlayers,
         failedPlayers,
         failRate,
-        threshold,
-        eligible,
-        breached: eligible && failRate >= threshold,
+        threshold: Math.min(1, Math.max(0, toNumber(rowValue(row, "alert_threshold") ?? settings.normalThreshold))),
+        eligible: status !== "warming_up",
+        breached: status === "alert",
       };
     })
     .filter((point) => point.level >= 0)
-    .sort((a, b) => a.level - b.level || a.difficultyTier.localeCompare(b.difficultyTier));
+    .sort((a, b) => a.level - b.level || String(a.layoutHash ?? "").localeCompare(b.layoutHash ?? ""));
 }
 
 export function parseCriticalLevelFailRateRows(resultPreview: string | undefined): CriticalLevelFailRatePoint[] {
@@ -358,22 +354,22 @@ export function parseCriticalLevelFailRateRows(resultPreview: string | undefined
   return rows
     .map((row) => {
       const levelId = String(rowValue(row, "level_id") ?? "").trim();
-      const layoutBankId = String(rowValue(row, "layout_bank_id") ?? "").trim();
+      const layoutBankId = String(rowValue(row, "level_bank_id") ?? rowValue(row, "layout_bank_id") ?? "").trim();
       const layoutHash = String(rowValue(row, "layout_hash") ?? "").trim();
-      const reachedPlayers = Math.max(0, Math.round(toNumber(rowValue(row, "reached_players"))));
-      const failedPlayers = Math.min(reachedPlayers, Math.max(0, Math.round(toNumber(rowValue(row, "failed_players")))));
+      const reachedPlayers = Math.max(0, Math.round(toNumber(rowValue(row, "users") ?? rowValue(row, "reached_players"))));
+      const failedPlayers = Math.min(reachedPlayers, Math.max(0, Math.round(toNumber(rowValue(row, "fails") ?? rowValue(row, "failed_players")))));
       return {
         level: Math.round(toNumber(rowValue(row, "level"))),
         ...(levelId ? { levelId } : {}),
         layoutBankId,
         ...(layoutHash ? { layoutHash } : {}),
-        difficultyTier: String(rowValue(row, "difficulty_tier")).toLowerCase() === "hard" ? "hard" as const : "normal" as const,
+        difficultyTier: "normal" as const,
         reachedPlayers,
         failedPlayers,
         failRate: Math.min(1, Math.max(0, toNumber(rowValue(row, "fail_rate")))),
       };
     })
-    .filter((point) => point.level >= 0 && Boolean(point.layoutBankId))
+    .filter((point) => point.level >= 0)
     .sort((first, second) => first.level - second.level);
 }
 
@@ -404,7 +400,7 @@ export async function updateGameplayAlertSettings(input: unknown, actorId: strin
 function unavailableLevelFailRateResponse(filters: LevelFunnelFilters, settings: GameplayAlertSettings): LevelFailRateResponse {
   return {
     status: "unavailable", filters, settings, points: [],
-    summary: { breachCount: 0, eligibleLevelCount: 0, unavailableReason: "This game does not expose the required player, level, outcome, and difficulty telemetry contract." },
+    summary: { breachCount: 0, eligibleLevelCount: 0, unavailableReason: "This game does not expose the required player, level, outcome, and layout-hash telemetry contract." },
     metadata: { executedAt: new Date().toISOString() },
   };
 }
@@ -422,43 +418,15 @@ async function completedLevelFailRateResponse(query: CountQuery, filters: LevelF
   }
   if (query.status !== "completed") throw new Error("Count query is still running");
   const points = parseLevelFailRateRows(query.result_preview, settings);
-  const openStatesByLevel = new Map<number, GameplayAlertState[]>();
-  const persistedStateFilters = filters.platforms.length === 1 && filters.appVersions.length === 1
-    ? { appName: filters.appName, platform: filters.platforms[0], appVersion: filters.appVersions[0], alertKind: "daily" as const }
-    : null;
-  for (const record of persistedStateFilters ? await listGameplayAlertStates(persistedStateFilters) : []) {
-    const state = stateFromRecord(record);
-    if (state.status !== "open") continue;
-    const states = openStatesByLevel.get(state.level) ?? [];
-    states.push(state);
-    openStatesByLevel.set(state.level, states);
-  }
-  const pointsWithPreviousAlerts = points.map((point) => {
-    if (!point.layoutUpdatePending) return point;
-    const previous = openStatesByLevel.get(point.level)?.find((state) => point.pendingLayoutHash
-      ? state.layoutHash !== point.pendingLayoutHash
-      : state.layoutBankId !== point.pendingLayoutBankId);
-    if (!previous) return point;
-    return {
-      ...point,
-      previousAlert: {
-        ...(previous.layoutBankId ? { layoutBankId: previous.layoutBankId } : {}),
-        ...(previous.layoutHash ? { layoutHash: previous.layoutHash } : {}),
-        failRate: previous.lastFailRate,
-        reachedPlayers: previous.lastReachedPlayers,
-        threshold: previous.threshold,
-      },
-    };
-  });
   const now = new Date().toISOString();
   return {
     status: "completed",
     filters,
     settings,
-    points: pointsWithPreviousAlerts,
+    points,
     summary: {
-      breachCount: pointsWithPreviousAlerts.filter((point) => point.breached).length,
-      eligibleLevelCount: pointsWithPreviousAlerts.filter((point) => point.eligible).length,
+      breachCount: points.filter((point) => point.breached).length,
+      eligibleLevelCount: points.filter((point) => point.eligible).length,
     },
     metadata: {
       executedAt: now,
@@ -471,7 +439,7 @@ export async function getLevelFailRate(input: unknown): Promise<LevelFailRateRes
   const filters = normalizedLevelFunnelFilters(input);
   const settings = await getGameplayAlertSettings();
   try {
-    const result = await runCountSql(buildLevelFailRateSql(filters), { cacheStrategy: "default", previewRows: 1000 });
+    const result = await runCountSql(buildLevelFailRateSql(filters, settings), { cacheStrategy: "default", previewRows: 1000 });
     return completedLevelFailRateResponse(result.query, filters, settings);
   } catch (error) {
     if (isUnavailableTelemetryError(error)) return unavailableLevelFailRateResponse(filters, settings);
@@ -484,7 +452,7 @@ export async function startLevelFailRate(input: unknown): Promise<LevelFailRateR
   const filters = normalizedLevelFunnelFilters(request);
   const settings = await getGameplayAlertSettings();
   try {
-    const submitted = await submitCountSql(buildLevelFailRateSql(filters), { cacheStrategy: request.forceRefresh ? "force" : "default" });
+    const submitted = await submitCountSql(buildLevelFailRateSql(filters, settings), { cacheStrategy: request.forceRefresh ? "force" : "default" });
     if (submitted.query.status === "error") return completedLevelFailRateResponse(submitted.query, filters, settings);
     if (submitted.query.status === "completed") {
       const completed = await getCountQuery(submitted.query.job_key, 1000);
@@ -547,8 +515,8 @@ function gameplayAlertStateScope(input: unknown, alertKind: GameplayAlertKind = 
   return { appName, platform, appVersion, alertKind };
 }
 
-export function levelAlertKey(point: Pick<LevelFailRatePoint, "level" | "layoutBankId" | "layoutHash" | "difficultyTier">, filters: GameplayAlertStateScope, alertKind: GameplayAlertKind = "daily") {
-  return `${alertKind}:${filters.appName}:${filters.platform}:${filters.appVersion}:${point.level}:${point.layoutHash ?? `bank:${point.layoutBankId}`}:${point.difficultyTier}`;
+export function levelAlertKey(point: Pick<LevelFailRatePoint, "level" | "levelId" | "layoutBankId" | "layoutHash" | "difficultyTier">, filters: GameplayAlertStateScope, alertKind: GameplayAlertKind = "daily") {
+  return `${alertKind}:${filters.appName}:${filters.platform}:${filters.appVersion}:${point.levelId ?? point.level}:${point.layoutHash ?? `bank:${point.layoutBankId}`}:${point.difficultyTier}`;
 }
 
 function stateFromRecord(record: GameplayAlertStateRecord): GameplayAlertState {
@@ -618,31 +586,18 @@ async function reconcileGameplayAlertResponse(filters: GameplayAlertStateScope, 
   for (const [key, previous] of existing) {
     if (current.has(key) || (previous.status !== "open" && previous.status !== "pending")) continue;
     const layoutsForLevel = activeLayoutsByLevel.get(previous.level) ?? [];
-    const matchingLayout = layoutsForLevel.find((point) => stateMatchesRevision(previous, point));
-    if (matchingLayout?.layoutUpdatePending) {
-      // Match the funnel: a new revision means the old-bank breach is no
-      // longer an open alert. Retain it only as a pending recheck until the
-      // current revision has enough stable, adopted traffic.
+    const currentLayout = layoutsForLevel[0];
+    if (currentLayout?.status === "warming_up") {
+      // The query only emits the newest hash. Keep a previous breach pending
+      // while that revision is still below the 100-user evaluation floor.
       const state = { ...previous, status: "pending" as const, lastSeenAt: now };
       next.push(state);
       if (previous.status === "open" && previous.slackOpenDeliveredAt && !previous.slackPendingDeliveredAt) transitions.push({ type: "pending", state });
       continue;
     }
-    if (matchingLayout?.layoutStable) {
-      const state = { ...previous, status: "resolved" as const, lastSeenAt: now, resolvedAt: now };
-      next.push(state);
-      // A resolution is useful only when the team was previously told that the
-      // breach opened; otherwise a delayed webhook configuration would produce
-      // a confusing standalone "resolved" notification.
-      if (previous.slackOpenDeliveredAt && !previous.slackResolvedDeliveredAt) transitions.push({ type: "resolved", state });
-      continue;
-    }
-    const hasStableReplacement = layoutsForLevel.some((point) => point.layoutStable);
-    if (!hasStableReplacement) {
-      next.push(previous);
-      continue;
-    }
-    next.push({ ...previous, status: "superseded", lastSeenAt: now, supersededAt: now });
+    const state = { ...previous, status: "resolved" as const, lastSeenAt: now, resolvedAt: now };
+    next.push(state);
+    if (previous.slackOpenDeliveredAt && !previous.slackResolvedDeliveredAt) transitions.push({ type: "resolved", state });
   }
 
   await saveGameplayAlertStateRecords(next);
@@ -679,7 +634,7 @@ export async function reconcileCriticalGameplayAlertsFromQuery(filtersInput: unk
   for (const point of points) {
     if (point.reachedPlayers < criticalGameplayAlertMinPlayers || point.failRate <= criticalGameplayAlertThreshold) continue;
     const matchingOpenState = [...existing.values()].find((state) => state.status === "open" && state.level === point.level && criticalStateMatchesRevision(state, point));
-    const key = matchingOpenState?.alertKey ?? `critical:${filters.appName}:${filters.platform}:${filters.appVersion}:${point.level}:${point.layoutHash ?? `bank:${point.layoutBankId}`}`;
+    const key = matchingOpenState?.alertKey ?? `critical:${filters.appName}:${filters.platform}:${filters.appVersion}:${point.levelId ?? point.level}:${point.layoutHash ?? `bank:${point.layoutBankId}`}`;
     current.set(key, point);
   }
 

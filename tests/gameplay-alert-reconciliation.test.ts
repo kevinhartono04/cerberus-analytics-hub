@@ -1,12 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({
-  getSettings: vi.fn(),
-  listStates: vi.fn(),
-  saveStates: vi.fn(),
-  saveRun: vi.fn(),
-  runCountSql: vi.fn(),
-}));
+const mocks = vi.hoisted(() => ({ getSettings: vi.fn(), listStates: vi.fn(), saveStates: vi.fn(), saveRun: vi.fn(), runCountSql: vi.fn() }));
 
 vi.mock("@/lib/db", () => ({
   getGameplayAlertSettingsRecord: mocks.getSettings,
@@ -16,95 +10,66 @@ vi.mock("@/lib/db", () => ({
   saveGameplayAlertEvaluationRun: mocks.saveRun,
   markGameplayAlertSlackDelivered: vi.fn(),
 }));
-
 vi.mock("@/lib/count-api", () => ({ runCountSql: mocks.runCountSql }));
 
 import { reconcileGameplayAlerts } from "@/lib/gameplay-alerts";
 
 const filters = { appName: "wordblast", platform: "android", appVersion: "1.0.0", startDate: "2026-07-01", endDate: "2026-07-07" };
 
-function preview(layoutBankId: string, failRate: number, layoutUpdatePending = false, layoutHash = "", pendingLayoutHash = "") {
+function preview(status: "alert" | "warming_up", layoutHash: string, failRate = 0.8, users = 125) {
   return [
-    "level,layout_bank_id,layout_hash,difficulty_tier,used_difficulty_fallback,reached_players,failed_players,fail_rate,layout_share,layout_coverage,layout_age_hours,layout_is_stable,layout_update_pending,pending_layout_bank_id,pending_layout_hash,pending_layout_share,pending_layout_recent_players,pending_layout_age_hours,previous_layout_bank_id,previous_layout_hash,previous_layout_difficulty_tier,previous_layout_reached_players,previous_layout_failed_players,previous_layout_fail_rate",
-    `10,${layoutBankId},${layoutHash},normal,false,100,${Math.round(failRate * 100)},${failRate},0.9,1,48,true,${layoutUpdatePending},bank-new,${pendingLayoutHash},0.08,8,6,bank-a,hash-a,normal,100,80,0.8`,
+    "level,level_id,layout_bank_id,layout_hash,contributing_app_versions,users,fails,fail_rate,layout_first_seen_at,layout_last_seen_at,unhashed_outcome_events,hash_coverage,status",
+    `10,level-10,bank-b,${layoutHash},1.0.0,${users},${Math.round(failRate * users)},${failRate},2026-07-06 00:00:00,2026-07-07 00:00:00,0,1,${status}`,
   ].join("\n");
 }
 
-function openState(layoutBankId: string, layoutHash?: string) {
+function openState(layoutHash = "hash-a") {
   return {
-    alertKey: `wordblast:android:1.0.0:10:${layoutBankId}:normal`, appName: "wordblast", platform: "android", appVersion: "1.0.0",
-    level: 10, layoutBankId, ...(layoutHash ? { layoutHash } : {}), difficultyTier: "normal" as const, status: "open" as const, firstSeenAt: "2026-07-01T00:00:00.000Z", lastSeenAt: "2026-07-01T00:00:00.000Z",
-    lastFailRate: 0.8, lastReachedPlayers: 100, threshold: 0.5, slackOpenDeliveredAt: "2026-07-01T00:00:00.000Z",
+    alertKey: `daily:wordblast:android:1.0.0:10:${layoutHash}:normal`, alertKind: "daily" as const, appName: "wordblast", platform: "android", appVersion: "1.0.0",
+    level: 10, layoutBankId: "bank-a", layoutHash, difficultyTier: "normal" as const, status: "open" as const,
+    firstSeenAt: "2026-07-01T00:00:00.000Z", lastSeenAt: "2026-07-01T00:00:00.000Z", lastFailRate: 0.8, lastReachedPlayers: 100, threshold: 0.4, slackOpenDeliveredAt: "2026-07-01T00:00:00.000Z",
   };
 }
 
-describe("layout-bank gameplay alert reconciliation", () => {
+describe("current-layout gameplay alert reconciliation", () => {
   beforeEach(() => {
     mocks.getSettings.mockReset().mockResolvedValue(null);
-    mocks.listStates.mockReset().mockResolvedValue([openState("bank-a")]);
+    mocks.listStates.mockReset().mockResolvedValue([openState()]);
     mocks.saveStates.mockReset().mockResolvedValue(undefined);
     mocks.saveRun.mockReset().mockResolvedValue(undefined);
-    mocks.runCountSql.mockReset().mockResolvedValue({ query: { status: "completed", result_metadata: {}, result_preview: preview("bank-b", 0.2) } });
+    mocks.runCountSql.mockReset();
   });
 
-  it("supersedes an open alert when a stable new layout bank takes over and performs acceptably", async () => {
+  it("moves an older open alert to pending while the newest qualifying hash warms up", async () => {
+    mocks.runCountSql.mockResolvedValue({ query: { status: "completed", result_metadata: {}, result_preview: preview("warming_up", "hash-b", 0.8, 25) } });
     const result = await reconcileGameplayAlerts(filters);
 
-    expect(result.transitions).toEqual([]);
-    expect(mocks.saveStates).toHaveBeenCalledWith([expect.objectContaining({ status: "superseded", layoutBankId: "bank-a", supersededAt: expect.any(String) })]);
+    expect(result.transitions).toEqual([expect.objectContaining({ type: "pending", state: expect.objectContaining({ status: "pending", layoutHash: "hash-a" }) })]);
   });
 
-  it("opens a distinct alert only when the new stable layout bank still breaches", async () => {
-    mocks.runCountSql.mockResolvedValueOnce({ query: { status: "completed", result_metadata: {}, result_preview: preview("bank-b", 0.8) } });
-
+  it("opens the new hash and resolves the prior hash when the new current layout breaches", async () => {
+    mocks.runCountSql.mockResolvedValue({ query: { status: "completed", result_metadata: {}, result_preview: preview("alert", "hash-b") } });
     const result = await reconcileGameplayAlerts(filters);
 
-    expect(result.transitions).toEqual([expect.objectContaining({ type: "opened", state: expect.objectContaining({ layoutBankId: "bank-b" }) })]);
-    expect(mocks.saveStates).toHaveBeenCalledWith(expect.arrayContaining([
-      expect.objectContaining({ status: "superseded", layoutBankId: "bank-a" }),
-      expect.objectContaining({ status: "open", layoutBankId: "bank-b" }),
+    expect(result.transitions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "opened", state: expect.objectContaining({ layoutHash: "hash-b", status: "open" }) }),
+      expect.objectContaining({ type: "resolved", state: expect.objectContaining({ layoutHash: "hash-a", status: "resolved" }) }),
     ]));
   });
 
-  it("keeps an open alert when the layout bank changes but the level hash is unchanged", async () => {
-    mocks.listStates.mockResolvedValue([openState("bank-a", "hash-stable")]);
-    mocks.runCountSql.mockResolvedValueOnce({ query: { status: "completed", result_metadata: {}, result_preview: preview("bank-b", 0.8, false, "hash-stable") } });
-
+  it("keeps an already-open hash quiet when the bank metadata changes", async () => {
+    mocks.listStates.mockResolvedValue([openState("hash-stable")]);
+    mocks.runCountSql.mockResolvedValue({ query: { status: "completed", result_metadata: {}, result_preview: preview("alert", "hash-stable") } });
     const result = await reconcileGameplayAlerts(filters);
 
-    expect(result.response.points[0].layoutHash).toBe("hash-stable");
     expect(result.transitions).toEqual([]);
-    expect(mocks.saveStates).toHaveBeenCalledWith([expect.objectContaining({ status: "open", layoutBankId: "bank-b", layoutHash: "hash-stable" })]);
+    expect(mocks.saveStates).toHaveBeenCalledWith([expect.objectContaining({ status: "open", layoutHash: "hash-stable", layoutBankId: "bank-b" })]);
   });
 
-  it("keeps an existing alert quiet while a new layout bank is still warming up", async () => {
-    mocks.runCountSql.mockResolvedValueOnce({ query: { status: "completed", result_metadata: {}, result_preview: preview("bank-a", 0.8, true) } });
-
+  it("resolves an old alert when the current layout is no longer returned as alert or warming", async () => {
+    mocks.runCountSql.mockResolvedValue({ query: { status: "completed", result_metadata: {}, result_preview: "level,level_id,layout_bank_id,layout_hash,contributing_app_versions,users,fails,fail_rate,layout_first_seen_at,layout_last_seen_at,unhashed_outcome_events,hash_coverage,status" } });
     const result = await reconcileGameplayAlerts(filters);
 
-    expect(result.transitions).toEqual([expect.objectContaining({ type: "pending", state: expect.objectContaining({ status: "pending" }) })]);
-    expect(result.response.points[0]).toMatchObject({
-      layoutUpdatePending: true,
-      previousBankAssessment: { layoutBankId: "bank-a", difficultyTier: "normal", failRate: 0.8, reachedPlayers: 100, threshold: 0.5 },
-      previousAlert: { layoutBankId: "bank-a", failRate: 0.8, reachedPlayers: 100, threshold: 0.5 },
-    });
-    expect(mocks.saveStates).toHaveBeenCalledWith([expect.objectContaining({ status: "pending", layoutBankId: "bank-a", lastSeenAt: expect.any(String) })]);
-  });
-
-  it("does not put one layout pending merely because another app-version layout is warming up", async () => {
-    mocks.listStates.mockResolvedValue([openState("bank-a", "hash-a")]);
-    mocks.runCountSql.mockResolvedValueOnce({ query: {
-      status: "completed",
-      result_metadata: {},
-      result_preview: [
-        "level,layout_bank_id,layout_hash,difficulty_tier,used_difficulty_fallback,reached_players,failed_players,fail_rate,layout_share,layout_coverage,layout_age_hours,layout_is_stable,layout_update_pending",
-        "10,bank-a,hash-a,normal,false,100,20,0.2,1,1,48,true,false",
-        "10,bank-b,hash-b,normal,false,20,16,0.8,1,1,6,false,true",
-      ].join("\n"),
-    } });
-
-    await reconcileGameplayAlerts(filters);
-
-    expect(mocks.saveStates).toHaveBeenCalledWith([expect.objectContaining({ status: "resolved", layoutBankId: "bank-a" })]);
+    expect(result.transitions).toEqual([expect.objectContaining({ type: "resolved", state: expect.objectContaining({ status: "resolved" }) })]);
   });
 });

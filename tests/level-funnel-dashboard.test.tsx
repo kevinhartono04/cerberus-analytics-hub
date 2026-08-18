@@ -106,7 +106,7 @@ describe("LevelFunnelDashboard Count polling", () => {
     expect(window.sessionStorage.getItem(pendingJobStorageKey)).toBeNull();
   });
 
-  it("forces a fresh query when Run is used for a window that includes today", async () => {
+  it("uses the cache when Run is used for a window that includes today", async () => {
     const formatDate = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
     const today = new Date();
     const start = new Date(today); start.setDate(start.getDate() - 7);
@@ -130,7 +130,7 @@ describe("LevelFunnelDashboard Count polling", () => {
     await waitFor(() => {
       const call = fetchMock.mock.calls.find(([input]) => String(input) === "/api/tech-launch/level-fail-rate");
       expect(call).toBeDefined();
-      expect(JSON.parse(String((call?.[1] as RequestInit).body))).toMatchObject({ forceRefresh: true });
+      expect(JSON.parse(String((call?.[1] as RequestInit).body))).toMatchObject({ forceRefresh: false });
     });
   });
 

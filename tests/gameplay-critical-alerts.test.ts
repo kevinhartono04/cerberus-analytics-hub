@@ -46,7 +46,7 @@ describe("critical gameplay alerts", () => {
     mocks.saveRun.mockReset().mockResolvedValue(undefined);
   });
 
-  it("uses an exact rolling 48-hour query that excludes daily stability work", () => {
+  it("uses an exact rolling 48-hour current-layout hash query", () => {
     const sql = buildCriticalLevelFailRateSql({ ...filters, platforms: ["android"], appVersions: ["0.2.0"], startDate: "2026-08-01", endDate: "2026-08-07" });
 
     expect(sql).toContain("ep.created_at >= dateadd(hour, -48, current_timestamp()) -- modifiable parameter");
@@ -54,12 +54,11 @@ describe("critical gameplay alerts", () => {
     expect(sql).toContain("ep.app_id = 3011 -- modifiable parameter");
     expect(sql).toContain("ep.platform in ('android') -- modifiable parameter");
     expect(sql).toContain("ep.app_version in ('0.2.0') -- modifiable parameter");
-    expect(sql).not.toContain("layout_is_stable");
-    expect(sql).not.toContain("pending_revision_candidates");
-    expect(sql).not.toContain("prior_layouts");
-    expect(sql).toContain("), start_metrics as (");
-    expect(sql).toContain("), end_metrics as (");
-    expect(sql).not.toContain("count(distinct s.user_id) as reached_players,\n    count(distinct case when e.outcome");
+    expect(sql).toContain("layout_rollups as");
+    expect(sql).toContain("having users >= 10");
+    expect(sql).toContain("partition by level_id");
+    expect(sql).toContain("when l.users <= 100 then 'warming_up'");
+    expect(sql).not.toContain("Game_Start");
   });
 
   it("opens only for every-tier breaches strictly above 70% with at least 50 players", async () => {

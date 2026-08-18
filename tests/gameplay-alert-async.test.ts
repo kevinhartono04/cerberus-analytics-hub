@@ -27,8 +27,8 @@ import { getLevelFailRateStatus, startLevelFailRate } from "@/lib/gameplay-alert
 
 const filters = { appName: "stacksmash", platforms: ["android"] as const, appVersions: ["0.2.0"], startDate: "2026-07-22", endDate: "2026-07-28" };
 const preview = [
-  "level,layout_bank_id,difficulty_tier,used_difficulty_fallback,reached_players,failed_players,fail_rate,layout_share,layout_coverage,layout_age_hours,layout_is_stable",
-  "10,bank-a,normal,false,100,60,0.6,1,1,48,true",
+  "level,level_id,layout_bank_id,layout_hash,contributing_app_versions,users,fails,fail_rate,layout_first_seen_at,layout_last_seen_at,unhashed_outcome_events,hash_coverage,status",
+  "10,level-10,bank-a,hash-a,0.2.0,100,60,0.6,2026-07-22 00:00:00,2026-07-28 00:00:00,0,1,alert",
 ].join("\n");
 
 describe("asynchronous level funnel Count polling", () => {
