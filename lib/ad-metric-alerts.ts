@@ -53,7 +53,7 @@ export function adMetricEvaluationHour(now = new Date()) {
   return currentHour.toISOString().replace(/\.\d{3}Z$/, "Z");
 }
 
-/** The parent cron also serves 15-minute critical-level alerts; ad metrics submit only at :00. */
+/** The parent cron also serves hourly critical-level alerts; ad metrics submit at :00. */
 export function isAdMetricAlertCronWindow(now = new Date()) {
   return now.getUTCMinutes() === 0;
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { allAppVersionsAlertScope, allPlatformsAlertScope, buildLevelFailRateSql, dailyGameplayAlertFilters, formatGameplayAlertSlackMessage, gameplayAlertCronFilters, gameplayAlertSettingsInputSchema, gameplayAlertTimeZone, gameplayAlertWebhookUrls, parseLevelFailRateRows } from "@/lib/gameplay-alerts";
+import { allAppVersionsAlertScope, allPlatformsAlertScope, buildDailyLevelFailRateSql, buildLevelFailRateSql, dailyGameplayAlertFilters, formatGameplayAlertSlackMessage, gameplayAlertCronFilters, gameplayAlertSettingsInputSchema, gameplayAlertTimeZone, gameplayAlertWebhookUrls, parseLevelFailRateRows } from "@/lib/gameplay-alerts";
 
 const filters = { appName: "wordblast", platform: "android", appVersion: "1.0.0", startDate: "2026-07-01", endDate: "2026-07-07" };
 const settings = { normalThreshold: 0.5, hardThreshold: 0.7, minPlayers: 50, alertTargets: [] };
@@ -8,7 +8,7 @@ const settings = { normalThreshold: 0.5, hardThreshold: 0.7, minPlayers: 50, ale
 describe("layout-hash gameplay alerts", () => {
   it("keeps the all-version scheduled scope", () => {
     expect(gameplayAlertSettingsInputSchema.parse({ normalThreshold: 0.5, hardThreshold: 0.7, minPlayers: 50, alertTargets: [{ appName: "stacksmash", platforms: ["ios", "android", "android"], appVersion: "0.2.0" }] }).alertTargets).toEqual([{ appName: "stacksmash", platforms: ["android", "ios"], appVersion: "0.2.0" }]);
-    expect(dailyGameplayAlertFilters(new Date("2026-07-29T12:00:00.000Z"))).toEqual([{ appName: "stacksmash", platform: allPlatformsAlertScope, platforms: ["android", "ios"], appVersion: allAppVersionsAlertScope, appVersions: [], startDate: "2026-07-23", endDate: "2026-07-29" }]);
+    expect(dailyGameplayAlertFilters(new Date("2026-07-29T12:00:00.000Z"))).toEqual([{ appName: "stacksmash", platform: allPlatformsAlertScope, platforms: ["android", "ios"], appVersion: allAppVersionsAlertScope, appVersions: [], startDate: "2026-07-28", endDate: "2026-07-29" }]);
     expect(gameplayAlertTimeZone).toBe("Australia/Melbourne");
   });
 
@@ -40,6 +40,11 @@ describe("layout-hash gameplay alerts", () => {
     const allVersionSql = buildLevelFailRateSql({ ...filters, platforms: ["android", "ios"], appVersions: [], platform: undefined, appVersion: undefined });
     expect(allVersionSql).toContain("ep.platform in ('android', 'ios') -- modifiable parameter");
     expect(allVersionSql).toContain("1 = 1 -- modifiable parameter");
+
+    const dailySql = buildDailyLevelFailRateSql(filters, settings);
+    expect(dailySql).toContain("ep.created_at >= dateadd(hour, -48, current_timestamp()) -- rolling daily alert window");
+    expect(dailySql).toContain("where status = 'alert'");
+    expect(dailySql).not.toContain("TO_DATE('2026-07-01')");
   });
 
   it("maps query statuses to the fixed current-layout alert policy", () => {
@@ -54,9 +59,9 @@ describe("layout-hash gameplay alerts", () => {
   });
 
   it("keeps Slack delivery compact", () => {
-    const message = formatGameplayAlertSlackMessage([{ type: "daily-open", state: { alertKey: "level-556", alertKind: "daily", appName: "stacksmash", platform: allPlatformsAlertScope, appVersion: allAppVersionsAlertScope, level: 556, layoutBankId: "4860", layoutHash: "hash", difficultyTier: "normal", status: "open", firstSeenAt: "2026-08-01T00:00:00.000Z", lastSeenAt: "2026-08-04T04:30:00.000Z", lastFailRate: 0.507, lastReachedPlayers: 11_999, threshold: 0.4 } }], new Date("2026-08-04T04:30:00.000Z"));
+    const message = formatGameplayAlertSlackMessage([{ type: "daily-open", state: { alertKey: "level-556", alertKind: "daily", appName: "stacksmash", platform: allPlatformsAlertScope, appVersion: allAppVersionsAlertScope, level: 556, levelId: "ns-044", layoutBankId: "4860", layoutHash: "hash", difficultyTier: "normal", status: "open", firstSeenAt: "2026-08-01T00:00:00.000Z", lastSeenAt: "2026-08-04T04:30:00.000Z", lastFailRate: 0.507, lastReachedPlayers: 11_999, threshold: 0.4 } }], new Date("2026-08-04T04:30:00.000Z"));
     expect(message).toContain("*Game:* stacksmash");
-    expect(message).toContain("• Level 556 · normal · 50.7% · 12K players");
+    expect(message).toContain("• Level 556 (ID ns-044) · normal · 50.7% · 12K players");
     expect(message).not.toContain("layout-hash");
   });
 

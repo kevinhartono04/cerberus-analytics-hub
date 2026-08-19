@@ -40,7 +40,7 @@ layout_rollups as (
     max_by(chapter_set_id, level_bank_id) as chapter_set_id,
     max(distinct level_bank_id) as level_bank_id,
     max_by(level, level_bank_id) as level,
-    max_by(raw_difficulty, created_at) as raw_difficulty,
+    max_by(raw_difficulty, case when raw_difficulty is not null then created_at end) as raw_difficulty,
     listagg(distinct app_version, ', ') within group (order by app_version) as contributing_app_versions,
     count(distinct user_id) as users,
     count(distinct iff(outcome = 'lose', user_id, null)) as fails,

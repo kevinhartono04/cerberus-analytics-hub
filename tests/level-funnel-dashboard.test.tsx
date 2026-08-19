@@ -149,7 +149,7 @@ describe("LevelFunnelDashboard Count polling", () => {
     fireEvent.click(await screen.findByText("Alert delivery and thresholds (admin)"));
 
     expect(await screen.findByRole("region", { name: "Real-time critical alert configuration" })).toBeInTheDocument();
-    expect(screen.getByText("Runs every 15 minutes across the same Slack targets. A recovered level can alert again if it re-breaches.")).toBeInTheDocument();
+    expect(screen.getByText("Runs every hour across the same Slack targets. A recovered level can alert again if it re-breaches.")).toBeInTheDocument();
     expect(screen.getByText(">70%")).toBeInTheDocument();
     expect(screen.getByText("Last 48h")).toBeInTheDocument();
     expect(screen.getByText(/Each target is used by both daily and real-time alerts/i)).toBeInTheDocument();

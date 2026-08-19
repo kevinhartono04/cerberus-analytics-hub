@@ -49,6 +49,7 @@ export const gameplayAlertStates = pgTable("gameplay_alert_states", {
   platform: text("platform").notNull(),
   appVersion: text("app_version").notNull(),
   level: integer("level").notNull(),
+  levelId: text("level_id"),
   layoutBankId: text("layout_bank_id"),
   difficultyTier: text("difficulty_tier").notNull(),
   status: text("status").notNull(),

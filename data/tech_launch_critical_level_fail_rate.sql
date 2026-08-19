@@ -1,5 +1,5 @@
 -- Same current-layout contract as the funnel check, kept on a short rolling
--- window for the 15-minute critical evaluator.
+-- window for the hourly critical evaluator.
 with game_end_events as (
   select
     ep.app_version::varchar as app_version,
@@ -10,6 +10,7 @@ with game_end_events as (
     try_to_number(ep.payload:level_bank_id::varchar)::int as level_bank_id,
     try_to_number(ep.payload:chapter_set_id::varchar)::int as chapter_set_id,
     try_to_number(ep.payload:level::varchar)::int as level,
+    nullif(trim(ep.payload:difficulty::varchar), '') as raw_difficulty,
     lower(trim(ep.argument_value::varchar)) as outcome
   from public.events_production_ludios ep
   where ep.app_id = 122 -- modifiable parameter
@@ -37,6 +38,7 @@ layout_rollups as (
     max_by(chapter_set_id, level_bank_id) as chapter_set_id,
     max(distinct level_bank_id) as level_bank_id,
     max_by(level, level_bank_id) as level,
+    max_by(raw_difficulty, case when raw_difficulty is not null then created_at end) as raw_difficulty,
     listagg(distinct app_version, ', ') within group (order by app_version) as contributing_app_versions,
     count(distinct user_id) as users,
     count(distinct iff(outcome = 'lose', user_id, null)) as fails,
@@ -59,6 +61,10 @@ current_layouts as (
 assessed_layouts as (
   select
     l.*,
+    case
+      when regexp_replace(lower(coalesce(l.raw_difficulty, '')), '[[:space:]_-]', '') in ('hard', 'superhard', 'veryhard') then 'hard'
+      else 'normal'
+    end as difficulty_tier,
     l.fails / nullif(l.users, 0)::float as fail_rate,
     c.unhashed_outcome_events,
     c.hash_coverage,
@@ -76,6 +82,7 @@ select
   level,
   level_id,
   layout_hash,
+  difficulty_tier,
   contributing_app_versions,
   users,
   fails,

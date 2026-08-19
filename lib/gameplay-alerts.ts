@@ -185,6 +185,7 @@ export type GameplayAlertState = {
   platform: string;
   appVersion: string;
   level: number;
+  levelId?: string;
   layoutBankId?: string;
   layoutHash?: string;
   difficultyTier: "normal" | "hard";
@@ -260,6 +261,27 @@ export function buildLevelFailRateSql(filtersInput: unknown, policy: Pick<Gamepl
   if (thresholdMatches < 2 || hardThresholdMatches < 2) throw new Error("Could not apply level-funnel threshold replacement");
   sql = sql.replace(/0\.40/g, String(threshold));
   sql = sql.replace(/0\.70/g, String(hardThreshold));
+  return sql;
+}
+
+/**
+ * The daily Slack digest is intentionally a fresh, breach-only report. It
+ * does not reconcile previous alert state, so it can use the short rolling
+ * window without treating an absent historical row as a resolution.
+ */
+export function buildDailyLevelFailRateSql(filtersInput: unknown, policy: Pick<GameplayAlertSettings, "normalThreshold" | "hardThreshold" | "minPlayers"> = { normalThreshold: 0.4, hardThreshold: 0.7, minPlayers: 100 }) {
+  const filters = normalizedLevelFunnelFilters(filtersInput);
+  let sql = buildLevelFailRateSql(filters, policy);
+  sql = replaceRequired(
+    sql,
+    /ep\.created_at\s*>=\s*TO_DATE\('[^']+'\)\s*-- modifiable parameter\s*and\s+ep\.created_at\s*<\s*DATEADD\(day,\s*1,\s*TO_DATE\('[^']+'\)\)\s*-- modifiable parameter/i,
+    "ep.created_at >= dateadd(hour, -48, current_timestamp()) -- rolling daily alert window\n    and ep.created_at < current_timestamp() -- rolling daily alert window",
+  );
+  sql = replaceRequired(
+    sql,
+    /from assessed_layouts\n-- Count returns a bounded preview/i,
+    "from assessed_layouts\nwhere status = 'alert'\n-- Count returns a bounded preview",
+  );
   return sql;
 }
 
@@ -363,7 +385,7 @@ export function parseCriticalLevelFailRateRows(resultPreview: string | undefined
         ...(levelId ? { levelId } : {}),
         layoutBankId,
         ...(layoutHash ? { layoutHash } : {}),
-        difficultyTier: "normal" as const,
+        difficultyTier: String(rowValue(row, "difficulty_tier")).toLowerCase() === "hard" ? "hard" as const : "normal" as const,
         reachedPlayers,
         failedPlayers,
         failRate: Math.min(1, Math.max(0, toNumber(rowValue(row, "fail_rate")))),
@@ -527,6 +549,7 @@ function stateFromRecord(record: GameplayAlertStateRecord): GameplayAlertState {
     platform: record.platform,
     appVersion: record.appVersion,
     level: record.level,
+    ...(record.levelId ? { levelId: record.levelId } : {}),
     ...(record.layoutBankId ? { layoutBankId: record.layoutBankId } : {}),
     ...(record.layoutHash ? { layoutHash: record.layoutHash } : {}),
     difficultyTier: record.difficultyTier === "hard" ? "hard" : "normal",
@@ -574,7 +597,7 @@ async function reconcileGameplayAlertResponse(filters: GameplayAlertStateScope, 
     const previous = existing.get(key);
     const state: GameplayAlertState = {
       alertKey: key, alertKind, appName: filters.appName, platform: filters.platform, appVersion: filters.appVersion,
-      level: point.level, layoutBankId: point.layoutBankId, ...(point.layoutHash ? { layoutHash: point.layoutHash } : {}), difficultyTier: point.difficultyTier, status: "open",
+      level: point.level, ...(point.levelId ? { levelId: point.levelId } : {}), layoutBankId: point.layoutBankId, ...(point.layoutHash ? { layoutHash: point.layoutHash } : {}), difficultyTier: point.difficultyTier, status: "open",
       firstSeenAt: previous?.status === "open" ? previous.firstSeenAt : now,
       lastSeenAt: now, lastFailRate: point.failRate, lastReachedPlayers: point.reachedPlayers, threshold: point.threshold,
       ...(previous?.slackOpenDeliveredAt ? { slackOpenDeliveredAt: previous.slackOpenDeliveredAt } : {}),
@@ -616,6 +639,46 @@ export async function reconcileGameplayAlertsFromQuery(filtersInput: unknown, qu
   return reconcileGameplayAlertResponse(filters, await completedLevelFailRateResponse(query, normalizedLevelFunnelFilters(queryFiltersInput), settings));
 }
 
+/** Creates the daily Slack digest directly from this evaluation's breaches. */
+export async function dailyFlaggedGameplayAlertTransitionsFromQuery(filtersInput: unknown, query: CountQuery, queryFiltersInput: unknown = filtersInput) {
+  const filters = gameplayAlertStateScope(filtersInput);
+  const settings = await getGameplayAlertSettings();
+  if (query.status === "error") throw new Error(query.error ?? "Count query failed");
+  if (query.status !== "completed") throw new Error("Count query is still running");
+  const points = parseLevelFailRateRows(query.result_preview, settings).filter((point) => point.breached);
+  const now = new Date().toISOString();
+  const transitions: GameplayAlertTransition[] = points.map((point) => ({
+    type: "daily-open",
+    state: {
+      alertKey: levelAlertKey(point, filters, "daily"),
+      alertKind: "daily",
+      appName: filters.appName,
+      platform: filters.platform,
+      appVersion: filters.appVersion,
+      level: point.level,
+      ...(point.levelId ? { levelId: point.levelId } : {}),
+      layoutBankId: point.layoutBankId,
+      ...(point.layoutHash ? { layoutHash: point.layoutHash } : {}),
+      difficultyTier: point.difficultyTier,
+      status: "open",
+      firstSeenAt: now,
+      lastSeenAt: now,
+      lastFailRate: point.failRate,
+      lastReachedPlayers: point.reachedPlayers,
+      threshold: point.threshold,
+    },
+  }));
+  await saveGameplayAlertEvaluationRun({
+    id: crypto.randomUUID(),
+    evaluatedAt: now,
+    filters: JSON.stringify(queryFiltersInput),
+    result: JSON.stringify({ status: "completed", window: "rolling_48_hours", report: "flagged_levels_only", points }),
+    transitionCount: transitions.length,
+    source: "cron",
+  });
+  return { transitions };
+}
+
 function criticalStateMatchesRevision(state: GameplayAlertState, point: CriticalLevelFailRatePoint) {
   if (point.layoutHash) return state.layoutHash ? state.layoutHash === point.layoutHash : state.layoutBankId === point.layoutBankId;
   return !state.layoutHash && state.layoutBankId === point.layoutBankId;
@@ -649,6 +712,7 @@ export async function reconcileCriticalGameplayAlertsFromQuery(filtersInput: unk
       platform: filters.platform,
       appVersion: filters.appVersion,
       level: point.level,
+      ...(point.levelId ? { levelId: point.levelId } : {}),
       layoutBankId: point.layoutBankId,
       ...(point.layoutHash ? { layoutHash: point.layoutHash } : {}),
       difficultyTier: point.difficultyTier,
@@ -757,7 +821,7 @@ export function formatGameplayAlertSlackMessage(transitions: GameplayAlertTransi
       if (!section) return [];
       const levels = section.states
         .sort((a, b) => a.level - b.level || a.difficultyTier.localeCompare(b.difficultyTier))
-        .map((state) => `• Level ${state.level} · ${state.difficultyTier} · ${(state.lastFailRate * 100).toFixed(1)}% · ${compactPlayerCount(state.lastReachedPlayers)} players`);
+        .map((state) => `• Level ${state.level}${state.levelId ? ` (ID ${state.levelId})` : ""} · ${state.difficultyTier} · ${(state.lastFailRate * 100).toFixed(1)}% · ${compactPlayerCount(state.lastReachedPlayers)} players`);
       return [`*${critical ? "Critical levels (>70% fail rate, 50+ players)" : section.heading} (${levels.length})*`, ...levels];
     });
     return [`*Game:* ${group.state.appName}`, `*Platform:* ${platform}`, `*Version:* ${appVersion}`, `*Checked:* ${checkedAtLabel(checkedAt)}`, "", ...sections].join("\n");
@@ -805,7 +869,7 @@ export function gameplayAlertCronFilters(settings: GameplayAlertSettings, today 
   // Use UTC noon for calendar arithmetic so the date remains stable across
   // Melbourne's daylight-saving transition.
   const start = new Date(`${endDate}T12:00:00.000Z`);
-  start.setUTCDate(start.getUTCDate() - 6);
+  start.setUTCDate(start.getUTCDate() - 1);
   const iso = (value: Date) => value.toISOString().slice(0, 10);
   return settings.alertTargets.map((target) => ({
     appName: target.appName,
@@ -824,7 +888,7 @@ export function gameplayAlertEvaluationKey(filters: GameplayAlertStateScope & Pi
   return [filters.appName, filters.platform, filters.appVersion, filters.startDate, filters.endDate].join(":");
 }
 
-/** One asynchronous job per target; a completed critical job is replaced on the next 15-minute run. */
+/** One asynchronous job per target; a completed critical job is replaced on the next hourly run. */
 export function criticalGameplayAlertEvaluationKey(filters: GameplayAlertStateScope) {
   return ["critical", filters.appName, filters.platform, filters.appVersion].join(":");
 }

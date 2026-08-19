@@ -27,14 +27,14 @@ import {
 
 const filters = { appName: "stacksmash", platform: "android", appVersion: "0.2.0" };
 
-function completedPreview(failRate: number, reachedPlayers = 50, layoutHash = "hash-a") {
+function completedPreview(failRate: number, reachedPlayers = 50, layoutHash = "hash-a", difficultyTier = "normal") {
   return {
     job_key: "critical-job",
     status: "completed" as const,
     result_metadata: {},
     result_preview: [
       "level,level_id,layout_bank_id,layout_hash,difficulty_tier,reached_players,failed_players,fail_rate",
-      `10,level-10,bank-a,${layoutHash},normal,${reachedPlayers},${Math.round(failRate * reachedPlayers)},${failRate}`,
+      `10,level-10,bank-a,${layoutHash},${difficultyTier},${reachedPlayers},${Math.round(failRate * reachedPlayers)},${failRate}`,
     ].join("\n"),
   };
 }
@@ -55,6 +55,8 @@ describe("critical gameplay alerts", () => {
     expect(sql).toContain("ep.platform in ('android') -- modifiable parameter");
     expect(sql).toContain("ep.app_version in ('0.2.0') -- modifiable parameter");
     expect(sql).toContain("layout_rollups as");
+    expect(sql).toContain("ep.payload:difficulty::varchar");
+    expect(sql).toContain("as difficulty_tier");
     expect(sql).toContain("having users >= 10");
     expect(sql).toContain("partition by level_id");
     expect(sql).toContain("when l.users <= 100 then 'warming_up'");
@@ -62,14 +64,14 @@ describe("critical gameplay alerts", () => {
   });
 
   it("opens only for every-tier breaches strictly above 70% with at least 50 players", async () => {
-    const result = await reconcileCriticalGameplayAlertsFromQuery(filters, completedPreview(0.71));
+    const result = await reconcileCriticalGameplayAlertsFromQuery(filters, completedPreview(0.71, 50, "hash-a", "hard"));
 
     expect(criticalGameplayAlertThreshold).toBe(0.7);
     expect(criticalGameplayAlertMinPlayers).toBe(50);
     expect(mocks.listStates).toHaveBeenCalledWith({ ...filters, alertKind: "critical" });
     expect(result.transitions).toEqual([expect.objectContaining({
       type: "opened",
-      state: expect.objectContaining({ alertKind: "critical", status: "open", threshold: 0.7, lastReachedPlayers: 50 }),
+      state: expect.objectContaining({ alertKind: "critical", levelId: "level-10", difficultyTier: "hard", status: "open", threshold: 0.7, lastReachedPlayers: 50 }),
     })]);
   });
 
@@ -99,8 +101,10 @@ describe("critical gameplay alerts", () => {
   });
 
   it("labels immediate Slack deliveries as critical", async () => {
-    const result = await reconcileCriticalGameplayAlertsFromQuery(filters, completedPreview(0.71));
+    const result = await reconcileCriticalGameplayAlertsFromQuery(filters, completedPreview(0.71, 50, "hash-a", "hard"));
 
-    expect(formatGameplayAlertSlackMessage(result.transitions, new Date("2026-08-13T04:00:00.000Z"))).toContain("*Critical Gameplay Alert*");
+    const message = formatGameplayAlertSlackMessage(result.transitions, new Date("2026-08-13T04:00:00.000Z"));
+    expect(message).toContain("*Critical Gameplay Alert*");
+    expect(message).toContain("Level 10 (ID level-10) · hard");
   });
 });
