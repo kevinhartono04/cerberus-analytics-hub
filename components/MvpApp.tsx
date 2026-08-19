@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
   BookOpen,
@@ -9,6 +10,7 @@ import {
   Copy,
   Eye,
   FileText,
+  ImagePlus,
   Link2,
   Library,
   LogIn,
@@ -485,6 +487,15 @@ function metricTone(label: string, value: string | number) {
   if (lowerLabel.includes("pack")) return { metric: "text-violet", bar: "bg-violet" };
   if (lowerLabel.includes("updated")) return { metric: "text-amber", bar: "bg-amber" };
   return { metric: "text-ink", bar: "bg-line" };
+}
+
+function GameSpecIcon({ appIconDataUrl, gameTitle }: { appIconDataUrl?: string; gameTitle: string }) {
+  if (!appIconDataUrl) return null;
+  return (
+    <span className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-line/70 bg-surface-raised p-1">
+      <Image src={appIconDataUrl} alt={`${gameTitle} app icon`} width={44} height={44} unoptimized className="h-full w-full object-contain" />
+    </span>
+  );
 }
 
 function StatusChip({ status }: { status: string }) {
@@ -1236,9 +1247,10 @@ function SpecReview({
             <span className="h-1.5 w-1.5 rounded-full bg-cobalt shadow-[0_0_10px_#3d82ff]" />
             Event Design · Editor
           </div>
-          <h1 className="mt-3 font-display text-[34px] font-extrabold leading-none text-ink">
-            {spec.intake.gameTitle || "Untitled Spec"}
-          </h1>
+          <div className="mt-3 flex items-center gap-3">
+            <GameSpecIcon appIconDataUrl={spec.appIconDataUrl} gameTitle={spec.intake.gameTitle || "Untitled Spec"} />
+            <h1 className="font-display text-[34px] font-extrabold leading-none text-ink">{spec.intake.gameTitle || "Untitled Spec"}</h1>
+          </div>
           <p className="mt-2 text-sm text-slate-500">
             Generated {new Date(spec.generatedAt).toLocaleString()} · {spec.generatedEvents.length} events
             {spec.intake.genre ? ` · ${spec.intake.genre}` : ""}
@@ -1818,11 +1830,134 @@ function RenameSpecDialog({
   );
 }
 
+function AppIconDialog({
+  spec,
+  appIconDataUrl,
+  isSaving,
+  onAppIconChange,
+  onCancel,
+  onSubmit,
+}: {
+  spec: SavedSpecSummary | null;
+  appIconDataUrl?: string;
+  isSaving: boolean;
+  onAppIconChange: (value: string | undefined) => void;
+  onCancel: () => void;
+  onSubmit: (event: React.FormEvent<HTMLFormElement>) => void;
+}) {
+  const [fileError, setFileError] = useState("");
+  if (!spec) return null;
+
+  function selectIcon(file: File | undefined) {
+    if (!file) return;
+    if (!new Set(["image/png", "image/jpeg", "image/webp"]).has(file.type)) {
+      setFileError("Choose a PNG, JPEG, or WebP image.");
+      return;
+    }
+    if (file.size > 3 * 1024 * 1024) {
+      setFileError("Choose an image smaller than 3 MB.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        setFileError("");
+        onAppIconChange(reader.result);
+      }
+    };
+    reader.onerror = () => setFileError("The selected image could not be read.");
+    reader.readAsDataURL(file);
+  }
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm">
+      <form onSubmit={onSubmit} className="w-full max-w-md rounded-2xl border border-line/70 bg-surface-popover p-5 shadow-soft">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-cobalt">Saved Specs</div>
+            <h3 className="mt-2 font-display text-lg font-bold text-ink">Set App Icon</h3>
+            <p className="mt-1 text-sm text-slate-500">This icon will identify {spec.gameTitle} across the saved-spec library.</p>
+          </div>
+          <button
+            type="button"
+            aria-label="Cancel app icon update"
+            disabled={isSaving}
+            onClick={onCancel}
+            className="focus-ring inline-flex h-9 w-9 items-center justify-center rounded-md border border-line/70 bg-surface-panel text-slate-500 hover:bg-surface-hover disabled:opacity-50"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="mt-5 flex items-center gap-4 rounded-xl border border-line/70 bg-surface-raised p-4">
+          <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-line/70 bg-surface-panel">
+            {appIconDataUrl ? (
+              <Image src={appIconDataUrl} alt={`App icon preview for ${spec.gameTitle}`} width={64} height={64} unoptimized className="h-full w-full object-contain" />
+            ) : (
+              <ImagePlus className="h-6 w-6 text-slate-500" />
+            )}
+          </div>
+          <div className="min-w-0">
+            <label className="focus-ring inline-flex h-10 cursor-pointer items-center gap-2 rounded-[9px] border border-line/70 bg-surface-panel px-3 text-sm font-semibold text-text-muted hover:bg-surface-hover">
+              <ImagePlus className="h-4 w-4" />
+              Choose image
+              <input
+                aria-label="Choose app icon"
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                disabled={isSaving}
+                className="sr-only"
+                onChange={(event) => {
+                  selectIcon(event.target.files?.[0]);
+                  event.target.value = "";
+                }}
+              />
+            </label>
+            <p className="mt-2 text-xs leading-relaxed text-slate-500">PNG, JPEG, or WebP · up to 3 MB.</p>
+          </div>
+        </div>
+        {fileError ? <p className="mt-3 text-sm font-semibold text-rose">{fileError}</p> : null}
+
+        <div className="mt-5 flex flex-wrap justify-between gap-2">
+          <button
+            type="button"
+            disabled={isSaving || !appIconDataUrl}
+            onClick={() => onAppIconChange(undefined)}
+            className="focus-ring inline-flex h-10 items-center gap-2 rounded-[9px] border border-rose/40 bg-rose/10 px-3 text-sm font-semibold text-rose hover:bg-rose/20 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <X className="h-4 w-4" />
+            Remove
+          </button>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              disabled={isSaving}
+              onClick={onCancel}
+              className="focus-ring inline-flex h-10 items-center gap-2 rounded-[9px] border border-line/70 bg-surface-raised px-3 text-sm font-semibold text-text-muted hover:bg-surface-hover disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isSaving}
+              className="focus-ring inline-flex h-10 items-center gap-2 rounded-md bg-cobalt px-3 text-sm font-semibold text-white hover:bg-cobalt/90 disabled:opacity-50"
+            >
+              <Save className="h-4 w-4" />
+              {isSaving ? "Saving..." : "Save icon"}
+            </button>
+          </div>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 function SavedSpecsBrowser({
   savedSpecs,
   onOpen,
   onEdit,
   onRename,
+  onSaveAppIcon,
   onDuplicate,
   onDelete,
   onImport,
@@ -1830,12 +1965,14 @@ function SavedSpecsBrowser({
   importStatus,
   isImporting,
   isRenaming,
+  isSavingAppIcon,
   isDuplicating,
 }: {
   savedSpecs: SavedSpecSummary[];
   onOpen: (id: string) => Promise<void>;
   onEdit: (id: string) => Promise<void>;
   onRename: (id: string, gameTitle: string) => Promise<boolean>;
+  onSaveAppIcon: (id: string, appIconDataUrl: string | undefined) => Promise<boolean>;
   onDuplicate: (id: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   onImport: (file: File, details: { gameTitle: string; genre: string }) => Promise<void>;
@@ -1843,6 +1980,7 @@ function SavedSpecsBrowser({
   importStatus: string;
   isImporting: boolean;
   isRenaming: boolean;
+  isSavingAppIcon: boolean;
   isDuplicating: boolean;
 }) {
   const [pendingImportFile, setPendingImportFile] = useState<File | null>(null);
@@ -1850,6 +1988,8 @@ function SavedSpecsBrowser({
   const [importGenre, setImportGenre] = useState("");
   const [specToRename, setSpecToRename] = useState<SavedSpecSummary | null>(null);
   const [renamedGameTitle, setRenamedGameTitle] = useState("");
+  const [specToSetAppIcon, setSpecToSetAppIcon] = useState<SavedSpecSummary | null>(null);
+  const [pendingAppIconDataUrl, setPendingAppIconDataUrl] = useState<string | undefined>();
 
   function titleFromFile(file: File) {
     return file.name.replace(/\.(xlsx|csv)$/i, "").trim();
@@ -1879,6 +2019,17 @@ function SavedSpecsBrowser({
     setRenamedGameTitle("");
   }
 
+  function stageAppIcon(savedSpec: SavedSpecSummary) {
+    setSpecToSetAppIcon(savedSpec);
+    setPendingAppIconDataUrl(savedSpec.appIconDataUrl);
+  }
+
+  function closeAppIconDetails() {
+    if (isSavingAppIcon) return;
+    setSpecToSetAppIcon(null);
+    setPendingAppIconDataUrl(undefined);
+  }
+
   async function submitImportDetails(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!pendingImportFile || !importGameTitle.trim()) return;
@@ -1893,6 +2044,12 @@ function SavedSpecsBrowser({
     event.preventDefault();
     if (!specToRename || !renamedGameTitle.trim()) return;
     if (await onRename(specToRename.id, renamedGameTitle.trim())) closeRenameDetails();
+  }
+
+  async function submitAppIconDetails(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!specToSetAppIcon) return;
+    if (await onSaveAppIcon(specToSetAppIcon.id, pendingAppIconDataUrl)) closeAppIconDetails();
   }
 
   function ImportControl() {
@@ -1937,6 +2094,14 @@ function SavedSpecsBrowser({
           onCancel={closeRenameDetails}
           onSubmit={submitRenameDetails}
         />
+        <AppIconDialog
+          spec={specToSetAppIcon}
+          appIconDataUrl={pendingAppIconDataUrl}
+          isSaving={isSavingAppIcon}
+          onAppIconChange={setPendingAppIconDataUrl}
+          onCancel={closeAppIconDetails}
+          onSubmit={submitAppIconDetails}
+        />
         <div>
           <div className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.16em] text-cobalt">
             <span className="h-1.5 w-1.5 rounded-full bg-cobalt shadow-[0_0_10px_#3d82ff]" />
@@ -1978,6 +2143,14 @@ function SavedSpecsBrowser({
         onCancel={closeRenameDetails}
         onSubmit={submitRenameDetails}
       />
+      <AppIconDialog
+        spec={specToSetAppIcon}
+        appIconDataUrl={pendingAppIconDataUrl}
+        isSaving={isSavingAppIcon}
+        onAppIconChange={setPendingAppIconDataUrl}
+        onCancel={closeAppIconDetails}
+        onSubmit={submitAppIconDetails}
+      />
       <div className="flex flex-col justify-between gap-5 md:flex-row md:items-end">
         <div>
           <div className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.16em] text-cobalt">
@@ -2011,13 +2184,29 @@ function SavedSpecsBrowser({
           return (
             <article key={savedSpec.id} className="flex min-h-[272px] flex-col rounded-2xl border border-line/70 surface-card-gradient p-5 shadow-soft transition-colors hover:border-line">
               <div className="flex items-start justify-between gap-3">
-                <div className={`flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-[11px] border font-display text-sm font-extrabold ${statusTone(savedSpec.status).chip}`}>
-                  {initials || "SP"}
+                <div className={`flex h-[42px] w-[42px] shrink-0 items-center justify-center overflow-hidden rounded-[11px] border font-display text-sm font-extrabold ${statusTone(savedSpec.status).chip}`}>
+                  {savedSpec.appIconDataUrl ? (
+                    <Image src={savedSpec.appIconDataUrl} alt={`${savedSpec.gameTitle} app icon`} width={42} height={42} unoptimized className="h-full w-full object-contain" />
+                  ) : (
+                    initials || "SP"
+                  )}
                 </div>
                 <StatusChip status={savedSpec.status} />
               </div>
               <div className="mt-4 flex items-center gap-2">
                 <h2 className="min-w-0 flex-1 truncate font-display text-[17px] font-bold text-ink">{savedSpec.gameTitle}</h2>
+                {savedSpec.canEdit ? (
+                  <button
+                    type="button"
+                    title="Set app icon"
+                    aria-label={`Set app icon for ${savedSpec.gameTitle}`}
+                    onClick={() => stageAppIcon(savedSpec)}
+                    className="focus-ring inline-flex h-7 shrink-0 items-center gap-1 rounded-md border border-line/70 bg-surface-raised px-2 font-mono text-[9px] font-semibold uppercase tracking-[0.08em] text-text-muted hover:bg-surface-hover"
+                  >
+                    <ImagePlus className="h-3 w-3" />
+                    Icon
+                  </button>
+                ) : null}
                 {savedSpec.canEdit ? (
                   <button
                     type="button"
@@ -2805,63 +2994,69 @@ function SpecViewer({
             Event Design · Viewer
           </div>
           {savedSpecs.length > 1 ? (
-            <div
-              className="relative mt-2 inline-flex max-w-full"
-              onBlur={(event) => {
-                if (!event.currentTarget.contains(event.relatedTarget)) setIsSpecMenuOpen(false);
-              }}
-            >
-              <h1 className="max-w-full">
-                <button
-                  type="button"
-                  onClick={() => setIsSpecMenuOpen((open) => !open)}
-                  aria-haspopup="listbox"
-                  aria-expanded={isSpecMenuOpen}
-                  aria-controls="saved-spec-options"
-                  className="focus-ring group flex max-w-full items-center rounded-[10px] border border-transparent py-1 pl-2 pr-9 text-left font-display text-[34px] font-extrabold leading-none text-ink transition-colors hover:border-cobalt/40 hover:bg-cobalt/10 focus:border-cobalt/60 focus:bg-cobalt/10"
-                >
-                  <span className="truncate">{activeSpec.intake.gameTitle}</span>
-                  <ChevronDown className={`pointer-events-none absolute right-3 h-5 w-5 shrink-0 text-cobalt transition-transform ${isSpecMenuOpen ? "rotate-180" : ""}`} />
-                </button>
-              </h1>
-              {isSpecMenuOpen ? (
-                <div
-                  id="saved-spec-options"
-                  role="listbox"
-                  aria-label="Saved game specs"
-                  className="absolute left-0 top-full z-50 mt-2 w-[min(92vw,390px)] overflow-hidden rounded-[12px] border border-line/80 bg-surface-raised p-1.5 shadow-soft"
-                >
-                  <div className="px-2.5 py-2 font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Saved Game Specs</div>
-                  {savedSpecs.map((savedSpec) => {
-                    const isActive = savedSpec.id === activeSpec.id;
-                    return (
-                      <button
-                        key={savedSpec.id}
-                        type="button"
-                        role="option"
-                        aria-selected={isActive}
-                        onMouseDown={(event) => event.preventDefault()}
-                        onClick={() => {
-                          setActiveSpecId(savedSpec.id);
-                          setIsSpecMenuOpen(false);
-                        }}
-                        className={`focus-ring relative block w-full rounded-[9px] px-3 py-2.5 text-left transition-colors ${
-                          isActive ? "bg-cobalt/15 text-ink" : "text-text-muted hover:bg-surface-hover"
-                        }`}
-                      >
-                        {isActive ? <span className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-cobalt" /> : null}
-                        <span className="block truncate text-[14px] font-semibold">{savedSpec.gameTitle}</span>
-                        <span className="mt-1 block font-mono text-[10px] text-slate-500">
-                          {savedSpec.eventCount} events · {savedSpec.payloadCount} payload rows
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              ) : null}
+            <div className="mt-2 flex max-w-full items-center gap-3">
+              <GameSpecIcon appIconDataUrl={activeSpec.appIconDataUrl} gameTitle={activeSpec.intake.gameTitle} />
+              <div
+                className="relative inline-flex min-w-0 max-w-full"
+                onBlur={(event) => {
+                  if (!event.currentTarget.contains(event.relatedTarget)) setIsSpecMenuOpen(false);
+                }}
+              >
+                <h1 className="max-w-full">
+                  <button
+                    type="button"
+                    onClick={() => setIsSpecMenuOpen((open) => !open)}
+                    aria-haspopup="listbox"
+                    aria-expanded={isSpecMenuOpen}
+                    aria-controls="saved-spec-options"
+                    className="focus-ring group flex max-w-full items-center rounded-[10px] border border-transparent py-1 pl-2 pr-9 text-left font-display text-[34px] font-extrabold leading-none text-ink transition-colors hover:border-cobalt/40 hover:bg-cobalt/10 focus:border-cobalt/60 focus:bg-cobalt/10"
+                  >
+                    <span className="truncate">{activeSpec.intake.gameTitle}</span>
+                    <ChevronDown className={`pointer-events-none absolute right-3 h-5 w-5 shrink-0 text-cobalt transition-transform ${isSpecMenuOpen ? "rotate-180" : ""}`} />
+                  </button>
+                </h1>
+                {isSpecMenuOpen ? (
+                  <div
+                    id="saved-spec-options"
+                    role="listbox"
+                    aria-label="Saved game specs"
+                    className="absolute left-0 top-full z-50 mt-2 w-[min(92vw,390px)] overflow-hidden rounded-[12px] border border-line/80 bg-surface-raised p-1.5 shadow-soft"
+                  >
+                    <div className="px-2.5 py-2 font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">Saved Game Specs</div>
+                    {savedSpecs.map((savedSpec) => {
+                      const isActive = savedSpec.id === activeSpec.id;
+                      return (
+                        <button
+                          key={savedSpec.id}
+                          type="button"
+                          role="option"
+                          aria-selected={isActive}
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => {
+                            setActiveSpecId(savedSpec.id);
+                            setIsSpecMenuOpen(false);
+                          }}
+                          className={`focus-ring relative block w-full rounded-[9px] px-3 py-2.5 text-left transition-colors ${
+                            isActive ? "bg-cobalt/15 text-ink" : "text-text-muted hover:bg-surface-hover"
+                          }`}
+                        >
+                          {isActive ? <span className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-cobalt" /> : null}
+                          <span className="block truncate text-[14px] font-semibold">{savedSpec.gameTitle}</span>
+                          <span className="mt-1 block font-mono text-[10px] text-slate-500">
+                            {savedSpec.eventCount} events · {savedSpec.payloadCount} payload rows
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </div>
             </div>
           ) : (
-            <h1 className="mt-3 font-display text-[34px] font-extrabold leading-none text-ink">{activeSpec.intake.gameTitle}</h1>
+            <div className="mt-3 flex items-center gap-3">
+              <GameSpecIcon appIconDataUrl={activeSpec.appIconDataUrl} gameTitle={activeSpec.intake.gameTitle} />
+              <h1 className="font-display text-[34px] font-extrabold leading-none text-ink">{activeSpec.intake.gameTitle}</h1>
+            </div>
           )}
           <p className="mt-2 text-[13.5px] text-slate-500">
             Read-only view · shareable with viewers · {activeSpec.intake.genre || "Unspecified genre"}
@@ -2989,6 +3184,7 @@ export default function MvpApp({ library }: { library: LibrarySnapshot }) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
+  const [isSavingAppIcon, setIsSavingAppIcon] = useState(false);
   const [isDuplicating, setIsDuplicating] = useState(false);
   const [error, setError] = useState("");
   const [saveStatus, setSaveStatus] = useState("");
@@ -3335,6 +3531,45 @@ export default function MvpApp({ library }: { library: LibrarySnapshot }) {
     }
   }
 
+  async function saveSavedSpecAppIcon(id: string, appIconDataUrl: string | undefined) {
+    if (!canCreateOrEdit) {
+      setError("Only admins and editors can update app icons.");
+      return false;
+    }
+    setError("");
+    setImportStatus("");
+    setIsSavingAppIcon(true);
+    try {
+      const getResponse = await fetch(`/api/specs/${id}`);
+      if (!getResponse.ok) throw new Error(await getResponse.text());
+      const currentSpec = (await getResponse.json()) as GeneratedSpec;
+      const updatedSpec = { ...currentSpec };
+      if (appIconDataUrl) {
+        updatedSpec.appIconDataUrl = appIconDataUrl;
+      } else {
+        delete updatedSpec.appIconDataUrl;
+      }
+      const response = await fetch(`/api/specs/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updatedSpec),
+      });
+      if (!response.ok) throw new Error(await response.text());
+      const saved = (await response.json()) as SavedSpecSummary;
+      await refreshSavedSpecs();
+      if (spec?.id === id) setSpec(updatedSpec);
+      setImportStatus(`${appIconDataUrl ? "Updated" : "Removed"} app icon for ${saved.gameTitle}`);
+      return true;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Could not save app icon";
+      setImportStatus(message);
+      setError(message);
+      return false;
+    } finally {
+      setIsSavingAppIcon(false);
+    }
+  }
+
   async function deleteSpec(id: string) {
     setError("");
     const response = await fetch(`/api/specs/${id}`, { method: "DELETE" });
@@ -3536,6 +3771,7 @@ export default function MvpApp({ library }: { library: LibrarySnapshot }) {
             onOpen={viewSavedSpec}
             onEdit={openSavedSpec}
             onRename={renameSavedSpec}
+            onSaveAppIcon={saveSavedSpecAppIcon}
             onDuplicate={duplicateSavedSpec}
             onDelete={deleteSpec}
             onImport={importSpecFile}
@@ -3543,6 +3779,7 @@ export default function MvpApp({ library }: { library: LibrarySnapshot }) {
             importStatus={importStatus}
             isImporting={isImporting}
             isRenaming={isRenaming}
+            isSavingAppIcon={isSavingAppIcon}
             isDuplicating={isDuplicating}
           />
         ) : null}

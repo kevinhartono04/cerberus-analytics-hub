@@ -153,6 +153,30 @@ describe("spec RBAC API", () => {
     expect(deleteResponse.status).toBe(200);
   });
 
+  it("persists an app icon for a saved spec", async () => {
+    const appIconDataUrl = "data:image/png;base64,iVBORw0KGgo=";
+    const spec = { ...specWithId("rbac-app-icon"), appIconDataUrl };
+
+    const createResponse = await createAs("editor", "editor-owner", spec);
+    expect(createResponse.status).toBe(200);
+    expect((await createResponse.json()).appIconDataUrl).toBe(appIconDataUrl);
+
+    const listResponse = await LIST_SPECS(request("GET", "editor", "editor-owner"));
+    const listedSpecs = (await listResponse.json()) as Array<{ id: string; appIconDataUrl?: string }>;
+    expect(listedSpecs.find((savedSpec) => savedSpec.id === spec.id)?.appIconDataUrl).toBe(appIconDataUrl);
+
+    const detailResponse = await GET_SPEC(publicRequest(), context(spec.id));
+    expect((await detailResponse.json()).appIconDataUrl).toBe(appIconDataUrl);
+  });
+
+  it("saves an app icon at the 3 MB upload limit without exceeding SQLite argument limits", async () => {
+    const appIconDataUrl = `data:image/png;base64,${Buffer.alloc(3 * 1024 * 1024).toString("base64")}`;
+    const spec = { ...specWithId("rbac-large-app-icon"), appIconDataUrl };
+
+    const response = await createAs("editor", "editor-owner", spec);
+    expect(response.status).toBe(200);
+  });
+
   it("allows editors to mutate only their own specs", async () => {
     const ownSpec = specWithId("rbac-editor-own");
     const otherSpec = specWithId("rbac-editor-other");

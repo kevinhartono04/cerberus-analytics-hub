@@ -58,8 +58,11 @@ function sqliteJsonRows<T>(sql: string): T[] {
 }
 
 function sqliteExec(sql: string) {
-  execFileSync("sqlite3", [localSqlitePath, sql], {
+  // Large app icons are persisted as data URLs. Passing the SQL as a process
+  // argument hits the operating system's argument-size limit, so stream it.
+  execFileSync("sqlite3", [localSqlitePath], {
     encoding: "utf8",
+    input: sql,
     maxBuffer: 1024 * 1024 * 32,
   });
 }
@@ -121,6 +124,7 @@ async function ensureSavedSpecsTable() {
       await transaction`ALTER TABLE saved_specs ADD COLUMN IF NOT EXISTS owner_user_id TEXT`;
       await transaction`ALTER TABLE saved_specs ADD COLUMN IF NOT EXISTS owner_email TEXT`;
       await transaction`ALTER TABLE saved_specs ADD COLUMN IF NOT EXISTS owner_name TEXT`;
+      await transaction`ALTER TABLE saved_specs ADD COLUMN IF NOT EXISTS app_icon_data_url TEXT`;
     })
       .then(() => undefined)
       .catch((error) => {
@@ -156,6 +160,9 @@ function ensureSqliteSavedSpecsTable() {
   }
   if (!sqliteColumnExists("saved_specs", "owner_name")) {
     sqliteExec("ALTER TABLE saved_specs ADD COLUMN owner_name TEXT");
+  }
+  if (!sqliteColumnExists("saved_specs", "app_icon_data_url")) {
+    sqliteExec("ALTER TABLE saved_specs ADD COLUMN app_icon_data_url TEXT");
   }
 }
 
@@ -522,6 +529,7 @@ function rowToSavedSpecSummary(row: Record<string, unknown>): SavedSpecSummary {
   const ownerUserId = asString(row.owner_user_id);
   const ownerEmail = asString(row.owner_email);
   const ownerName = asString(row.owner_name);
+  const appIconDataUrl = asString(row.app_icon_data_url);
   return {
     id: asString(row.id),
     gameTitle: asString(row.game_title),
@@ -532,6 +540,7 @@ function rowToSavedSpecSummary(row: Record<string, unknown>): SavedSpecSummary {
     generatedAt: asString(row.generated_at),
     savedAt: asString(row.saved_at),
     updatedAt: asString(row.updated_at),
+    ...(appIconDataUrl ? { appIconDataUrl } : {}),
     ...(ownerUserId ? { ownerUserId } : {}),
     ...(ownerEmail ? { ownerEmail } : {}),
     ...(ownerName ? { ownerName } : {}),
@@ -562,7 +571,7 @@ export async function listSavedSpecs(): Promise<SavedSpecSummary[]> {
     ensureSqliteSavedSpecsTable();
     const rows = sqliteJsonRows<Record<string, unknown>>(`
       SELECT id, game_title, genre, status, event_count, payload_count, generated_at, saved_at, updated_at,
-        owner_user_id, owner_email, owner_name
+        owner_user_id, owner_email, owner_name, app_icon_data_url
       FROM saved_specs
       ORDER BY updated_at DESC
     `);
@@ -572,7 +581,7 @@ export async function listSavedSpecs(): Promise<SavedSpecSummary[]> {
   const sql = await ensureSavedSpecsTable();
   const rows = await sql`
     SELECT id, game_title, genre, status, event_count, payload_count, generated_at, saved_at, updated_at,
-      owner_user_id, owner_email, owner_name
+      owner_user_id, owner_email, owner_name, app_icon_data_url
     FROM saved_specs
     ORDER BY updated_at DESC
   `;
@@ -584,7 +593,7 @@ export async function getSavedSpecSummary(id: string): Promise<SavedSpecSummary 
     ensureSqliteSavedSpecsTable();
     const [row] = sqliteJsonRows<Record<string, unknown>>(`
       SELECT id, game_title, genre, status, event_count, payload_count, generated_at, saved_at, updated_at,
-        owner_user_id, owner_email, owner_name
+        owner_user_id, owner_email, owner_name, app_icon_data_url
       FROM saved_specs
       WHERE id = ${sqliteLiteral(id)}
       LIMIT 1
@@ -595,7 +604,7 @@ export async function getSavedSpecSummary(id: string): Promise<SavedSpecSummary 
   const sql = await ensureSavedSpecsTable();
   const [row] = await sql`
     SELECT id, game_title, genre, status, event_count, payload_count, generated_at, saved_at, updated_at,
-      owner_user_id, owner_email, owner_name
+      owner_user_id, owner_email, owner_name, app_icon_data_url
     FROM saved_specs
     WHERE id = ${id}
     LIMIT 1
@@ -646,12 +655,13 @@ export async function saveSpec(specInput: unknown, owner: AppUser): Promise<Save
   const status = specStatus(spec);
   const eventCount = spec.generatedEvents.length;
   const payloadCount = specPayloadCount(spec);
+  const appIconDataUrl = spec.appIconDataUrl ?? "";
 
   if (shouldUseLocalSqlite()) {
     sqliteExec(`
       INSERT INTO saved_specs (
         id, game_title, genre, status, event_count, payload_count, generated_at, saved_at, updated_at,
-        owner_user_id, owner_email, owner_name, payload
+        owner_user_id, owner_email, owner_name, app_icon_data_url, payload
       )
       VALUES (
         ${sqliteLiteral(spec.id)},
@@ -666,6 +676,7 @@ export async function saveSpec(specInput: unknown, owner: AppUser): Promise<Save
         ${sqliteLiteral(ownerUserId)},
         ${sqliteLiteral(ownerEmail)},
         ${sqliteLiteral(ownerName)},
+        ${sqliteLiteral(appIconDataUrl)},
         ${sqliteLiteral(JSON.stringify(spec))}
       )
       ON CONFLICT(id) DO UPDATE SET
@@ -676,6 +687,7 @@ export async function saveSpec(specInput: unknown, owner: AppUser): Promise<Save
         payload_count = excluded.payload_count,
         generated_at = excluded.generated_at,
         updated_at = excluded.updated_at,
+        app_icon_data_url = excluded.app_icon_data_url,
         payload = excluded.payload
     `);
 
@@ -689,6 +701,7 @@ export async function saveSpec(specInput: unknown, owner: AppUser): Promise<Save
       generatedAt: spec.generatedAt,
       savedAt,
       updatedAt: now,
+      ...(appIconDataUrl ? { appIconDataUrl } : {}),
       ...(ownerUserId ? { ownerUserId } : {}),
       ...(ownerEmail ? { ownerEmail } : {}),
       ...(ownerName ? { ownerName } : {}),
@@ -712,7 +725,7 @@ export async function saveSpec(specInput: unknown, owner: AppUser): Promise<Save
   await sql`
     INSERT INTO saved_specs (
       id, game_title, genre, status, event_count, payload_count, generated_at, saved_at, updated_at,
-      owner_user_id, owner_email, owner_name, payload
+      owner_user_id, owner_email, owner_name, app_icon_data_url, payload
     )
     VALUES (
       ${spec.id},
@@ -727,6 +740,7 @@ export async function saveSpec(specInput: unknown, owner: AppUser): Promise<Save
       ${postgresOwnerUserId},
       ${postgresOwnerEmail},
       ${postgresOwnerName},
+      ${appIconDataUrl},
       ${JSON.stringify(spec)}
     )
     ON CONFLICT(id) DO UPDATE SET
@@ -737,6 +751,7 @@ export async function saveSpec(specInput: unknown, owner: AppUser): Promise<Save
       payload_count = excluded.payload_count,
       generated_at = excluded.generated_at,
       updated_at = excluded.updated_at,
+      app_icon_data_url = excluded.app_icon_data_url,
       payload = excluded.payload
   `;
 
@@ -750,6 +765,7 @@ export async function saveSpec(specInput: unknown, owner: AppUser): Promise<Save
     generatedAt: spec.generatedAt,
     savedAt: postgresSavedAt,
     updatedAt: now,
+    ...(appIconDataUrl ? { appIconDataUrl } : {}),
     ...(postgresOwnerUserId ? { ownerUserId: postgresOwnerUserId } : {}),
     ...(postgresOwnerEmail ? { ownerEmail: postgresOwnerEmail } : {}),
     ...(postgresOwnerName ? { ownerName: postgresOwnerName } : {}),

@@ -71,9 +71,15 @@ export const generatedEventSchema = z.object({
 
 export type GeneratedEvent = z.infer<typeof generatedEventSchema>;
 
+const appIconDataUrlSchema = z
+  .string()
+  .max(4_200_000, "App icons must be smaller than 3 MB.")
+  .regex(/^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/i, "Use a PNG, JPEG, or WebP app icon.");
+
 export const generatedSpecSchema = z.object({
   id: z.string(),
   generatedAt: z.string(),
+  appIconDataUrl: appIconDataUrlSchema.optional(),
   intake: intakeSchema,
   selectedFeaturePacks: z.array(z.string()),
   generatedEvents: z.array(generatedEventSchema),
@@ -103,6 +109,7 @@ export const savedSpecSummarySchema = z.object({
   generatedAt: z.string(),
   savedAt: z.string(),
   updatedAt: z.string(),
+  appIconDataUrl: appIconDataUrlSchema.optional(),
   ownerUserId: z.string().optional(),
   ownerEmail: z.string().optional(),
   ownerName: z.string().optional(),
