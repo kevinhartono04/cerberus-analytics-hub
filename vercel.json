@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/gameplay-alerts",
       "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/incent-config-alerts",
+      "schedule": "15 * * * *"
     }
   ]
 }

@@ -5,11 +5,13 @@ import React, { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import CerberusShell from "@/components/CerberusShell";
 import { FunnelDateRangePicker, FunnelFilterDropdown, FunnelMultiSelect, FunnelVersionMultiSelect } from "@/components/LevelFunnelControls";
+import { readDashboardSession, writeDashboardSession } from "@/lib/dashboard-session";
 import type { GameMonitoringFilters as Filters, GameMonitoringPoint as Point, GameMonitoringRunResponse as RunResponse } from "@/lib/game-monitoring";
 
 const appOptions = ["blockkingdom", "bloomsort", "bubblego", "bubblewordchain", "dotpaint", "hexago", "hexastack", "jelly", "mahjongbloom", "marble", "sizzle", "stacksmash", "treasureshot", "tripletile", "wooblast", "woodoku", "wordblast", "wordoku", "wordrush"] as const;
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 const pendingStorageKey = "tech-launch:game-monitoring:pending-count-job";
+const sessionStorageKey = "cerberus.game-monitoring.snapshot.v1";
 const slowQueryAfterMs = 45_000;
 const dateColors = ["#60a5fa", "#4edea3", "#c084fc", "#fbbf24", "#fb7185", "#22d3ee", "#f97316"];
 
@@ -17,6 +19,7 @@ type Cohort = "d0" | "d1_plus";
 type Platform = "android" | "ios";
 type Data = Extract<RunResponse, { status: "completed" | "unavailable" }>;
 type PendingJob = { jobKey: string; filters: Filters; submittedAt: string; pollAfterMs: number };
+type GameMonitoringSessionSnapshot = { filters: Filters; data: Data | null; status: string; adMetric: "fipu" | "ripu" | "bipu" };
 type AccessResponse = { authenticated: boolean; access: { techLaunchApps: string[] } | null };
 type AppVersionsResponse = { versions: Array<{ appVersion: string; sampleCount: number }> };
 type Metric = { label: string; value: (point: Point) => number | null; formatter?: (value: number | null) => string };
@@ -124,9 +127,25 @@ function ChartRow(props: ChartRowProps) {
 }
 
 export default function GameMonitoringDashboard() {
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false); const [filters, setFilters] = useState<Filters>(() => defaultFilters()); const [allowedApps, setAllowedApps] = useState<string[] | null>(null); const [versions, setVersions] = useState<AppVersionsResponse["versions"]>([]); const [versionsLoading, setVersionsLoading] = useState(false); const [versionError, setVersionError] = useState(""); const [data, setData] = useState<Data | null>(null); const [loading, setLoading] = useState(false); const [status, setStatus] = useState(""); const [error, setError] = useState(""); const [pendingJob, setPendingJob] = useState<PendingJob | null>(() => readPendingJob()); const [elapsedMs, setElapsedMs] = useState(0); const [adMetric, setAdMetric] = useState<"fipu" | "ripu" | "bipu">("fipu"); const requestId = useRef(0); const resumed = useRef(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false); const [filters, setFilters] = useState<Filters>(() => defaultFilters()); const [allowedApps, setAllowedApps] = useState<string[] | null>(null); const [versions, setVersions] = useState<AppVersionsResponse["versions"]>([]); const [versionsLoading, setVersionsLoading] = useState(false); const [versionError, setVersionError] = useState(""); const [data, setData] = useState<Data | null>(null); const [loading, setLoading] = useState(false); const [status, setStatus] = useState(""); const [error, setError] = useState(""); const [pendingJob, setPendingJob] = useState<PendingJob | null>(() => readPendingJob()); const [elapsedMs, setElapsedMs] = useState(0); const [adMetric, setAdMetric] = useState<"fipu" | "ripu" | "bipu">("fipu"); const [isSessionStateReady, setIsSessionStateReady] = useState(false); const requestId = useRef(0); const resumed = useRef(false);
   const selectableApps = useMemo(() => allowedApps?.length ? appOptions.filter((app) => allowedApps.includes(app)) : appOptions, [allowedApps]); const platforms = filters.platforms as Platform[];
   const latestByPlatform = useMemo(() => new Map(platforms.map((platform) => [platform, [...(data?.points ?? [])].filter((point) => point.platform === platform && point.cohortSegment === "d0").sort((a, b) => b.eventDate.localeCompare(a.eventDate) || b.eventHour - a.eventHour).find((point) => point.hourlyActiveUsers > 0)])), [data, platforms]);
+  useEffect(() => {
+    if (!pendingJob) {
+      const snapshot = readDashboardSession<GameMonitoringSessionSnapshot>(sessionStorageKey);
+      if (snapshot) {
+        setFilters(snapshot.filters);
+        setData(snapshot.data);
+        setStatus(snapshot.status);
+        setAdMetric(snapshot.adMetric ?? "fipu");
+      }
+    }
+    setIsSessionStateReady(true);
+  }, []);
+  useEffect(() => {
+    if (!isSessionStateReady) return;
+    writeDashboardSession<GameMonitoringSessionSnapshot>(sessionStorageKey, { filters, data, status, adMetric });
+  }, [adMetric, data, filters, isSessionStateReady, status]);
   useEffect(() => { let cancelled = false; void fetch("/api/me").then(async (response) => { if (!response.ok) throw new Error(await responseMessage(response)); return (await response.json()) as AccessResponse; }).then((response) => { if (cancelled) return; const apps = response.authenticated ? response.access?.techLaunchApps ?? [] : []; setAllowedApps(apps); if (apps.length && !apps.includes(filters.appName)) setFilters((current) => ({ ...current, appName: apps[0] as Filters["appName"], appVersions: [] })); if (!apps.length) setError("Your account does not have Launch Readiness access. Contact your Tripledot administrator."); }).catch((reason) => { if (!cancelled) setError(reason instanceof Error ? reason.message : "Could not load account access"); }); return () => { cancelled = true; }; }, []);
   useEffect(() => { if (!allowedApps?.includes(filters.appName)) return; let cancelled = false; setVersionsLoading(true); setVersionError(""); void Promise.all(filters.platforms.map(async (platform) => { const response = await fetch("/api/tech-launch/app-versions", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ appName: filters.appName, platform, startDate: filters.startDate, endDate: filters.endDate }) }); if (!response.ok) throw new Error(await responseMessage(response)); return (await response.json()) as AppVersionsResponse; })).then((responses) => { if (cancelled) return; const merged = new Map<string, number>(); responses.forEach((response) => response.versions.forEach((version) => merged.set(version.appVersion, (merged.get(version.appVersion) ?? 0) + version.sampleCount))); setVersions([...merged.entries()].map(([appVersion, sampleCount]) => ({ appVersion, sampleCount })).sort((a, b) => b.sampleCount - a.sampleCount || b.appVersion.localeCompare(a.appVersion, undefined, { numeric: true }))); }).catch((reason) => { if (!cancelled) { setVersions([]); setVersionError(reason instanceof Error ? reason.message : "Could not load version suggestions"); } }).finally(() => { if (!cancelled) setVersionsLoading(false); }); return () => { cancelled = true; }; }, [allowedApps, filters.appName, filters.platforms, filters.startDate, filters.endDate]);
   useEffect(() => { if (!pendingJob) { setElapsedMs(0); return; } const update = () => setElapsedMs(Math.max(0, Date.now() - Date.parse(pendingJob.submittedAt))); update(); const interval = window.setInterval(update, 1000); return () => window.clearInterval(interval); }, [pendingJob]); useEffect(() => () => { requestId.current += 1; }, []);

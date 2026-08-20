@@ -7,8 +7,9 @@ vi.mock("@/components/CerberusShell", () => ({ default: ({ children }: { childre
 
 import LevelFunnelDashboard from "@/components/LevelFunnelDashboard";
 
-const filters = { appName: "stacksmash", platforms: ["android"], appVersions: ["0.2.0"], startDate: "2026-07-22", endDate: "2026-07-28" };
+const filters = { appName: "stacksmash", platforms: ["android"], appVersions: ["0.2.0"], startDate: "2026-07-22", endDate: "2026-07-28", minLevel: 1, maxLevel: 1000 };
 const pendingJobStorageKey = "tech-launch:level-funnel:pending-count-job";
+const sessionStorageKey = "cerberus.level-funnel.snapshot.v1";
 
 function jsonResponse(value: unknown) {
   return new Response(JSON.stringify(value), { status: 200, headers: { "content-type": "application/json" } });
@@ -106,6 +107,16 @@ describe("LevelFunnelDashboard Count polling", () => {
     expect(window.sessionStorage.getItem(pendingJobStorageKey)).toBeNull();
   });
 
+  it("restores a matching completed snapshot instead of re-running a run URL", async () => {
+    window.history.replaceState(null, "", "/tech-launch/level-funnel?appName=stacksmash&platform=android&appVersion=0.2.0&startDate=2026-07-22&endDate=2026-07-28&run=1");
+    window.sessionStorage.setItem(sessionStorageKey, JSON.stringify({ filters, data: unavailableResult(), queryStatus: "Query complete" }));
+
+    render(<LevelFunnelDashboard />);
+
+    expect(await screen.findByText("No telemetry")).toBeInTheDocument();
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => url === "/api/tech-launch/level-fail-rate")).toBe(false);
+  });
+
   it("uses the cache when Run is used for a window that includes today", async () => {
     const formatDate = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
     const today = new Date();
@@ -130,8 +141,53 @@ describe("LevelFunnelDashboard Count polling", () => {
     await waitFor(() => {
       const call = fetchMock.mock.calls.find(([input]) => String(input) === "/api/tech-launch/level-fail-rate");
       expect(call).toBeDefined();
-      expect(JSON.parse(String((call?.[1] as RequestInit).body))).toMatchObject({ forceRefresh: false });
+      expect(JSON.parse(String((call?.[1] as RequestInit).body))).toMatchObject({ forceRefresh: false, minLevel: 1, maxLevel: 1000 });
     });
+  });
+
+  it("submits a later level range and persists it in the URL", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/me") return Promise.resolve(jsonResponse({ authenticated: true, user: { role: "viewer" }, access: { techLaunchApps: ["stacksmash"] } }));
+      if (url === "/api/tech-launch/app-versions") return Promise.resolve(jsonResponse({ versions: [{ appVersion: "0.2.0", sampleCount: 100 }] }));
+      if (url === "/api/tech-launch/level-fail-rate") return Promise.resolve(jsonResponse(unavailableResult()));
+      return Promise.reject(new Error(`Unexpected request: ${url}`));
+    });
+
+    render(<LevelFunnelDashboard />);
+    const endingLevel = await screen.findByLabelText("Ending level");
+    fireEvent.change(endingLevel, { target: { value: "2000" } });
+    fireEvent.blur(endingLevel);
+    const startingLevel = screen.getByLabelText("Starting level");
+    fireEvent.change(startingLevel, { target: { value: "1001" } });
+    fireEvent.blur(startingLevel);
+    fireEvent.click(screen.getByRole("button", { name: /^run$/i }));
+
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find(([input]) => String(input) === "/api/tech-launch/level-fail-rate");
+      expect(call).toBeDefined();
+      expect(JSON.parse(String((call?.[1] as RequestInit).body))).toMatchObject({ minLevel: 1001, maxLevel: 2000 });
+      expect(window.location.search).toContain("minLevel=1001");
+      expect(window.location.search).toContain("maxLevel=2000");
+    });
+  });
+
+  it("moves level sliders in 50-level increments", async () => {
+    render(<LevelFunnelDashboard />);
+
+    const startingSlider = await screen.findByLabelText("Starting level slider");
+    const endingSlider = screen.getByLabelText("Ending level slider");
+    fireEvent.change(startingSlider, { target: { value: "5" } });
+    expect(screen.getByLabelText("Starting level")).toHaveValue(250);
+
+    fireEvent.change(endingSlider, { target: { value: "21" } });
+    expect(screen.getByLabelText("Ending level")).toHaveValue(1050);
+
+    fireEvent.change(startingSlider, { target: { value: "0" } });
+    expect(screen.getByLabelText("Starting level")).toHaveValue(1);
+    expect(screen.getByLabelText("Ending level")).toHaveValue(1000);
+    expect(endingSlider).toHaveValue("20");
   });
 
   it("shows the real-time critical alert policy alongside the daily configuration for admins", async () => {

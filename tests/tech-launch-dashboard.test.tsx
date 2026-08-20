@@ -138,4 +138,22 @@ describe("TechLaunchDashboard comparison mode", () => {
     ));
     expect(fetchMock.mock.calls.some(([url]) => url === "/api/tech-launch/readiness")).toBe(false);
   });
+
+  it("restores a matching completed snapshot instead of re-running a run URL", async () => {
+    window.history.replaceState(null, "", "/tech-launch?appName=wordblast&platform=android&appVersion=4.19.0&startDate=2026-07-01&endDate=2026-07-07&run=1");
+    window.sessionStorage.setItem(readinessSessionKey, JSON.stringify({
+      filters: readinessFilters,
+      data: completedReadiness(),
+      compareEnabled: false,
+      comparisonView: "individual",
+      comparisonFilters: { appName: "wordblast", appVersion: "" },
+      comparisonData: null,
+      statusText: "Query complete",
+    }));
+
+    render(<TechLaunchDashboard />);
+
+    expect(await screen.findByText("Insufficient")).toBeInTheDocument();
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => url === "/api/tech-launch/readiness")).toBe(false);
+  });
 });

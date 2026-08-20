@@ -7,6 +7,7 @@ vi.mock("@/components/CerberusShell", () => ({ default: ({ children }: { childre
 import GameMonitoringDashboard from "@/components/GameMonitoringDashboard";
 
 const filters = { appName: "wordblast", platforms: ["android", "ios"], appVersions: [], startDate: "2026-07-01", endDate: "2026-07-07" };
+const sessionStorageKey = "cerberus.game-monitoring.snapshot.v1";
 const point = (platform: "android" | "ios", cohortSegment: "d0" | "d1_plus") => ({ eventDate: "2026-07-01", platform, eventHour: 4, cohortSegment, hourlyActiveUsers: 100, installUsers: cohortSegment === "d0" ? 10 : 0, cumulativeInstalls: cohortSegment === "d0" ? 40 : 0, purchaseSuccessEvents: 5, purchasers: 4, payerRate: 0.04, sessionStartEvents: 90, gameStartEvents: 80, sessionStartUsers: 70, gameStartUsers: 60, gameStartRate: 0.857, gameStartActiveRate: 0.6, interstitialImpressions: 40, rewardedImpressions: 20, bannerImpressions: 10, fipu: 0.4, ripu: 0.2, bipu: 0.1 });
 const points = [point("android", "d0"), point("android", "d1_plus"), point("ios", "d0"), point("ios", "d1_plus")];
 function response(value: unknown) { return new Response(JSON.stringify(value), { status: 200, headers: { "content-type": "application/json" } }); }
@@ -44,5 +45,20 @@ describe("GameMonitoringDashboard", () => {
       expect(call).toBeDefined();
       expect(JSON.parse((call?.[1] as RequestInit).body as string)).toMatchObject({ appName: "wordblast", platforms: ["android", "ios"], appVersions: [], forceRefresh: false });
     });
+  });
+
+  it("restores its completed result from the current browser session", async () => {
+    window.sessionStorage.setItem(sessionStorageKey, JSON.stringify({
+      filters,
+      data: { status: "completed", filters, points, summary: { latestEventDate: "2026-07-01" }, metadata: { executedAt: "2026-07-01T00:00:00.000Z" } },
+      status: "Query complete",
+      adMetric: "ripu",
+    }));
+
+    render(<GameMonitoringDashboard />);
+
+    expect(await screen.findByText("Android cumulative installs")).toBeInTheDocument();
+    expect(screen.getAllByText(/RIPU · D0/).length).toBeGreaterThan(0);
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => url === "/api/tech-launch/game-monitoring")).toBe(false);
   });
 });

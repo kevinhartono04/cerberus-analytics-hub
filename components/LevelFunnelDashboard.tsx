@@ -4,7 +4,8 @@ import { AlertTriangle, CheckCircle2, RefreshCw, X, XCircle } from "lucide-react
 import React, { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import CerberusShell from "@/components/CerberusShell";
-import { FunnelDateRangePicker, FunnelFilterDropdown, FunnelMultiSelect, FunnelVersionMultiSelect } from "@/components/LevelFunnelControls";
+import { FunnelDateRangePicker, FunnelFilterDropdown, FunnelLevelRange, FunnelMultiSelect, FunnelVersionMultiSelect } from "@/components/LevelFunnelControls";
+import { readDashboardSession, sameDashboardFilters, writeDashboardSession } from "@/lib/dashboard-session";
 
 const appOptions = [
   "blockkingdom", "bloomsort", "bubblego", "bubblewordchain", "dotpaint", "hexago", "hexastack", "jelly", "mahjongbloom", "marble",
@@ -12,6 +13,7 @@ const appOptions = [
 ] as const;
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 const levelFunnelPendingJobStorageKey = "tech-launch:level-funnel:pending-count-job";
+const levelFunnelSessionStorageKey = "cerberus.level-funnel.snapshot.v1";
 const slowQueryAfterMs = 45_000;
 
 type Filters = {
@@ -20,6 +22,8 @@ type Filters = {
   appVersions: string[];
   startDate: string;
   endDate: string;
+  minLevel: number;
+  maxLevel: number;
 };
 
 type AccessResponse = {
@@ -109,6 +113,12 @@ type PendingLevelFunnelJob = {
   pollAfterMs: number;
 };
 
+type LevelFunnelSessionSnapshot = {
+  filters: Filters;
+  data: LevelFailRateResponse | null;
+  queryStatus: string;
+};
+
 function isoDate(date: Date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -124,7 +134,7 @@ function defaultFilters(): Filters {
   const end = new Date();
   const start = new Date(end);
   start.setDate(start.getDate() - 2);
-  return { appName: "stacksmash", platforms: ["android", "ios"], appVersions: [], startDate: isoDate(start), endDate: isoDate(end) };
+  return { appName: "stacksmash", platforms: ["android", "ios"], appVersions: [], startDate: isoDate(start), endDate: isoDate(end), minLevel: 1, maxLevel: 1000 };
 }
 
 function isAppName(value: string): value is typeof appOptions[number] {
@@ -135,20 +145,27 @@ function isDateValue(value: string) {
   return datePattern.test(value);
 }
 
-function isPendingLevelFunnelJob(value: unknown): value is PendingLevelFunnelJob {
-  if (!value || typeof value !== "object") return false;
-  const job = value as Partial<PendingLevelFunnelJob>;
-  const filters = job.filters;
-  if (!filters) return false;
-  return typeof job.jobKey === "string" && Boolean(job.jobKey.trim())
-    && typeof job.submittedAt === "string" && Number.isFinite(Date.parse(job.submittedAt))
-    && typeof job.pollAfterMs === "number" && Number.isFinite(job.pollAfterMs) && job.pollAfterMs >= 0
-    && isAppName(filters.appName ?? "")
-    && Array.isArray(filters.platforms) && filters.platforms.length > 0 && filters.platforms.every((platform) => platform === "android" || platform === "ios")
-    && Array.isArray(filters.appVersions) && filters.appVersions.every((version) => typeof version === "string")
-    && typeof filters.startDate === "string" && isDateValue(filters.startDate)
-    && typeof filters.endDate === "string" && isDateValue(filters.endDate)
-    && filters.startDate <= filters.endDate;
+function normalizedPersistedFilters(value: unknown): Filters | null {
+  if (!value || typeof value !== "object") return null;
+  const filters = value as Partial<Filters>;
+  const minLevel = typeof filters.minLevel === "number" && Number.isInteger(filters.minLevel) ? filters.minLevel : 1;
+  const maxLevel = typeof filters.maxLevel === "number" && Number.isInteger(filters.maxLevel) ? filters.maxLevel : 1000;
+  if (!isAppName(filters.appName ?? "")
+    || !Array.isArray(filters.platforms) || !filters.platforms.length || !filters.platforms.every((platform) => platform === "android" || platform === "ios")
+    || !Array.isArray(filters.appVersions) || !filters.appVersions.every((version) => typeof version === "string")
+    || typeof filters.startDate !== "string" || !isDateValue(filters.startDate)
+    || typeof filters.endDate !== "string" || !isDateValue(filters.endDate)
+    || minLevel < 1 || maxLevel < minLevel || maxLevel > 1_000_000
+    || filters.startDate > filters.endDate) return null;
+  return {
+    appName: filters.appName as Filters["appName"],
+    platforms: filters.platforms as Filters["platforms"],
+    appVersions: filters.appVersions as Filters["appVersions"],
+    startDate: filters.startDate as string,
+    endDate: filters.endDate as string,
+    minLevel,
+    maxLevel,
+  };
 }
 
 function readPendingLevelFunnelJob(): PendingLevelFunnelJob | null {
@@ -157,7 +174,13 @@ function readPendingLevelFunnelJob(): PendingLevelFunnelJob | null {
     const stored = window.sessionStorage.getItem(levelFunnelPendingJobStorageKey);
     if (!stored) return null;
     const job: unknown = JSON.parse(stored);
-    if (isPendingLevelFunnelJob(job)) return job;
+    if (!job || typeof job !== "object") return null;
+    const candidate = job as Partial<PendingLevelFunnelJob>;
+    const filters = normalizedPersistedFilters(candidate.filters);
+    if (typeof candidate.jobKey === "string" && Boolean(candidate.jobKey.trim())
+      && typeof candidate.submittedAt === "string" && Number.isFinite(Date.parse(candidate.submittedAt))
+      && typeof candidate.pollAfterMs === "number" && Number.isFinite(candidate.pollAfterMs) && candidate.pollAfterMs >= 0
+      && filters) return { jobKey: candidate.jobKey, filters, submittedAt: candidate.submittedAt, pollAfterMs: candidate.pollAfterMs };
   } catch {
     // Storage can be unavailable in a private browser context. The live job
     // remains safe in Count; only the convenience of a later resume is lost.
@@ -192,7 +215,7 @@ function formatElapsedTime(elapsedMs: number) {
 }
 
 function filtersFromSearchParams(params: URLSearchParams): Filters | null {
-  const hasFilterParam = ["appName", "platform", "appVersion", "startDate", "endDate"].some((key) => params.has(key));
+  const hasFilterParam = ["appName", "platform", "appVersion", "startDate", "endDate", "minLevel", "maxLevel"].some((key) => params.has(key));
   if (!hasFilterParam) return null;
 
   const next = defaultFilters();
@@ -201,6 +224,8 @@ function filtersFromSearchParams(params: URLSearchParams): Filters | null {
   const appVersions = [...new Set(params.getAll("appVersion").map((value) => value.trim()).filter(Boolean))];
   const startDate = params.get("startDate");
   const endDate = params.get("endDate");
+  const minLevel = params.get("minLevel");
+  const maxLevel = params.get("maxLevel");
   if (appName && !isAppName(appName)) return null;
   if (appName) next.appName = appName;
   if (platforms.length) {
@@ -216,7 +241,17 @@ function filtersFromSearchParams(params: URLSearchParams): Filters | null {
     if (!isDateValue(endDate)) return null;
     next.endDate = endDate;
   }
-  return next.startDate <= next.endDate ? next : null;
+  if (minLevel) {
+    const value = Number(minLevel);
+    if (!Number.isInteger(value) || value < 1 || value > 1_000_000) return null;
+    next.minLevel = value;
+  }
+  if (maxLevel) {
+    const value = Number(maxLevel);
+    if (!Number.isInteger(value) || value < 1 || value > 1_000_000) return null;
+    next.maxLevel = value;
+  }
+  return next.startDate <= next.endDate && next.minLevel <= next.maxLevel ? next : null;
 }
 
 function writeFiltersToUrl(filters: Filters, run: boolean) {
@@ -229,6 +264,8 @@ function writeFiltersToUrl(filters: Filters, run: boolean) {
   filters.appVersions.forEach((appVersion) => url.searchParams.append("appVersion", appVersion));
   url.searchParams.set("startDate", filters.startDate);
   url.searchParams.set("endDate", filters.endDate);
+  url.searchParams.set("minLevel", String(filters.minLevel));
+  url.searchParams.set("maxLevel", String(filters.maxLevel));
   if (run) url.searchParams.set("run", "1");
   else url.searchParams.delete("run");
   window.history.replaceState(null, "", `${url.pathname}?${url.searchParams.toString()}${url.hash}`);
@@ -453,6 +490,7 @@ export default function LevelFunnelDashboard() {
   const hasReadUrlRef = useRef(false);
   const skipNextUrlSyncRef = useRef(false);
   const [pendingUrlRun, setPendingUrlRun] = useState(false);
+  const [isSessionStateReady, setIsSessionStateReady] = useState(false);
 
   const selectableApps = useMemo(() => allowedApps?.length ? appOptions.filter((app) => allowedApps.includes(app)) : appOptions, [allowedApps]);
 
@@ -478,13 +516,33 @@ export default function LevelFunnelDashboard() {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
     const urlFilters = filtersFromSearchParams(params);
+    const storedSessionSnapshot = readDashboardSession<LevelFunnelSessionSnapshot>(levelFunnelSessionStorageKey);
+    const persistedSessionFilters = storedSessionSnapshot ? normalizedPersistedFilters(storedSessionSnapshot.filters) : null;
+    const sessionSnapshot = storedSessionSnapshot && persistedSessionFilters
+      ? { ...storedSessionSnapshot, filters: persistedSessionFilters }
+      : null;
     hasReadUrlRef.current = true;
     skipNextUrlSyncRef.current = true;
     if (urlFilters) {
       setFilters(urlFilters);
-      if (params.get("run") === "1") setPendingUrlRun(true);
+      const matchingSnapshot = Boolean(!pendingJob && sessionSnapshot?.data && sameDashboardFilters(sessionSnapshot.filters, urlFilters));
+      if (matchingSnapshot && sessionSnapshot) {
+        setData(sessionSnapshot.data);
+        setQueryStatus(sessionSnapshot.queryStatus);
+      }
+      if (params.get("run") === "1" && !matchingSnapshot) setPendingUrlRun(true);
+    } else if (!pendingJob && sessionSnapshot) {
+      setFilters(sessionSnapshot.filters);
+      setData(sessionSnapshot.data);
+      setQueryStatus(sessionSnapshot.queryStatus);
     }
+    setIsSessionStateReady(true);
   }, []);
+
+  useEffect(() => {
+    if (!isSessionStateReady) return;
+    writeDashboardSession<LevelFunnelSessionSnapshot>(levelFunnelSessionStorageKey, { filters, data, queryStatus });
+  }, [data, filters, isSessionStateReady, queryStatus]);
 
   useEffect(() => {
     if (!pendingJob) {
@@ -668,15 +726,16 @@ export default function LevelFunnelDashboard() {
 
       {accessError ? <div className="mb-5 rounded-[10px] border border-rose/30 bg-rose/10 px-4 py-3 text-sm font-semibold text-rose">{accessError}</div> : null}
       <form onSubmit={(event: FormEvent) => { event.preventDefault(); void runCheck(); }} className="mb-5 rounded-2xl border border-line/70 bg-surface-card p-4 shadow-soft">
-        <div className="grid items-start gap-[14px] md:grid-cols-2 xl:grid-cols-[minmax(150px,1fr)_130px_160px_300px_auto_auto]">
+        <div className="grid items-start gap-[14px] md:grid-cols-2 xl:grid-cols-[minmax(130px,1fr)_130px_160px_300px_190px_auto_auto]">
           <FunnelFilterDropdown label="App" value={filters.appName} options={selectableApps.map((app) => ({ value: app, label: app }))} onChange={(appName) => updateFilters({ appName, appVersions: [] })} disabled={!allowedApps?.length} />
           <FunnelMultiSelect label="Platform" values={filters.platforms} options={[{ value: "android", label: "android" }, { value: "ios", label: "ios" }]} onChange={(platforms) => updateFilters({ platforms, appVersions: [] })} emptyLabel="Select platform" required />
           <FunnelVersionMultiSelect values={filters.appVersions} options={versions} loading={versionsLoading} error={versionError} onChange={(appVersions) => updateFilters({ appVersions })} />
           <FunnelDateRangePicker startDate={filters.startDate} endDate={filters.endDate} onChange={(range) => updateFilters(range)} />
+          <FunnelLevelRange minLevel={filters.minLevel} maxLevel={filters.maxLevel} onChange={(range) => updateFilters(range)} />
           <button type="submit" disabled={loading || !allowedApps?.length} className="focus-ring mt-[18px] inline-flex h-10 items-center justify-center gap-2 rounded-[8px] bg-cobalt px-4 text-sm font-bold text-white hover:bg-cobalt/90 disabled:cursor-not-allowed disabled:opacity-50">{loading ? <RefreshCw className="h-4 w-4 animate-spin" /> : null}{loading ? "Running…" : "Run"}</button>
           <button type="button" onClick={() => void runCheck(true)} disabled={loading || !allowedApps?.length} className="focus-ring mt-[18px] inline-flex h-10 items-center gap-2 rounded-[8px] border border-line/70 bg-surface-panel px-4 text-sm font-semibold text-slate-300 hover:bg-sage disabled:opacity-60"><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />Refresh</button>
         </div>
-        <p className="mt-4 border-t border-line/60 pt-4 text-xs text-slate-500">Run uses Count’s cache when available. Use Refresh to force a new query. A new level hash pauses only that changed level while it is adopted.</p>
+        <p className="mt-4 border-t border-line/60 pt-4 text-xs text-slate-500">Run uses Count’s cache when available. Use Refresh to force a new query. Results are capped at 1,000 rows; use Level range to inspect later levels or narrow a dense range. A new level hash pauses only that changed level while it is adopted.</p>
         {pendingJob ? <div role="status" className={`mt-3 rounded-lg border px-3 py-2 text-xs ${slowQuery ? "border-amber/40 bg-amber/10 text-amber" : "border-cobalt/30 bg-cobalt/10 text-slate-300"}`}>
           <div className="flex flex-wrap items-center justify-between gap-2"><span className="font-semibold">{slowQuery ? "Slow Count query — still running" : "Count query running"}</span><div className="flex items-center gap-2"><span className="font-mono">Elapsed: {formatElapsedTime(queryElapsedMs)}</span><button type="button" onClick={stopWaitingForJob} title="Stops polling in this dashboard; the Count job may continue running." className="focus-ring inline-flex items-center gap-1 rounded border border-rose/45 bg-rose/10 px-2 py-1 text-[11px] font-semibold text-rose hover:bg-rose/20"><X className="h-3.5 w-3.5" aria-hidden="true" />Stop waiting</button></div></div>
           <p className="mt-1 font-mono text-[11px] text-slate-400">Count job key: <span className="select-all text-slate-200">{pendingJob.jobKey}</span></p>

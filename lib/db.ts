@@ -31,6 +31,7 @@ let appUsersTableReady: Promise<void> | null = null;
 let techLaunchCacheTableReady: Promise<void> | null = null;
 let partnerAccessTablesReady: Promise<void> | null = null;
 let gameplayAlertTablesReady: Promise<void> | null = null;
+let incentConfigValidatorSettingsTableReady: Promise<void> | null = null;
 
 function getDatabaseUrl() {
   return (
@@ -232,6 +233,37 @@ function ensureSqliteTechLaunchCacheTable() {
       payload TEXT NOT NULL,
       created_at TEXT NOT NULL,
       expires_at TEXT NOT NULL
+    )
+  `);
+}
+
+const defaultIncentConfigMediaSources = ["freecash_int", "puzzleplay_int", "adjoe_int", "scrambly_int", "kashkick_int"];
+
+async function ensureIncentConfigValidatorSettingsTable() {
+  if (!incentConfigValidatorSettingsTableReady) {
+    const sql = getSql();
+    incentConfigValidatorSettingsTableReady = sql.begin(async (transaction) => {
+      await transaction`
+        CREATE TABLE IF NOT EXISTS incent_config_validator_settings (
+          app_name TEXT PRIMARY KEY NOT NULL,
+          media_sources TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          updated_by TEXT NOT NULL
+        )
+      `;
+    }).then(() => undefined).catch((error) => { incentConfigValidatorSettingsTableReady = null; throw error; });
+  }
+  await incentConfigValidatorSettingsTableReady;
+  return getSql();
+}
+
+function ensureSqliteIncentConfigValidatorSettingsTable() {
+  sqliteExec(`
+    CREATE TABLE IF NOT EXISTS incent_config_validator_settings (
+      app_name TEXT PRIMARY KEY NOT NULL,
+      media_sources TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      updated_by TEXT NOT NULL
     )
   `);
 }
@@ -1193,6 +1225,13 @@ export async function saveTechLaunchReadinessCache(record: TechLaunchReadinessCa
 
 export type GameplayAlertSettingsRecord = GameplayAlertSettings & { updatedAt: string; updatedBy: string };
 
+export type IncentConfigValidatorSettingsRecord = {
+  appName: string;
+  mediaSources: string[];
+  updatedAt: string;
+  updatedBy: string;
+};
+
 export type GameplayAlertStateRecord = GameplayAlertState;
 export type AdMetricAlertStateRecord = AdMetricAlertState;
 
@@ -1222,6 +1261,66 @@ function rowToGameplayAlertSettings(row: Record<string, unknown>): GameplayAlert
     alertTargets,
     updatedAt: asString(row.updated_at), updatedBy: asString(row.updated_by),
   };
+}
+
+function rowToIncentConfigValidatorSettings(row: Record<string, unknown>): IncentConfigValidatorSettingsRecord {
+  let mediaSources: string[] = [];
+  try {
+    const parsed = JSON.parse(asString(row.media_sources));
+    if (Array.isArray(parsed)) mediaSources = parsed.map((value) => String(value).trim().toLowerCase()).filter(Boolean);
+  } catch {
+    // A corrupted settings row should be visible as an empty configuration,
+    // rather than breaking all Launch Signal pages.
+  }
+  return { appName: asString(row.app_name), mediaSources: [...new Set(mediaSources)], updatedAt: asString(row.updated_at), updatedBy: asString(row.updated_by) };
+}
+
+async function seedStacksmashIncentConfigValidatorSettings() {
+  const defaultRecord: IncentConfigValidatorSettingsRecord = {
+    appName: "stacksmash",
+    mediaSources: defaultIncentConfigMediaSources,
+    updatedAt: "2026-08-19T00:00:00.000Z",
+    updatedBy: "system",
+  };
+  if (shouldUseLocalSqlite()) {
+    ensureSqliteIncentConfigValidatorSettingsTable();
+    sqliteExec(`INSERT OR IGNORE INTO incent_config_validator_settings (app_name, media_sources, updated_at, updated_by) VALUES (${sqliteLiteral(defaultRecord.appName)}, ${sqliteLiteral(JSON.stringify(defaultRecord.mediaSources))}, ${sqliteLiteral(defaultRecord.updatedAt)}, ${sqliteLiteral(defaultRecord.updatedBy)})`);
+    return;
+  }
+  const sql = await ensureIncentConfigValidatorSettingsTable();
+  await sql`INSERT INTO incent_config_validator_settings (app_name, media_sources, updated_at, updated_by) VALUES (${defaultRecord.appName}, ${JSON.stringify(defaultRecord.mediaSources)}, ${defaultRecord.updatedAt}, ${defaultRecord.updatedBy}) ON CONFLICT(app_name) DO NOTHING`;
+}
+
+export async function listIncentConfigValidatorSettings(): Promise<IncentConfigValidatorSettingsRecord[]> {
+  await seedStacksmashIncentConfigValidatorSettings();
+  if (shouldUseLocalSqlite()) {
+    ensureSqliteIncentConfigValidatorSettingsTable();
+    return sqliteJsonRows<Record<string, unknown>>("SELECT app_name, media_sources, updated_at, updated_by FROM incent_config_validator_settings ORDER BY app_name").map(rowToIncentConfigValidatorSettings);
+  }
+  const sql = await ensureIncentConfigValidatorSettingsTable();
+  return (await sql<Record<string, unknown>[]>`SELECT app_name, media_sources, updated_at, updated_by FROM incent_config_validator_settings ORDER BY app_name`).map(rowToIncentConfigValidatorSettings);
+}
+
+export async function getIncentConfigValidatorSettings(appName: string): Promise<IncentConfigValidatorSettingsRecord | null> {
+  await seedStacksmashIncentConfigValidatorSettings();
+  if (shouldUseLocalSqlite()) {
+    ensureSqliteIncentConfigValidatorSettingsTable();
+    const [row] = sqliteJsonRows<Record<string, unknown>>(`SELECT app_name, media_sources, updated_at, updated_by FROM incent_config_validator_settings WHERE app_name = ${sqliteLiteral(appName)} LIMIT 1`);
+    return row ? rowToIncentConfigValidatorSettings(row) : null;
+  }
+  const sql = await ensureIncentConfigValidatorSettingsTable();
+  const [row] = await sql<Record<string, unknown>[]>`SELECT app_name, media_sources, updated_at, updated_by FROM incent_config_validator_settings WHERE app_name = ${appName} LIMIT 1`;
+  return row ? rowToIncentConfigValidatorSettings(row) : null;
+}
+
+export async function saveIncentConfigValidatorSettings(record: IncentConfigValidatorSettingsRecord) {
+  if (shouldUseLocalSqlite()) {
+    ensureSqliteIncentConfigValidatorSettingsTable();
+    sqliteExec(`INSERT INTO incent_config_validator_settings (app_name, media_sources, updated_at, updated_by) VALUES (${sqliteLiteral(record.appName)}, ${sqliteLiteral(JSON.stringify(record.mediaSources))}, ${sqliteLiteral(record.updatedAt)}, ${sqliteLiteral(record.updatedBy)}) ON CONFLICT(app_name) DO UPDATE SET media_sources = excluded.media_sources, updated_at = excluded.updated_at, updated_by = excluded.updated_by`);
+    return;
+  }
+  const sql = await ensureIncentConfigValidatorSettingsTable();
+  await sql`INSERT INTO incent_config_validator_settings (app_name, media_sources, updated_at, updated_by) VALUES (${record.appName}, ${JSON.stringify(record.mediaSources)}, ${record.updatedAt}, ${record.updatedBy}) ON CONFLICT(app_name) DO UPDATE SET media_sources = excluded.media_sources, updated_at = excluded.updated_at, updated_by = excluded.updated_by`;
 }
 
 function rowToGameplayAlertState(row: Record<string, unknown>): GameplayAlertStateRecord {

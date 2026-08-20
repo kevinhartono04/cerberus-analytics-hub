@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { allAppVersionsAlertScope, allPlatformsAlertScope, buildDailyLevelFailRateSql, buildLevelFailRateSql, dailyGameplayAlertFilters, formatGameplayAlertSlackMessage, gameplayAlertCronFilters, gameplayAlertSettingsInputSchema, gameplayAlertTimeZone, gameplayAlertWebhookUrls, parseLevelFailRateRows } from "@/lib/gameplay-alerts";
 
 const filters = { appName: "wordblast", platform: "android", appVersion: "1.0.0", startDate: "2026-07-01", endDate: "2026-07-07" };
-const settings = { normalThreshold: 0.5, hardThreshold: 0.7, minPlayers: 50, alertTargets: [] };
+const settings = { normalThreshold: 0.5, hardThreshold: 0.7, minPlayers: 50, adMetricZScoreThreshold: 3, alertTargets: [] };
 
 describe("layout-hash gameplay alerts", () => {
   it("keeps the all-version scheduled scope", () => {
@@ -36,6 +36,10 @@ describe("layout-hash gameplay alerts", () => {
     expect(sql).toContain("ep.app_version in ('1.0.0') -- modifiable parameter");
     expect(sql).toContain("ep.created_at >= TO_DATE('2026-07-01') -- modifiable parameter");
     expect(sql).toContain("ep.created_at < DATEADD(day, 1, TO_DATE('2026-07-07')) -- modifiable parameter");
+    expect(sql).toContain("try_to_number(ep.payload:level::varchar)::int between 1 and 1000 -- level range parameter");
+
+    const laterLevelsSql = buildLevelFailRateSql({ ...filters, minLevel: 1001, maxLevel: 2000 });
+    expect(laterLevelsSql).toContain("try_to_number(ep.payload:level::varchar)::int between 1001 and 2000 -- level range parameter");
 
     const allVersionSql = buildLevelFailRateSql({ ...filters, platforms: ["android", "ios"], appVersions: [], platform: undefined, appVersion: undefined });
     expect(allVersionSql).toContain("ep.platform in ('android', 'ios') -- modifiable parameter");
@@ -45,6 +49,7 @@ describe("layout-hash gameplay alerts", () => {
     expect(dailySql).toContain("ep.created_at >= dateadd(hour, -48, current_timestamp()) -- rolling daily alert window");
     expect(dailySql).toContain("where status = 'alert'");
     expect(dailySql).not.toContain("TO_DATE('2026-07-01')");
+    expect(dailySql).toContain("try_to_number(ep.payload:level::varchar)::int between 1 and 1000000 -- level range parameter");
   });
 
   it("maps query statuses to the fixed current-layout alert policy", () => {
@@ -67,6 +72,6 @@ describe("layout-hash gameplay alerts", () => {
 
   it("uses configured gameplay webhooks without exposing them", () => {
     expect(gameplayAlertWebhookUrls({ SLACK_GAMEPLAY_ALERT_WEBHOOK_URL: " https://hooks.slack.com/services/primary ", SLACK_GAMEPLAY_ALERT_ADDITIONAL_WEBHOOK_URL: "https://hooks.slack.com/services/additional" })).toEqual(["https://hooks.slack.com/services/primary", "https://hooks.slack.com/services/additional"]);
-    expect(gameplayAlertCronFilters({ normalThreshold: 0.5, hardThreshold: 0.7, minPlayers: 50, alertTargets: [{ appName: "stacksmash", platforms: ["android"], appVersion: "" }] }, new Date("2026-07-29T12:00:00.000Z"))).toEqual([expect.objectContaining({ appVersion: allAppVersionsAlertScope })]);
+    expect(gameplayAlertCronFilters({ normalThreshold: 0.5, hardThreshold: 0.7, minPlayers: 50, adMetricZScoreThreshold: 3, alertTargets: [{ appName: "stacksmash", platforms: ["android"], appVersion: "" }] }, new Date("2026-07-29T12:00:00.000Z"))).toEqual([expect.objectContaining({ appVersion: allAppVersionsAlertScope })]);
   });
 });

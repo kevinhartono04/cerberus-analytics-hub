@@ -25,7 +25,7 @@ vi.mock("@/lib/count-api", () => ({
 
 import { getLevelFailRateStatus, startLevelFailRate } from "@/lib/gameplay-alerts";
 
-const filters = { appName: "stacksmash", platforms: ["android"] as const, appVersions: ["0.2.0"], startDate: "2026-07-22", endDate: "2026-07-28" };
+const filters = { appName: "stacksmash", platforms: ["android"] as const, appVersions: ["0.2.0"], startDate: "2026-07-22", endDate: "2026-07-28", minLevel: 1, maxLevel: 1000 };
 const preview = [
   "level,level_id,layout_bank_id,layout_hash,contributing_app_versions,users,fails,fail_rate,layout_first_seen_at,layout_last_seen_at,unhashed_outcome_events,hash_coverage,status",
   "10,level-10,bank-a,hash-a,0.2.0,100,60,0.6,2026-07-22 00:00:00,2026-07-28 00:00:00,0,1,alert",

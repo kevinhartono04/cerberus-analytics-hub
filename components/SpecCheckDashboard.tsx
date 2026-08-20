@@ -19,7 +19,7 @@ import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "reac
 import { createPortal } from "react-dom";
 
 import CerberusShell from "@/components/CerberusShell";
-import { readDashboardSession, writeDashboardSession } from "@/lib/dashboard-session";
+import { readDashboardSession, sameDashboardFilters, writeDashboardSession } from "@/lib/dashboard-session";
 
 const appOptions = [
   "blockkingdom",
@@ -1177,7 +1177,12 @@ export default function SpecCheckDashboard() {
     skipNextUrlSyncRef.current = true;
     if (urlFilters) {
       setFilters(urlFilters);
-      if (new URLSearchParams(window.location.search).get("run") === "1") setPendingUrlRun(true);
+      const matchingSnapshot = Boolean(sessionSnapshot?.data && sameDashboardFilters(sessionSnapshot.filters, urlFilters));
+      if (matchingSnapshot && sessionSnapshot) {
+        setData(sessionSnapshot.data);
+        setStatusText(sessionSnapshot.statusText);
+      }
+      if (new URLSearchParams(window.location.search).get("run") === "1" && !matchingSnapshot) setPendingUrlRun(true);
     } else if (sessionSnapshot) {
       setFilters(sessionSnapshot.filters);
       setData(sessionSnapshot.data);

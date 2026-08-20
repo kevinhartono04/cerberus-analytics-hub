@@ -69,9 +69,14 @@ export const levelFunnelFilterSchema = z.object({
   appVersions: z.array(z.string().trim().min(1).max(80)).max(100),
   startDate: z.string().regex(datePattern, "Use YYYY-MM-DD"),
   endDate: z.string().regex(datePattern, "Use YYYY-MM-DD"),
+  minLevel: z.number().int().min(1).max(1_000_000).default(1),
+  maxLevel: z.number().int().min(1).max(1_000_000).default(1000),
 }).refine((filters) => filters.startDate <= filters.endDate, {
   path: ["endDate"],
   message: "End date must be on or after start date",
+}).refine((filters) => filters.minLevel <= filters.maxLevel, {
+  path: ["maxLevel"],
+  message: "End level must be on or after start level",
 });
 
 export type LevelFunnelFilters = z.infer<typeof levelFunnelFilterSchema>;
@@ -255,6 +260,11 @@ export function buildLevelFailRateSql(filtersInput: unknown, policy: Pick<Gamepl
     /ep\.created_at\s*>=\s*current_date\(\)\s*-\s*7\s*-- modifiable parameter\s*and\s+ep\.created_at\s*<\s*dateadd\(day,\s*1,\s*current_date\(\)\)\s*-- modifiable parameter/i,
     `ep.created_at >= ${sqlDateLiteral(filters.startDate)} -- modifiable parameter\n    and ep.created_at < DATEADD(day, 1, ${sqlDateLiteral(filters.endDate)}) -- modifiable parameter`,
   );
+  sql = replaceRequired(
+    sql,
+    /try_to_number\(ep\.payload:level::varchar\)::int\s+between\s+\d+\s+and\s+\d+\s+-- level range parameter/i,
+    `try_to_number(ep.payload:level::varchar)::int between ${filters.minLevel} and ${filters.maxLevel} -- level range parameter`,
+  );
   sql = replaceRequired(sql, /when\s+l\.users\s*<=\s*\d+\s+then\s+'warming_up'/i, `when l.users <= ${minPlayers} then 'warming_up'`);
   const thresholdMatches = sql.match(/0\.40/g)?.length ?? 0;
   const hardThresholdMatches = sql.match(/0\.70/g)?.length ?? 0;
@@ -271,7 +281,10 @@ export function buildLevelFailRateSql(filtersInput: unknown, policy: Pick<Gamepl
  */
 export function buildDailyLevelFailRateSql(filtersInput: unknown, policy: Pick<GameplayAlertSettings, "normalThreshold" | "hardThreshold" | "minPlayers"> = { normalThreshold: 0.4, hardThreshold: 0.7, minPlayers: 100 }) {
   const filters = normalizedLevelFunnelFilters(filtersInput);
-  let sql = buildLevelFailRateSql(filters, policy);
+  // Dashboard queries are deliberately bounded to a user-selected range so
+  // Count's preview limit cannot hide later levels. Scheduled alert coverage
+  // remains global.
+  let sql = buildLevelFailRateSql({ ...filters, minLevel: 1, maxLevel: 1_000_000 }, policy);
   sql = replaceRequired(
     sql,
     /ep\.created_at\s*>=\s*TO_DATE\('[^']+'\)\s*-- modifiable parameter\s*and\s+ep\.created_at\s*<\s*DATEADD\(day,\s*1,\s*TO_DATE\('[^']+'\)\)\s*-- modifiable parameter/i,

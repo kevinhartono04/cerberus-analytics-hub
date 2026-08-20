@@ -23,7 +23,7 @@ import React, { FormEvent, ReactNode, useEffect, useId, useMemo, useRef, useStat
 import { createPortal } from "react-dom";
 
 import CerberusShell from "@/components/CerberusShell";
-import { readDashboardSession, writeDashboardSession } from "@/lib/dashboard-session";
+import { readDashboardSession, sameDashboardFilters, writeDashboardSession } from "@/lib/dashboard-session";
 import {
   createMetricComparison,
   summarizeMetricComparison,
@@ -1144,7 +1144,22 @@ export default function TechLaunchDashboard() {
       setComparisonView(urlFilters.comparisonView);
       setComparisonFilters(urlFilters.comparisonFilters);
       setPendingJobs(pendingReadinessJobs(sessionSnapshot?.pendingJobs));
-      if (new URLSearchParams(window.location.search).get("run") === "1") setPendingUrlRun(true);
+      const matchingSnapshot = Boolean(
+        sessionSnapshot?.data
+          && sameDashboardFilters(sessionSnapshot.filters, urlFilters.filters)
+          && (sessionSnapshot.compareEnabled ?? false) === urlFilters.compareEnabled
+          && (sessionSnapshot.comparisonView ?? "individual") === urlFilters.comparisonView
+          && sameDashboardFilters(
+            sessionSnapshot.comparisonFilters ?? { appName: sessionSnapshot.filters.appName, appVersion: "" },
+            urlFilters.comparisonFilters,
+          ),
+      );
+      if (matchingSnapshot && sessionSnapshot) {
+        setData(sessionSnapshot.data);
+        setComparisonData(sessionSnapshot.comparisonData ?? null);
+        setStatusText(sessionSnapshot.statusText);
+      }
+      if (new URLSearchParams(window.location.search).get("run") === "1" && !matchingSnapshot) setPendingUrlRun(true);
     } else if (sessionSnapshot) {
       setFilters(sessionSnapshot.filters);
       setData(sessionSnapshot.data);

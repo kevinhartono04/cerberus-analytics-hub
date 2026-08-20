@@ -191,7 +191,7 @@ export default function CerberusShell<T extends string>({
   onToggleCollapsed?: () => void;
   user?: ShellUser;
   contentClassName?: string;
-  activeLaunchSection?: "technical" | "level-funnel" | "game-monitoring";
+  activeLaunchSection?: "technical" | "level-funnel" | "game-monitoring" | "incent-config-validator";
   children: ReactNode;
 }) {
   const hasExplicitUser = user !== undefined;
@@ -324,6 +324,7 @@ export default function CerberusShell<T extends string>({
                           <a href="/tech-launch" aria-current={activeLaunchSection === "technical" ? "page" : undefined} className={`focus-ring rounded-md px-2 py-1.5 text-xs font-semibold transition-colors ${activeLaunchSection === "technical" ? "bg-cobalt/10 text-cobalt" : "text-slate-500 hover:bg-sage hover:text-slate-200"}`}>Technical Readiness</a>
                           <a href="/tech-launch/level-funnel" aria-current={activeLaunchSection === "level-funnel" ? "page" : undefined} className={`focus-ring rounded-md px-2 py-1.5 text-xs font-semibold transition-colors ${activeLaunchSection === "level-funnel" ? "bg-cobalt/10 text-cobalt" : "text-slate-500 hover:bg-sage hover:text-slate-200"}`}>Level Funnel Check</a>
                           <a href="/tech-launch/game-monitoring" aria-current={activeLaunchSection === "game-monitoring" ? "page" : undefined} className={`focus-ring rounded-md px-2 py-1.5 text-xs font-semibold transition-colors ${activeLaunchSection === "game-monitoring" ? "bg-cobalt/10 text-cobalt" : "text-slate-500 hover:bg-sage hover:text-slate-200"}`}>Game Monitoring</a>
+                          <a href="/tech-launch/incent-config-validator" aria-current={activeLaunchSection === "incent-config-validator" ? "page" : undefined} className={`focus-ring rounded-md px-2 py-1.5 text-xs font-semibold transition-colors ${activeLaunchSection === "incent-config-validator" ? "bg-cobalt/10 text-cobalt" : "text-slate-500 hover:bg-sage hover:text-slate-200"}`}>Incent Config Validator</a>
                         </div>
                       ) : null}
                     </div>

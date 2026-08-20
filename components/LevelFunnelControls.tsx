@@ -1,7 +1,7 @@
 "use client";
 
 import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight, RefreshCw, XCircle } from "lucide-react";
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 type DateRange = { startDate: string; endDate: string };
@@ -103,6 +103,53 @@ export function FunnelMultiSelect<T extends string>({ label, values, options, on
   }
 
   return <label className="block"><span className={labelClass}>{label}</span><div className="relative" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setIsOpen(false); }}><button type="button" onClick={() => setIsOpen((open) => !open)} className={`${inputClass} flex items-center justify-between gap-3 text-left`} aria-expanded={isOpen}><span className="truncate">{display}</span><ChevronDown className={`h-4 w-4 shrink-0 text-slate-500 transition-transform ${isOpen ? "rotate-180" : ""}`} /></button>{isOpen ? <div className="absolute left-0 top-full z-50 mt-2 w-full rounded-[9px] border border-line/70 bg-surface-popover p-1 shadow-soft">{options.map((option) => { const checked = values.includes(option.value); return <button key={option.value} type="button" role="checkbox" aria-checked={checked} onMouseDown={(event) => event.preventDefault()} onClick={() => toggle(option.value)} className={`focus-ring flex w-full items-center gap-2 rounded-[7px] px-3 py-2 text-left text-sm font-semibold transition-colors hover:bg-surface-hover ${checked ? "text-emerald" : "text-slate-400"}`}><span className={`flex h-4 w-4 items-center justify-center rounded border ${checked ? "border-emerald bg-emerald text-[#0a111e]" : "border-slate-600"}`}>{checked ? "✓" : ""}</span>{option.label}</button>; })}</div> : null}</div></label>;
+}
+
+/**
+ * Combines exact numeric entry with 50-level slider steps. The editable values
+ * retain precise control for levels that do not fall on a 50-level boundary.
+ */
+export function FunnelLevelRange({ minLevel, maxLevel, onChange }: {
+  minLevel: number;
+  maxLevel: number;
+  onChange: (range: { minLevel: number; maxLevel: number }) => void;
+}) {
+  const [draftMin, setDraftMin] = useState(String(minLevel));
+  const [draftMax, setDraftMax] = useState(String(maxLevel));
+  // Zero represents the special first-level default; every following slider
+  // position maps cleanly to a multiple of 50 (50, 100, 150, ...).
+  const sliderWindowMax = minLevel === 1 ? 1_000 : minLevel + 1_000;
+  const sliderMax = Math.min(20_000, Math.ceil(sliderWindowMax / 50));
+  const sliderValueForLevel = (level: number) => level === 1 ? 0 : Math.ceil(level / 50);
+  const levelForSliderValue = (value: number) => value === 0 ? 1 : value * 50;
+
+  useEffect(() => { setDraftMin(String(minLevel)); }, [minLevel]);
+  useEffect(() => { setDraftMax(String(maxLevel)); }, [maxLevel]);
+
+  function commit(which: "min" | "max") {
+    const value = Number(which === "min" ? draftMin : draftMax);
+    if (!Number.isInteger(value) || value < 1 || value > 1_000_000) {
+      if (which === "min") setDraftMin(String(minLevel)); else setDraftMax(String(maxLevel));
+      return;
+    }
+    if (which === "min") onChange({ minLevel: Math.min(value, maxLevel), maxLevel });
+    else onChange({ minLevel, maxLevel: Math.max(value, minLevel) });
+  }
+
+  return (
+    <fieldset className="min-w-0">
+      <legend className={labelClass}>Level range</legend>
+      <div className="grid grid-cols-2 gap-2">
+        <label className="min-w-0"><span className="sr-only">Starting level</span><input aria-label="Starting level" inputMode="numeric" type="number" min={1} max={maxLevel} value={draftMin} onChange={(event) => setDraftMin(event.target.value)} onBlur={() => commit("min")} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} className={`${inputClass} font-mono`} /></label>
+        <label className="min-w-0"><span className="sr-only">Ending level</span><input aria-label="Ending level" inputMode="numeric" type="number" min={minLevel} max={1_000_000} value={draftMax} onChange={(event) => setDraftMax(event.target.value)} onBlur={() => commit("max")} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} className={`${inputClass} font-mono`} /></label>
+      </div>
+      <div className="mt-2 grid grid-cols-2 gap-2" aria-label="Level range sliders">
+        <input aria-label="Starting level slider" type="range" min={0} max={sliderMax} step={1} value={sliderValueForLevel(minLevel)} onChange={(event) => { const nextMinLevel = Math.min(levelForSliderValue(Number(event.target.value)), maxLevel); const nextSliderMax = nextMinLevel === 1 ? 1_000 : nextMinLevel + 1_000; onChange({ minLevel: nextMinLevel, maxLevel: Math.min(maxLevel, nextSliderMax) }); }} className="h-1.5 w-full cursor-pointer accent-cobalt" />
+        <input aria-label="Ending level slider" type="range" min={0} max={sliderMax} step={1} value={Math.min(sliderValueForLevel(maxLevel), sliderMax)} onChange={(event) => onChange({ minLevel, maxLevel: Math.max(levelForSliderValue(Number(event.target.value)), minLevel) })} className="h-1.5 w-full cursor-pointer accent-cobalt" />
+      </div>
+      <p className="mt-1 text-[10px] leading-3 text-slate-500">Choose a narrower range if Count returns 1,000 rows.</p>
+    </fieldset>
+  );
 }
 
 export function FunnelVersionMultiSelect({ values, options, loading, error, onChange }: {
