@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { allAppVersionsAlertScope, allPlatformsAlertScope, buildDailyLevelFailRateSql, buildLevelFailRateSql, dailyGameplayAlertFilters, formatGameplayAlertSlackMessage, gameplayAlertCronFilters, gameplayAlertSettingsInputSchema, gameplayAlertTimeZone, gameplayAlertWebhookUrls, parseLevelFailRateRows } from "@/lib/gameplay-alerts";
+import { allAppVersionsAlertScope, allPlatformsAlertScope, buildDailyLevelFailRateSql, buildLevelFailRateSql, dailyGameplayAlertFilters, formatGameplayAlertSlackMessage, gameplayAlertCronFilters, gameplayAlertEvaluationKey, gameplayAlertSettingsInputSchema, gameplayAlertTimeZone, gameplayAlertWebhookUrls, parseLevelFailRateRows } from "@/lib/gameplay-alerts";
 
 const filters = { appName: "wordblast", platform: "android", appVersion: "1.0.0", startDate: "2026-07-01", endDate: "2026-07-07" };
 const settings = { normalThreshold: 0.5, hardThreshold: 0.7, minPlayers: 50, adMetricZScoreThreshold: 3, alertTargets: [] };
@@ -10,6 +10,15 @@ describe("layout-hash gameplay alerts", () => {
     expect(gameplayAlertSettingsInputSchema.parse({ normalThreshold: 0.5, hardThreshold: 0.7, minPlayers: 50, alertTargets: [{ appName: "stacksmash", platforms: ["ios", "android", "android"], appVersion: "0.2.0" }] }).alertTargets).toEqual([{ appName: "stacksmash", platforms: ["android", "ios"], appVersion: "0.2.0" }]);
     expect(dailyGameplayAlertFilters(new Date("2026-07-29T12:00:00.000Z"))).toEqual([{ appName: "stacksmash", platform: allPlatformsAlertScope, platforms: ["android", "ios"], appVersion: allAppVersionsAlertScope, appVersions: [], startDate: "2026-07-28", endDate: "2026-07-29" }]);
     expect(gameplayAlertTimeZone).toBe("Australia/Melbourne");
+  });
+
+  it("uses the Melbourne reporting dates in daily job identities", () => {
+    const today = dailyGameplayAlertFilters(new Date("2026-07-29T12:00:00.000Z"))[0];
+    const tomorrow = dailyGameplayAlertFilters(new Date("2026-07-30T12:00:00.000Z"))[0];
+
+    expect(gameplayAlertEvaluationKey(today)).not.toBe(gameplayAlertEvaluationKey(tomorrow));
+    expect(gameplayAlertEvaluationKey(today)).toContain(":2026-07-28:2026-07-29");
+    expect(gameplayAlertEvaluationKey(tomorrow)).toContain(":2026-07-29:2026-07-30");
   });
 
   it("builds the Game_End-only hash query with dynamic release filters", () => {

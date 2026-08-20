@@ -60,6 +60,10 @@ import { isGameplayAlertCronWindow } from "@/lib/gameplay-alert-cron-window";
 const filters = { appName: "stacksmash", platform: "android", platforms: ["android"], appVersion: "0.2.0", appVersions: ["0.2.0"], startDate: "2026-07-22", endDate: "2026-07-28" };
 
 describe("gameplay alert cron", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   beforeEach(() => {
     process.env.CRON_SECRET = "test-secret";
     mocks.getSettings.mockReset().mockResolvedValue({});
@@ -108,6 +112,21 @@ describe("gameplay alert cron", () => {
     expect(mocks.submit).toHaveBeenCalledWith("select critical", { cacheStrategy: "force" });
     expect(mocks.dailyTransitions).toHaveBeenCalledWith(filters, expect.objectContaining({ job_key: "count-job", status: "completed" }), { appName: "stacksmash", platforms: ["android"], appVersions: ["0.2.0"], startDate: "2026-07-22", endDate: "2026-07-28" });
     expect(mocks.saveJobs).toHaveBeenCalledWith(expect.arrayContaining([expect.objectContaining({ jobKey: "count-job", status: "completed" })]));
+    expect(mocks.markStatusDelivered).toHaveBeenCalledWith(["stacksmash:android:0.2.0:2026-07-22:2026-07-28"], expect.any(String));
+  });
+
+  it("polls the current daily job after the morning submission window has closed", async () => {
+    // 10:00 AEST: no new daily query may be started, but a 09:00 query must
+    // still be collected and delivered once Count has completed it.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-04T00:00:00.000Z"));
+    mocks.listJobs.mockResolvedValue([{ evaluationKey: "stacksmash:android:0.2.0:2026-07-22:2026-07-28", jobKey: "count-job", filters: JSON.stringify(filters), status: "running", submittedAt: "2026-08-03T23:00:00.000Z" }]);
+    mocks.getQuery.mockResolvedValue({ query: { job_key: "count-job", status: "completed", result_preview: "", result_metadata: {} } });
+
+    const response = await GET(new Request("https://example.com/api/cron/gameplay-alerts", { headers: { authorization: "Bearer test-secret" } }));
+
+    expect(await response.json()).toMatchObject({ dailySkipped: true, submittedCount: 0, completedCount: 1, runningCount: 0, failures: [] });
+    expect(mocks.dailyTransitions).toHaveBeenCalledWith(filters, expect.objectContaining({ job_key: "count-job", status: "completed" }), expect.any(Object));
     expect(mocks.markStatusDelivered).toHaveBeenCalledWith(["stacksmash:android:0.2.0:2026-07-22:2026-07-28"], expect.any(String));
   });
 

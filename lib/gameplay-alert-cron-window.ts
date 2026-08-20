@@ -3,8 +3,9 @@ import { gameplayAlertTimeZone } from "@/lib/gameplay-alerts";
 /**
  * Vercel evaluates cron expressions in UTC. We schedule a broad UTC range to
  * cover both AEST and AEDT, then use Melbourne local time as the source of
- * truth. Repeated calls are deliberate: the first submits the asynchronous
- * Count job and later calls collect its result without holding a function open.
+ * truth. Repeated calls submit the asynchronous Count job and give the
+ * scheduler several opportunities to collect its result without holding a
+ * function open.
  */
 export function isGameplayAlertCronWindow(now = new Date()) {
   const parts = new Intl.DateTimeFormat("en-GB", {

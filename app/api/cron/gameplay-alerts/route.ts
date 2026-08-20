@@ -62,8 +62,13 @@ function dailyQueryFilters(filters: AlertTarget) {
   };
 }
 
-/** The daily evaluator sends a fresh, breach-only 48-hour digest per target. */
-async function evaluateDailyTargets(targets: AlertTarget[], existingByKey: Map<string, GameplayAlertQueryJobRecord>, settings: Awaited<ReturnType<typeof getGameplayAlertSettings>>) {
+/**
+ * Polls the current Melbourne day's daily jobs on every cron invocation, but
+ * only starts a new one during the morning delivery window. Count queries are
+ * asynchronous, so restricting polling to that short window can otherwise
+ * strand a completed result before it reaches Slack.
+ */
+async function evaluateDailyTargets(targets: AlertTarget[], existingByKey: Map<string, GameplayAlertQueryJobRecord>, settings: Awaited<ReturnType<typeof getGameplayAlertSettings>>, allowSubmission: boolean) {
   const result = emptyEvaluationResult();
   await Promise.all(targets.map(async (filters) => {
     const evaluationKey = gameplayAlertEvaluationKey(filters);
@@ -104,6 +109,8 @@ async function evaluateDailyTargets(targets: AlertTarget[], existingByKey: Map<s
         }
         return;
       }
+
+      if (!allowSubmission) return;
 
       const submitted = (await submitCountSql(buildDailyLevelFailRateSql(queryFilters, settings), { cacheStrategy: "force" })).query;
       result.submittedCount += 1;
@@ -248,16 +255,17 @@ export async function GET(request: Request) {
   const settings = await getGameplayAlertSettings();
   const targets = gameplayAlertCronFilters(settings);
   const shouldRunDaily = force || isGameplayAlertCronWindow(now);
-  // This endpoint runs hourly for critical level alerts.
+  // This endpoint polls in-flight work throughout the day. The daily creation
+  // window only controls when a fresh Melbourne-day digest may be submitted.
   // FIPG/RIPG submits new work only at :00; later invocations only poll it.
   const shouldSubmitHourlyAdMetrics = force || isAdMetricAlertCronWindow(now);
-  const dailyKeys = shouldRunDaily ? targets.map(gameplayAlertEvaluationKey) : [];
+  const dailyKeys = targets.map(gameplayAlertEvaluationKey);
   const criticalKeys = targets.map(criticalGameplayAlertEvaluationKey);
   const adMetricKeys = targets.map((filters) => adMetricAlertEvaluationKey(filters, now));
   const existingByKey = new Map((await listGameplayAlertQueryJobs([...dailyKeys, ...criticalKeys, ...adMetricKeys])).map((job) => [job.evaluationKey, job]));
 
   const [daily, critical, adMetrics] = await Promise.all([
-    shouldRunDaily ? evaluateDailyTargets(targets, existingByKey, settings) : Promise.resolve(emptyEvaluationResult()),
+    evaluateDailyTargets(targets, existingByKey, settings, shouldRunDaily),
     evaluateCriticalTargets(targets, existingByKey),
     evaluateAdMetricTargets(targets, existingByKey, settings.adMetricZScoreThreshold, now, shouldSubmitHourlyAdMetrics),
   ]);
