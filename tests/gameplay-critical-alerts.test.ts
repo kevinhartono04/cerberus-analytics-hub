@@ -46,10 +46,10 @@ describe("critical gameplay alerts", () => {
     mocks.saveRun.mockReset().mockResolvedValue(undefined);
   });
 
-  it("uses an exact rolling 48-hour current-layout hash query", () => {
+  it("uses an exact rolling 36-hour current-layout hash query", () => {
     const sql = buildCriticalLevelFailRateSql({ ...filters, platforms: ["android"], appVersions: ["0.2.0"], startDate: "2026-08-01", endDate: "2026-08-07" });
 
-    expect(sql).toContain("ep.created_at >= dateadd(hour, -48, current_timestamp()) -- modifiable parameter");
+    expect(sql).toContain("ep.created_at >= dateadd(hour, -36, current_timestamp()) -- modifiable parameter");
     expect(sql).toContain("ep.created_at < current_timestamp() -- modifiable parameter");
     expect(sql).toContain("ep.app_id = 3011 -- modifiable parameter");
     expect(sql).toContain("ep.platform in ('android') -- modifiable parameter");

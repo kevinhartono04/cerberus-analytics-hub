@@ -92,7 +92,7 @@ Set in Vercel (not all present in `.env.local`):
 - **AI:** `OPENAI_API_KEY`, `OPENAI_MODEL`.
 - **Count / Snowflake:** `COUNT_API_KEY`, `COUNT_PROJECT_KEY`, `COUNT_CONNECTION_KEY`, `COUNT_QUERY_TIMEOUT_MS`, `COUNT_API_BASE_URL` (default `https://api.eu.count.co`); `SNOWFLAKE_*`.
 - **Caching:** `TECH_LAUNCH_CACHE_TTL_SECONDS` (default 900), `TECH_LAUNCH_APP_VERSION_CACHE_TTL_SECONDS` (default 3600), `SPEC_CHECK_CACHE_TTL_SECONDS` (default 900), `SPEC_CHECK_APP_VERSION_CACHE_TTL_SECONDS` (default 3600).
-- **Gameplay alerts:** `CRON_SECRET` (authorizes the protected alert endpoint) and `SLACK_GAMEPLAY_ALERT_WEBHOOK_URL` (primary incoming webhook). Optionally set `SLACK_GAMEPLAY_ALERT_ADDITIONAL_WEBHOOK_URL` to mirror the same alerts to a second Slack channel. Vercel Cron invokes the protected endpoint every 15 minutes: it runs a rolling 48-hour critical check all day and retains the Melbourne 08:30 daily status delivery window. Vercel supplies the `CRON_SECRET` authorization header automatically; no GitHub Actions secrets are required.
+- **Gameplay alerts:** `CRON_SECRET` (authorizes the protected alert endpoint) and `SLACK_GAMEPLAY_ALERT_WEBHOOK_URL` (primary incoming webhook). Optionally set `SLACK_GAMEPLAY_ALERT_ADDITIONAL_WEBHOOK_URL` to mirror the same alerts to a second Slack channel. Vercel Cron invokes the protected endpoint every 15 minutes: it runs a rolling 36-hour critical check all day and retains the Melbourne 08:30 daily status delivery window. Vercel supplies the `CRON_SECRET` authorization header automatically; no GitHub Actions secrets are required.
 
 ## Conventions
 

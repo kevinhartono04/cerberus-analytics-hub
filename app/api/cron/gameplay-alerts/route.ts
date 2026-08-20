@@ -148,7 +148,7 @@ async function evaluateDailyTargets(targets: AlertTarget[], existingByKey: Map<s
 
 /**
  * Critical evaluations intentionally replace a completed job on the next cron
- * invocation. This gives every target a fresh 48-hour query every hour
+ * invocation. This gives every target a fresh 36-hour query every hour
  * while retaining a single job record for asynchronous polling.
  */
 async function evaluateCriticalTargets(targets: AlertTarget[], existingByKey: Map<string, GameplayAlertQueryJobRecord>) {
