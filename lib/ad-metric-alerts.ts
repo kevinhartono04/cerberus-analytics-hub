@@ -12,13 +12,16 @@ import { techLaunchAppIds } from "@/lib/tech-launch";
 const sqlPath = path.join(process.cwd(), "data", "tech_launch_ad_metric_alerts.sql");
 
 export type AdMetric = "fipg" | "ripg";
-export type HourlyAdMetricPoint = { eventHour: string; completedGames: number; fipg: number | null; ripg: number | null };
+export const adMetricCohortGroups = ["D0", "D1-D7", "D8-D29", "D30+"] as const;
+export type AdMetricCohortGroup = typeof adMetricCohortGroups[number];
+export type HourlyAdMetricPoint = { eventHour: string; cohortGroup: AdMetricCohortGroup; completedGames: number; fipg: number | null; ripg: number | null };
 export type AdMetricAlertState = {
   alertKey: string;
   metric: AdMetric;
   appName: string;
   platform: string;
   appVersion: string;
+  cohortGroup: AdMetricCohortGroup | "all";
   status: "open" | "resolved";
   firstSeenAt: string;
   lastSeenAt: string;
@@ -60,7 +63,7 @@ export function isAdMetricAlertCronWindow(now = new Date()) {
 
 export function buildAdMetricAlertSql(filters: GameplayAlertCronFilters, now = new Date()) {
   const evaluationHour = adMetricEvaluationHour(now);
-  const startHour = hourBefore(evaluationHour, 12);
+  const startHour = hourBefore(evaluationHour, 24);
   const endHour = hourBefore(evaluationHour, -1);
   let sql = fs.readFileSync(sqlPath, "utf8");
   sql = replaceRequired(sql, /select to_timestamp_ntz\('[^']*'\) -- modifiable parameter/, `select ${sqlTimestampLiteral(startHour)} -- modifiable parameter`);
@@ -78,18 +81,26 @@ function nullableNumber(value: unknown) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
 }
+function cohortGroupValue(value: unknown): AdMetricCohortGroup | null {
+  const cohortGroup = String(value ?? "").trim();
+  return (adMetricCohortGroups as readonly string[]).includes(cohortGroup) ? cohortGroup as AdMetricCohortGroup : null;
+}
 
 export function parseHourlyAdMetricRows(resultPreview?: string): HourlyAdMetricPoint[] {
   if (!resultPreview?.trim()) return [];
   return (parseCsv(resultPreview, { columns: true, skip_empty_lines: true, trim: true }) as Array<Record<string, unknown>>)
-    .map((row) => ({
-      eventHour: String(rowValue(row, "event_hour") ?? "").trim(),
-      completedGames: Math.max(0, Math.round(Number(rowValue(row, "completed_games")) || 0)),
-      fipg: nullableNumber(rowValue(row, "fipg")),
-      ripg: nullableNumber(rowValue(row, "ripg")),
-    }))
-    .filter((row) => /^\d{4}-\d{2}-\d{2}T\d{2}:00:00Z$/.test(row.eventHour))
-    .sort((first, second) => first.eventHour.localeCompare(second.eventHour));
+    .map((row) => {
+      const cohortGroup = cohortGroupValue(rowValue(row, "cohort_group"));
+      return {
+        eventHour: String(rowValue(row, "event_hour") ?? "").trim(),
+        cohortGroup,
+        completedGames: Math.max(0, Math.round(Number(rowValue(row, "completed_games")) || 0)),
+        fipg: nullableNumber(rowValue(row, "fipg")),
+        ripg: nullableNumber(rowValue(row, "ripg")),
+      };
+    })
+    .filter((row): row is Omit<HourlyAdMetricPoint, "cohortGroup"> & { cohortGroup: AdMetricCohortGroup } => /^\d{4}-\d{2}-\d{2}T\d{2}:00:00Z$/.test(row.eventHour) && row.cohortGroup !== null)
+    .sort((first, second) => first.eventHour.localeCompare(second.eventHour) || first.cohortGroup.localeCompare(second.cohortGroup));
 }
 
 function standardDeviation(values: number[], mean: number) {
@@ -99,21 +110,23 @@ function standardDeviation(values: number[], mean: number) {
 }
 
 export function evaluateAdMetricAnomalies(points: HourlyAdMetricPoint[], evaluationHour: string, zScoreThreshold: number) {
-  const current = points.find((point) => point.eventHour === evaluationHour);
-  if (!current || current.completedGames === 0) return [];
-  const baselineHours = Array.from({ length: 12 }, (_, index) => hourBefore(evaluationHour, 12 - index));
-  const baselineByHour = new Map(points.map((point) => [point.eventHour, point]));
-  return (["fipg", "ripg"] as const).flatMap((metric) => {
-    const baseline = baselineHours.map((hour) => baselineByHour.get(hour)?.[metric]).filter((value): value is number => value != null);
-    const currentValue = current[metric];
-    // A full twelve-hour baseline avoids treating a new or sparsely instrumented
-    // game as an anomaly. Zero variance is intentionally not an alert.
-    if (baseline.length !== 12 || currentValue == null) return [];
-    const baselineMean = baseline.reduce((sum, value) => sum + value, 0) / baseline.length;
-    const baselineStddev = standardDeviation(baseline, baselineMean);
-    if (!baselineStddev || baselineStddev <= Number.EPSILON) return [];
-    const zScore = (currentValue - baselineMean) / baselineStddev;
-    return zScore <= -zScoreThreshold ? [{ metric, currentValue, baselineMean, baselineStddev, zScore }] : [];
+  const baselineHours = Array.from({ length: 24 }, (_, index) => hourBefore(evaluationHour, 24 - index));
+  const baselineByCohortAndHour = new Map(points.map((point) => [`${point.cohortGroup}:${point.eventHour}`, point]));
+  return adMetricCohortGroups.flatMap((cohortGroup) => {
+    const current = points.find((point) => point.eventHour === evaluationHour && point.cohortGroup === cohortGroup);
+    if (!current || current.completedGames === 0) return [];
+    return (["fipg", "ripg"] as const).flatMap((metric) => {
+      const baseline = baselineHours.map((hour) => baselineByCohortAndHour.get(`${cohortGroup}:${hour}`)?.[metric]).filter((value): value is number => value != null);
+      const currentValue = current[metric];
+      // A full 24-hour baseline prevents a newly active or sparsely instrumented
+      // cohort from being treated as anomalous. Zero variance is not actionable.
+      if (baseline.length !== 24 || currentValue == null) return [];
+      const baselineMean = baseline.reduce((sum, value) => sum + value, 0) / baseline.length;
+      const baselineStddev = standardDeviation(baseline, baselineMean);
+      if (!baselineStddev || baselineStddev <= Number.EPSILON) return [];
+      const zScore = (currentValue - baselineMean) / baselineStddev;
+      return zScore <= -zScoreThreshold ? [{ metric, cohortGroup, currentValue, baselineMean, baselineStddev, zScore }] : [];
+    });
   });
 }
 
@@ -124,7 +137,7 @@ export function adMetricAlertEvaluationKey(filters: GameplayAlertCronFilters, no
 function stateScope(filters: GameplayAlertCronFilters) {
   return { appName: filters.appName, platform: filters.platform, appVersion: filters.appVersion };
 }
-function alertKey(metric: AdMetric, filters: GameplayAlertCronFilters) { return ["ad-metric", metric, filters.appName, filters.platform, filters.appVersion].join(":"); }
+function alertKey(metric: AdMetric, cohortGroup: AdMetricCohortGroup, filters: GameplayAlertCronFilters) { return ["ad-metric", metric, cohortGroup, filters.appName, filters.platform, filters.appVersion].join(":"); }
 
 export async function reconcileAdMetricAlertsFromQuery(filters: GameplayAlertCronFilters, query: CountQuery, zScoreThreshold: number, now = new Date()) {
   if (query.status === "error") throw new Error(query.error ?? "Count query failed");
@@ -133,13 +146,13 @@ export async function reconcileAdMetricAlertsFromQuery(filters: GameplayAlertCro
   const points = parseHourlyAdMetricRows(query.result_preview);
   const anomalies = evaluateAdMetricAnomalies(points, adMetricEvaluationHour(now), zScoreThreshold);
   const existing = new Map((await listAdMetricAlertStates(stateScope(filters))).map((state) => [state.alertKey, state]));
-  const current = new Map(anomalies.map((anomaly) => [alertKey(anomaly.metric, filters), anomaly]));
+  const current = new Map(anomalies.map((anomaly) => [alertKey(anomaly.metric, anomaly.cohortGroup, filters), anomaly]));
   const next: AdMetricAlertState[] = [];
   const transitions: AdMetricAlertTransition[] = [];
   for (const [key, anomaly] of current) {
     const previous = existing.get(key);
     const state: AdMetricAlertState = {
-      alertKey: key, metric: anomaly.metric, ...stateScope(filters), status: "open",
+      alertKey: key, metric: anomaly.metric, cohortGroup: anomaly.cohortGroup, ...stateScope(filters), status: "open",
       firstSeenAt: previous?.status === "open" ? previous.firstSeenAt : evaluatedAt, lastSeenAt: evaluatedAt,
       currentValue: anomaly.currentValue, baselineMean: anomaly.baselineMean, baselineStddev: anomaly.baselineStddev, zScore: anomaly.zScore, threshold: zScoreThreshold,
       ...(previous?.slackOpenDeliveredAt ? { slackOpenDeliveredAt: previous.slackOpenDeliveredAt } : {}),
@@ -168,7 +181,7 @@ export function formatAdMetricAlertSlackMessage(transitions: AdMetricAlertTransi
     `*Game:* ${state.appName}`,
     `*Platform:* ${scopeLabel(state.platform, allPlatformsAlertScope, "platforms")}`,
     `*Version:* ${scopeLabel(state.appVersion, allAppVersionsAlertScope, "versions")}`,
-    `• ${metricLabel(state.metric)}: ${(state.currentValue).toFixed(3)} vs ${(state.baselineMean).toFixed(3)} 12-hour mean · z-score ${state.zScore.toFixed(2)} (threshold ≤ −${state.threshold.toFixed(1)})`,
+    `• ${state.cohortGroup} · ${metricLabel(state.metric)}: ${(state.currentValue).toFixed(3)} vs ${(state.baselineMean).toFixed(3)} 24-hour mean · z-score ${state.zScore.toFixed(2)} (threshold ≤ −${state.threshold.toFixed(1)})`,
   ].join("\n"))].join("\n\n");
 }
 

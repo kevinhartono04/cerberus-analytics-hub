@@ -299,6 +299,7 @@ async function ensureGameplayAlertTables() {
           app_name TEXT NOT NULL,
           platform TEXT NOT NULL,
           app_version TEXT NOT NULL,
+          cohort_group TEXT NOT NULL DEFAULT 'all',
           status TEXT NOT NULL,
           first_seen_at TEXT NOT NULL,
           last_seen_at TEXT NOT NULL,
@@ -311,6 +312,7 @@ async function ensureGameplayAlertTables() {
           slack_open_delivered_at TEXT
         )
       `;
+      await transaction`ALTER TABLE ad_metric_alert_states ADD COLUMN IF NOT EXISTS cohort_group TEXT NOT NULL DEFAULT 'all'`;
       await transaction`
         CREATE TABLE IF NOT EXISTS gameplay_alert_states (
           alert_key TEXT PRIMARY KEY NOT NULL,
@@ -388,7 +390,7 @@ function ensureSqliteGameplayAlertTables() {
       threshold REAL NOT NULL, slack_open_delivered_at TEXT, slack_pending_delivered_at TEXT, slack_resolved_delivered_at TEXT
     );
     CREATE TABLE IF NOT EXISTS ad_metric_alert_states (
-      alert_key TEXT PRIMARY KEY NOT NULL, metric TEXT NOT NULL, app_name TEXT NOT NULL, platform TEXT NOT NULL, app_version TEXT NOT NULL,
+      alert_key TEXT PRIMARY KEY NOT NULL, metric TEXT NOT NULL, app_name TEXT NOT NULL, platform TEXT NOT NULL, app_version TEXT NOT NULL, cohort_group TEXT NOT NULL DEFAULT 'all',
       status TEXT NOT NULL, first_seen_at TEXT NOT NULL, last_seen_at TEXT NOT NULL, resolved_at TEXT,
       current_value REAL NOT NULL, baseline_mean REAL NOT NULL, baseline_stddev REAL NOT NULL, z_score REAL NOT NULL, threshold REAL NOT NULL,
       slack_open_delivered_at TEXT
@@ -415,6 +417,7 @@ function ensureSqliteGameplayAlertTables() {
   if (!sqliteColumnExists("gameplay_alert_states", "layout_hash")) sqliteExec("ALTER TABLE gameplay_alert_states ADD COLUMN layout_hash TEXT");
   if (!sqliteColumnExists("gameplay_alert_states", "superseded_at")) sqliteExec("ALTER TABLE gameplay_alert_states ADD COLUMN superseded_at TEXT");
   if (!sqliteColumnExists("gameplay_alert_states", "slack_pending_delivered_at")) sqliteExec("ALTER TABLE gameplay_alert_states ADD COLUMN slack_pending_delivered_at TEXT");
+  if (!sqliteColumnExists("ad_metric_alert_states", "cohort_group")) sqliteExec("ALTER TABLE ad_metric_alert_states ADD COLUMN cohort_group TEXT NOT NULL DEFAULT 'all'");
   if (!sqliteColumnExists("gameplay_alert_evaluation_runs", "source")) sqliteExec("ALTER TABLE gameplay_alert_evaluation_runs ADD COLUMN source TEXT NOT NULL DEFAULT 'cron'");
   if (!sqliteColumnExists("gameplay_alert_query_jobs", "slack_status_delivered_at")) sqliteExec("ALTER TABLE gameplay_alert_query_jobs ADD COLUMN slack_status_delivered_at TEXT");
 }
@@ -1341,6 +1344,7 @@ function rowToAdMetricAlertState(row: Record<string, unknown>): AdMetricAlertSta
   return {
     alertKey: asString(row.alert_key), metric: asString(row.metric) === "ripg" ? "ripg" : "fipg",
     appName: asString(row.app_name), platform: asString(row.platform), appVersion: asString(row.app_version),
+    cohortGroup: ["D0", "D1-D7", "D8-D29", "D30+"].includes(asString(row.cohort_group)) ? asString(row.cohort_group) as AdMetricAlertState["cohortGroup"] : "all",
     status: asString(row.status) === "resolved" ? "resolved" : "open", firstSeenAt: asString(row.first_seen_at), lastSeenAt: asString(row.last_seen_at),
     ...(asString(row.resolved_at) ? { resolvedAt: asString(row.resolved_at) } : {}), currentValue: Number(row.current_value), baselineMean: Number(row.baseline_mean), baselineStddev: Number(row.baseline_stddev), zScore: Number(row.z_score), threshold: Number(row.threshold),
     ...(asString(row.slack_open_delivered_at) ? { slackOpenDeliveredAt: asString(row.slack_open_delivered_at) } : {}),
@@ -1485,13 +1489,13 @@ export async function saveAdMetricAlertStates(records: AdMetricAlertStateRecord[
   if (shouldUseLocalSqlite()) {
     ensureSqliteGameplayAlertTables();
     for (const record of records) {
-      sqliteExec(`INSERT INTO ad_metric_alert_states (alert_key, metric, app_name, platform, app_version, status, first_seen_at, last_seen_at, resolved_at, current_value, baseline_mean, baseline_stddev, z_score, threshold, slack_open_delivered_at) VALUES (${sqliteLiteral(record.alertKey)}, ${sqliteLiteral(record.metric)}, ${sqliteLiteral(record.appName)}, ${sqliteLiteral(record.platform)}, ${sqliteLiteral(record.appVersion)}, ${sqliteLiteral(record.status)}, ${sqliteLiteral(record.firstSeenAt)}, ${sqliteLiteral(record.lastSeenAt)}, ${record.resolvedAt ? sqliteLiteral(record.resolvedAt) : "NULL"}, ${record.currentValue}, ${record.baselineMean}, ${record.baselineStddev}, ${record.zScore}, ${record.threshold}, ${record.slackOpenDeliveredAt ? sqliteLiteral(record.slackOpenDeliveredAt) : "NULL"}) ON CONFLICT(alert_key) DO UPDATE SET status = excluded.status, last_seen_at = excluded.last_seen_at, resolved_at = excluded.resolved_at, current_value = excluded.current_value, baseline_mean = excluded.baseline_mean, baseline_stddev = excluded.baseline_stddev, z_score = excluded.z_score, threshold = excluded.threshold, slack_open_delivered_at = excluded.slack_open_delivered_at`);
+      sqliteExec(`INSERT INTO ad_metric_alert_states (alert_key, metric, app_name, platform, app_version, cohort_group, status, first_seen_at, last_seen_at, resolved_at, current_value, baseline_mean, baseline_stddev, z_score, threshold, slack_open_delivered_at) VALUES (${sqliteLiteral(record.alertKey)}, ${sqliteLiteral(record.metric)}, ${sqliteLiteral(record.appName)}, ${sqliteLiteral(record.platform)}, ${sqliteLiteral(record.appVersion)}, ${sqliteLiteral(record.cohortGroup)}, ${sqliteLiteral(record.status)}, ${sqliteLiteral(record.firstSeenAt)}, ${sqliteLiteral(record.lastSeenAt)}, ${record.resolvedAt ? sqliteLiteral(record.resolvedAt) : "NULL"}, ${record.currentValue}, ${record.baselineMean}, ${record.baselineStddev}, ${record.zScore}, ${record.threshold}, ${record.slackOpenDeliveredAt ? sqliteLiteral(record.slackOpenDeliveredAt) : "NULL"}) ON CONFLICT(alert_key) DO UPDATE SET cohort_group = excluded.cohort_group, status = excluded.status, last_seen_at = excluded.last_seen_at, resolved_at = excluded.resolved_at, current_value = excluded.current_value, baseline_mean = excluded.baseline_mean, baseline_stddev = excluded.baseline_stddev, z_score = excluded.z_score, threshold = excluded.threshold, slack_open_delivered_at = excluded.slack_open_delivered_at`);
     }
     return;
   }
   const sql = await ensureGameplayAlertTables();
   for (const record of records) {
-    await sql`INSERT INTO ad_metric_alert_states (alert_key, metric, app_name, platform, app_version, status, first_seen_at, last_seen_at, resolved_at, current_value, baseline_mean, baseline_stddev, z_score, threshold, slack_open_delivered_at) VALUES (${record.alertKey}, ${record.metric}, ${record.appName}, ${record.platform}, ${record.appVersion}, ${record.status}, ${record.firstSeenAt}, ${record.lastSeenAt}, ${record.resolvedAt ?? null}, ${record.currentValue}, ${record.baselineMean}, ${record.baselineStddev}, ${record.zScore}, ${record.threshold}, ${record.slackOpenDeliveredAt ?? null}) ON CONFLICT(alert_key) DO UPDATE SET status = excluded.status, last_seen_at = excluded.last_seen_at, resolved_at = excluded.resolved_at, current_value = excluded.current_value, baseline_mean = excluded.baseline_mean, baseline_stddev = excluded.baseline_stddev, z_score = excluded.z_score, threshold = excluded.threshold, slack_open_delivered_at = excluded.slack_open_delivered_at`;
+    await sql`INSERT INTO ad_metric_alert_states (alert_key, metric, app_name, platform, app_version, cohort_group, status, first_seen_at, last_seen_at, resolved_at, current_value, baseline_mean, baseline_stddev, z_score, threshold, slack_open_delivered_at) VALUES (${record.alertKey}, ${record.metric}, ${record.appName}, ${record.platform}, ${record.appVersion}, ${record.cohortGroup}, ${record.status}, ${record.firstSeenAt}, ${record.lastSeenAt}, ${record.resolvedAt ?? null}, ${record.currentValue}, ${record.baselineMean}, ${record.baselineStddev}, ${record.zScore}, ${record.threshold}, ${record.slackOpenDeliveredAt ?? null}) ON CONFLICT(alert_key) DO UPDATE SET cohort_group = excluded.cohort_group, status = excluded.status, last_seen_at = excluded.last_seen_at, resolved_at = excluded.resolved_at, current_value = excluded.current_value, baseline_mean = excluded.baseline_mean, baseline_stddev = excluded.baseline_stddev, z_score = excluded.z_score, threshold = excluded.threshold, slack_open_delivered_at = excluded.slack_open_delivered_at`;
   }
 }
 
