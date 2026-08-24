@@ -7,12 +7,13 @@ import { getCountQuery, submitCountSql, type CountQuery } from "@/lib/count-api"
 import { listIncentConfigValidatorSettings, type IncentConfigValidatorSettingsRecord } from "@/lib/db";
 import { incentConfigPolicy, evaluateIncentDensityMetric, latestIncentEvaluationHour, type DensityPoint } from "@/lib/incent-config-validator";
 import { gameplayAlertWebhookUrls } from "@/lib/gameplay-alerts";
+import { newSlackDeliveryTraceId, postSlackWebhookMessage, type SlackQueryTrace } from "@/lib/slack-delivery";
 import { techLaunchAppIds } from "@/lib/tech-launch";
 
 const sqlPath = path.join(process.cwd(), "data", "tech_launch_incent_config_alerts.sql");
 
 export type IncentConfigAlertKind = "first_interstitial" | "fipg" | "ripg" | "no_ads";
-export type IncentConfigAlert = { kind: IncentConfigAlertKind; appName: string; evaluationHour: string; currentValue: number; sampleUsers: number; baselineMean?: number; zScore?: number };
+export type IncentConfigAlert = { kind: IncentConfigAlertKind; appName: string; evaluationHour: string; currentValue: number; sampleUsers: number; baselineMean?: number; zScore?: number; queryTrace?: SlackQueryTrace };
 type RawRow = { rowType: string; rowKey: string; eventHour: string; metricValue: number | null; eventCount: number; userCount: number };
 
 function sqlLiteral(value: string) { return `'${value.replaceAll("'", "''")}'`; }
@@ -91,18 +92,18 @@ export async function submitIncentConfigAlertQuery(configuration: IncentConfigVa
 export async function getIncentConfigAlertQuery(jobKey: string) { return (await getCountQuery(jobKey, 1000)).query; }
 
 function label(kind: IncentConfigAlertKind) { return kind === "first_interstitial" ? "First interstitial median level" : kind === "no_ads" ? "No-ads purchases" : kind.toUpperCase(); }
-export function formatIncentConfigAlertSlackMessage(alerts: IncentConfigAlert[]) {
+export function formatIncentConfigAlertSlackMessage(alerts: IncentConfigAlert[], traceId?: string, queryTraces: SlackQueryTrace[] = []) {
   return ["*Incent Config Validator alert*", ...alerts.map((alert) => {
     const detail = alert.kind === "first_interstitial" ? `${alert.currentValue.toFixed(1)} (threshold > ${incentConfigPolicy.firstAdMaxLevel})` : alert.kind === "no_ads" ? `${alert.currentValue} purchases (threshold > ${incentConfigPolicy.noAdsPurchaseLimit})` : `${alert.currentValue.toFixed(3)} vs ${alert.baselineMean!.toFixed(3)} baseline · z-score ${alert.zScore!.toFixed(2)} (threshold ≤ ${incentConfigPolicy.densityZScoreThreshold})`;
     return [`*Game:* ${alert.appName}`, `*Hour:* ${alert.evaluationHour}`, `• ${label(alert.kind)}: ${detail} · ${alert.sampleUsers} eligible users`].join("\n");
-  })].join("\n\n");
+  }), ...(traceId ? [`_Delivery trace: ${traceId}_`] : []), ...(queryTraces.length ? [`_Query jobs: ${queryTraces.map((trace) => `\`${trace.jobKey}\``).join(", ")}_`] : [])].join("\n\n");
 }
 export async function deliverIncentConfigAlerts(alerts: IncentConfigAlert[]) {
   const webhooks = gameplayAlertWebhookUrls();
-  if (!webhooks.length || !alerts.length) return { delivered: 0, skipped: alerts.length, configured: webhooks.length > 0 };
-  const body = JSON.stringify({ text: formatIncentConfigAlertSlackMessage(alerts) });
-  const responses = await Promise.all(webhooks.map((webhook) => fetch(webhook, { method: "POST", headers: { "content-type": "application/json" }, body })));
-  const failed = responses.find((response) => !response.ok);
-  if (failed) throw new Error(`Slack webhook returned ${failed.status}`);
-  return { delivered: alerts.length, skipped: 0, configured: true };
+  if (!alerts.length) return { delivered: 0, skipped: 0, configured: webhooks.length > 0 };
+  const traceId = newSlackDeliveryTraceId("incent-config-alert");
+  const queryTraces = [...new Map(alerts.flatMap((alert) => alert.queryTrace ? [[alert.queryTrace.jobKey, alert.queryTrace] as const] : [])).values()];
+  if (!webhooks.length) return { delivered: 0, skipped: alerts.length, configured: false, trace: await postSlackWebhookMessage([], "", traceId, queryTraces) };
+  const trace = await postSlackWebhookMessage(webhooks, JSON.stringify({ text: formatIncentConfigAlertSlackMessage(alerts, traceId, queryTraces) }), traceId, queryTraces);
+  return { delivered: alerts.length, skipped: 0, configured: true, trace };
 }

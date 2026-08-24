@@ -25,7 +25,6 @@ import {
   Table2,
   Trash2,
   Upload,
-  UserCog,
   Wand2,
   X,
   type LucideIcon,
@@ -35,6 +34,7 @@ import { UseFormReturn, useForm } from "react-hook-form";
 
 import CerberusShell, { ShellNavItem } from "@/components/CerberusShell";
 import { splitTextList } from "@/lib/canonical";
+import { launchSignalDashboardSuite } from "@/lib/launch-signal-access";
 import {
   GeneratedEvent,
   GeneratedPayloadField,
@@ -59,7 +59,7 @@ function defaultPartnerExpiryDate() {
   return date.toISOString().slice(0, 10);
 }
 
-type Tab = "intake" | "review" | "viewer" | "specs" | "library" | "users";
+type Tab = "intake" | "review" | "viewer" | "specs" | "library";
 
 const navigationItems: Array<{ tab: Tab; label: string; icon: LucideIcon }> = [
   { tab: "intake", label: "Intake", icon: Wand2 },
@@ -67,7 +67,6 @@ const navigationItems: Array<{ tab: Tab; label: string; icon: LucideIcon }> = [
   { tab: "viewer", label: "Spec Viewer", icon: Table2 },
   { tab: "specs", label: "Saved Specs", icon: FileText },
   { tab: "library", label: "Library", icon: Library },
-  { tab: "users", label: "Users", icon: UserCog },
 ];
 
 function tabFromParam(value: string | null): Tab | null {
@@ -76,8 +75,7 @@ function tabFromParam(value: string | null): Tab | null {
     value === "review" ||
     value === "viewer" ||
     value === "specs" ||
-    value === "library" ||
-    value === "users"
+    value === "library"
   ) {
     return value;
   }
@@ -2379,8 +2377,8 @@ function PartnerDomainAccessAdmin() {
     <section className="space-y-4 rounded-2xl border border-line/70 bg-surface-card p-5 shadow-soft">
       <div>
         <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-emerald">Partner access</div>
-        <h2 className="mt-2 text-lg font-bold text-ink">Launch Readiness partner domains</h2>
-        <p className="mt-1 text-sm text-slate-500">Verified Google users at an active domain inherit these permitted apps.</p>
+        <h2 className="mt-2 text-lg font-bold text-ink">Launch Signal partner domains</h2>
+        <p className="mt-1 text-sm text-slate-500">Verified Google users at an active domain can use the complete Launch Signal dashboard suite. App mappings apply consistently across every dashboard.</p>
       </div>
       {status ? <p className="rounded-[9px] border border-cobalt/20 bg-cobalt/10 px-3 py-2 text-sm text-cobalt">{status}</p> : null}
       <form onSubmit={saveDomain} className="grid gap-4 rounded-[12px] border border-line/60 bg-surface-popover p-4 lg:grid-cols-[minmax(180px,1fr)_160px_auto]">
@@ -2396,7 +2394,7 @@ function PartnerDomainAccessAdmin() {
           <input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} className="h-4 w-4 accent-cobalt" /> Enabled
         </label>
         <fieldset className="lg:col-span-3">
-          <legend className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">Permitted apps</legend>
+          <legend className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500">Mapped apps</legend>
           <div className="mt-2 flex flex-wrap gap-2">
             {techLaunchApps.map((app) => (
               <label key={app} className={`inline-flex cursor-pointer items-center gap-2 rounded-[7px] border px-2.5 py-1.5 text-xs font-semibold ${allowedApps.includes(app) ? "border-emerald/40 bg-emerald/10 text-emerald" : "border-line/70 text-slate-400"}`}>
@@ -2406,16 +2404,24 @@ function PartnerDomainAccessAdmin() {
             ))}
           </div>
         </fieldset>
+        <div className="rounded-[9px] border border-emerald/25 bg-emerald/5 px-3 py-2.5 lg:col-span-3">
+          <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-emerald">Included dashboard suite</div>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {launchSignalDashboardSuite.map((dashboard) => <span key={dashboard.id} className="rounded-md border border-emerald/25 bg-emerald/10 px-2 py-1 text-[11px] font-semibold text-emerald">{dashboard.label}</span>)}
+          </div>
+          <p className="mt-2 text-xs text-slate-500">Every listed dashboard is granted for the selected apps; no separate dashboard assignment is required.</p>
+        </div>
         <div className="flex gap-2 lg:col-span-3">
           <button type="submit" className="focus-ring inline-flex h-10 items-center gap-2 rounded-[8px] bg-cobalt px-4 text-sm font-semibold text-white hover:bg-cobalt/90"><Plus className="h-4 w-4" />{domain ? "Save domain" : "Add domain"}</button>
           <button type="button" onClick={resetForm} className="focus-ring h-10 rounded-[8px] border border-line/70 px-4 text-sm font-semibold text-slate-400 hover:bg-surface-hover">Clear</button>
         </div>
       </form>
       <div className="overflow-x-auto rounded-[12px] border border-line/60">
-        <div className="grid min-w-[680px] grid-cols-[1.2fr_1.7fr_140px_170px] border-b border-line/50 bg-surface-table px-4 py-2.5 font-mono text-[9.5px] font-semibold uppercase tracking-[0.09em] text-slate-500"><div>Domain</div><div>Apps</div><div>Expiry</div><div className="text-right">Manage</div></div>
+        <div className="grid min-w-[860px] grid-cols-[1.1fr_1.35fr_1.7fr_140px_170px] border-b border-line/50 bg-surface-table px-4 py-2.5 font-mono text-[9.5px] font-semibold uppercase tracking-[0.09em] text-slate-500"><div>Domain</div><div>Dashboard suite</div><div>Mapped apps</div><div>Expiry</div><div className="text-right">Manage</div></div>
         {domains.map((item) => (
-          <div key={item.domain} className="grid min-w-[680px] grid-cols-[1.2fr_1.7fr_140px_170px] items-center border-b border-line/40 px-4 py-3 text-sm last:border-b-0">
+          <div key={item.domain} className="grid min-w-[860px] grid-cols-[1.1fr_1.35fr_1.7fr_140px_170px] items-center border-b border-line/40 px-4 py-3 text-sm last:border-b-0">
             <div className="font-semibold text-slate-200">{item.domain}<span className={`ml-2 rounded px-1.5 py-0.5 font-mono text-[9px] ${item.enabled && new Date(item.expiresAt).getTime() > Date.now() ? "bg-emerald/10 text-emerald" : "bg-rose/10 text-rose"}`}>{item.enabled && new Date(item.expiresAt).getTime() > Date.now() ? "active" : item.enabled ? "expired" : "disabled"}</span></div>
+            <div className="text-xs font-semibold text-emerald">All dashboards</div>
             <div className="text-xs text-slate-400">{item.allowedApps.join(", ")}</div>
             <div className="font-mono text-xs text-slate-400">{item.expiresAt.slice(0, 10)}</div>
             <div className="flex justify-end gap-2"><button type="button" onClick={() => editDomain(item)} className="focus-ring rounded-[7px] border border-line/70 px-2.5 py-1.5 text-xs font-semibold text-slate-300 hover:bg-surface-hover">Edit</button><button type="button" onClick={() => void removeDomain(item.domain)} className="focus-ring inline-flex rounded-[7px] border border-rose/40 px-2.5 py-1.5 text-xs font-semibold text-rose hover:bg-rose/10"><Trash2 className="mr-1 h-3.5 w-3.5" />Revoke</button></div>
@@ -2497,7 +2503,7 @@ function UserRoleAdmin({ currentUser }: { currentUser: AppUser | null }) {
       <div>
         <div className="flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.16em] text-cobalt">
           <span className="h-1.5 w-1.5 rounded-full bg-cobalt shadow-[0_0_10px_#3d82ff]" />
-          Event Design · Users
+          Admin · User management
         </div>
         <h1 className="mt-3 font-display text-[34px] font-extrabold leading-none text-ink">User Access</h1>
         <p className="mt-2 text-[13.5px] text-slate-500">Admins manage roles. Access is gated to approved organization accounts.</p>
@@ -3220,7 +3226,7 @@ export default function MvpApp({ library }: { library: LibrarySnapshot }) {
   const formErrors = Object.values(form.formState.errors)
     .map((formError) => formError?.message)
     .filter(Boolean);
-  const visibleNavigationItems = navigationItems.filter((item) => auth.access?.accountType !== "external" && (item.tab !== "users" || canManageUsers(auth.user)));
+  const visibleNavigationItems = auth.access?.accountType === "external" ? [] : navigationItems;
   const activeSavedSpec = spec ? savedSpecs.find((savedSpec) => savedSpec.id === spec.id) : undefined;
   const canCreateOrEdit = canCreateSpecs(auth.user);
   const canSaveActiveSpec = canCreateOrEdit && (activeSavedSpec ? Boolean(activeSavedSpec.canEdit) : true);
@@ -3342,9 +3348,6 @@ export default function MvpApp({ library }: { library: LibrarySnapshot }) {
 
   useEffect(() => {
     if (auth.user?.role === "viewer" && (activeTab === "intake" || activeTab === "review")) {
-      setActiveTab("viewer");
-    }
-    if (!canManageUsers(auth.user) && activeTab === "users") {
       setActiveTab("viewer");
     }
   }, [activeTab, auth.user]);
@@ -3606,6 +3609,7 @@ export default function MvpApp({ library }: { library: LibrarySnapshot }) {
         name: auth.user?.name,
         email: auth.user?.email,
         roleLabel: auth.user ? roleLabels[auth.user.role] : undefined,
+        role: auth.user?.role,
         accountType: auth.access?.accountType,
       }}
     >
@@ -3784,7 +3788,47 @@ export default function MvpApp({ library }: { library: LibrarySnapshot }) {
           />
         ) : null}
         {activeTab === "library" ? <LibraryBrowser library={library} /> : null}
-        {activeTab === "users" && canManageUsers(auth.user) ? <UserRoleAdmin currentUser={auth.user} /> : null}
+    </CerberusShell>
+  );
+}
+
+export function AdminApp() {
+  const [auth, setAuth] = useState<AuthState>({ authenticated: false, user: null });
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    void fetch("/api/me")
+      .then(async (response) => {
+        if (!response.ok) throw new Error(await response.text());
+        setAuth((await response.json()) as AuthState);
+      })
+      .catch((reason) => setError(reason instanceof Error ? reason.message : "Could not load your account"))
+      .finally(() => setIsLoading(false));
+  }, []);
+
+  return (
+    <CerberusShell
+      currentProduct="admin"
+      contentClassName="max-w-[1320px]"
+      user={{
+        authenticated: auth.authenticated,
+        name: auth.user?.name,
+        email: auth.user?.email,
+        roleLabel: auth.user ? roleLabels[auth.user.role] : undefined,
+        role: auth.user?.role,
+        accountType: auth.access?.accountType,
+      }}
+    >
+      {isLoading ? <div className="px-5 py-10 text-center text-sm text-slate-500">Loading admin tools...</div> : null}
+      {!isLoading && canManageUsers(auth.user) ? <UserRoleAdmin currentUser={auth.user} /> : null}
+      {!isLoading && !canManageUsers(auth.user) ? (
+        <section className="rounded-2xl border border-rose/30 bg-rose/10 px-6 py-10 text-center shadow-soft">
+          <h1 className="font-display text-2xl font-bold text-ink">Admin access required</h1>
+          <p className="mt-2 text-sm text-slate-500">Only Tripledot administrators can manage users and partner-domain access.</p>
+        </section>
+      ) : null}
+      {error ? <p className="mt-4 rounded-[10px] border border-rose/30 bg-rose/10 px-4 py-3 text-sm font-semibold text-rose">{error}</p> : null}
     </CerberusShell>
   );
 }

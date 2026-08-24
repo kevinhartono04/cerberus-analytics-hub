@@ -54,4 +54,22 @@ describe("CerberusShell theme switch", () => {
 
     expect(screen.getByRole("switch", { name: "Light mode" })).toHaveAttribute("title", "Light mode");
   });
+
+  it("shows the top-level Admin area only to administrators", () => {
+    const { rerender } = render(
+      <CerberusShell currentProduct="spec-generator" user={{ authenticated: true, accountType: "internal", role: "admin" }}>
+        <div>Dashboard content</div>
+      </CerberusShell>,
+    );
+
+    expect(screen.getByRole("link", { name: "Admin" })).toHaveAttribute("href", "/admin");
+
+    rerender(
+      <CerberusShell currentProduct="spec-generator" user={{ authenticated: true, accountType: "internal", role: "editor" }}>
+        <div>Dashboard content</div>
+      </CerberusShell>,
+    );
+
+    expect(screen.queryByRole("link", { name: "Admin" })).not.toBeInTheDocument();
+  });
 });

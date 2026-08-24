@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getSettings: vi.fn(),
@@ -138,7 +138,7 @@ describe("gameplay alert cron", () => {
     const response = await GET(new Request("https://example.com/api/cron/gameplay-alerts?force=1", { headers: { authorization: "Bearer test-secret" } }));
 
     expect(await response.json()).toMatchObject({ runningCount: 0, dailyOpenDeliveryCount: 1, failures: [], evaluations: [expect.objectContaining({ reusedCompletedJob: true, report: "flagged_levels_only" })] });
-    expect(mocks.deliver).toHaveBeenCalledWith([expect.objectContaining({ type: "daily-open", state: expect.objectContaining({ alertKey: "open-240", level: 240 }) })]);
+    expect(mocks.deliver).toHaveBeenCalledWith([expect.objectContaining({ type: "daily-open", state: expect.objectContaining({ alertKey: "open-240", level: 240 }), queryTrace: { jobKey: "count-job", sql: "select daily" } })]);
     expect(mocks.markStatusDelivered).toHaveBeenCalledWith(["stacksmash:android:0.2.0:2026-07-22:2026-07-28"], expect.any(String));
   });
 

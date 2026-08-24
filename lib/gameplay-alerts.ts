@@ -19,6 +19,7 @@ import {
   type GameplayAlertStateRecord,
 } from "@/lib/db";
 import { getCountQuery, runCountSql, submitCountSql, type CountQuery } from "@/lib/count-api";
+import { newSlackDeliveryTraceId, postSlackWebhookMessage, type SlackQueryTrace } from "@/lib/slack-delivery";
 import { normalizedTechLaunchFilters, techLaunchAppIds, techLaunchAppOptions, techLaunchFilterSchema, techLaunchPlatformOptions, type TechLaunchFilters } from "@/lib/tech-launch";
 
 const sqlPath = path.join(process.cwd(), "data", "tech_launch_level_fail_rate.sql");
@@ -210,6 +211,7 @@ export type GameplayAlertState = {
 export type GameplayAlertTransition = {
   type: "opened" | "daily-open" | "pending" | "resolved";
   state: GameplayAlertState;
+  queryTrace?: SlackQueryTrace;
 };
 
 const defaultSettings: GameplayAlertSettings = {
@@ -810,7 +812,7 @@ function alertSection(type: GameplayAlertTransition["type"]) {
   return { key: "open", heading: "Open levels" };
 }
 
-export function formatGameplayAlertSlackMessage(transitions: GameplayAlertTransition[], checkedAt = new Date()) {
+export function formatGameplayAlertSlackMessage(transitions: GameplayAlertTransition[], checkedAt = new Date(), traceId?: string, queryTraces: SlackQueryTrace[] = []) {
   const groups = new Map<string, { state: GameplayAlertState; sections: Map<string, { heading: string; states: GameplayAlertState[] }> }>();
   for (const transition of transitions) {
     const platform = transition.state.platform === allPlatformsAlertScope ? "All platforms" : transition.state.platform;
@@ -838,7 +840,7 @@ export function formatGameplayAlertSlackMessage(transitions: GameplayAlertTransi
       return [`*${critical ? "Critical levels (>70% fail rate, 50+ players)" : section.heading} (${levels.length})*`, ...levels];
     });
     return [`*Game:* ${group.state.appName}`, `*Platform:* ${platform}`, `*Version:* ${appVersion}`, `*Checked:* ${checkedAtLabel(checkedAt)}`, "", ...sections].join("\n");
-  })].join("\n\n");
+  }), ...(traceId ? [`_Delivery trace: ${traceId}_`] : []), ...(queryTraces.length ? [`_Query jobs: ${queryTraces.map((trace) => `\`${trace.jobKey}\``).join(", ")}_`] : [])].join("\n\n");
 }
 
 /** The primary channel remains backwards-compatible; an optional second URL mirrors alerts to another channel. */
@@ -854,18 +856,18 @@ export function gameplayAlertWebhookUrls(environment: { SLACK_GAMEPLAY_ALERT_WEB
 
 export async function deliverGameplayAlertTransitions(transitions: GameplayAlertTransition[]) {
   const webhooks = gameplayAlertWebhookUrls();
-  if (!webhooks.length || !transitions.length) return { delivered: 0, skipped: transitions.length, configured: webhooks.length > 0 };
-  const message = JSON.stringify({ text: formatGameplayAlertSlackMessage(transitions) });
-  const responses = await Promise.all(webhooks.map((webhook) => fetch(webhook, { method: "POST", headers: { "content-type": "application/json" }, body: message })));
-  const failed = responses.find((response) => !response.ok);
-  if (failed) throw new Error(`Slack webhook returned ${failed.status}`);
+  if (!transitions.length) return { delivered: 0, skipped: 0, configured: webhooks.length > 0 };
+  const traceId = newSlackDeliveryTraceId("gameplay-alert");
+  const queryTraces = [...new Map(transitions.flatMap((transition) => transition.queryTrace ? [[transition.queryTrace.jobKey, transition.queryTrace] as const] : [])).values()];
+  if (!webhooks.length) return { delivered: 0, skipped: transitions.length, configured: false, trace: await postSlackWebhookMessage([], "", traceId, queryTraces) };
+  const trace = await postSlackWebhookMessage(webhooks, JSON.stringify({ text: formatGameplayAlertSlackMessage(transitions, new Date(), traceId, queryTraces) }), traceId, queryTraces);
   const deliveredAt = new Date().toISOString();
   await Promise.all([
     markGameplayAlertSlackDelivered(transitions.filter((transition) => transition.type === "opened" || transition.type === "daily-open").map((transition) => transition.state.alertKey), "opened", deliveredAt),
     markGameplayAlertSlackDelivered(transitions.filter((transition) => transition.type === "pending").map((transition) => transition.state.alertKey), "pending", deliveredAt),
     markGameplayAlertSlackDelivered(transitions.filter((transition) => transition.type === "resolved").map((transition) => transition.state.alertKey), "resolved", deliveredAt),
   ]);
-  return { delivered: transitions.length, skipped: 0, configured: true };
+  return { delivered: transitions.length, skipped: 0, configured: true, trace };
 }
 
 export function gameplayAlertCronFilters(settings: GameplayAlertSettings, today = new Date()): GameplayAlertCronFilters[] {

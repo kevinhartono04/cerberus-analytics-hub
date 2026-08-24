@@ -9,6 +9,7 @@ import {
   LogIn,
   LogOut,
   Moon,
+  Settings,
   Shield,
   Sun,
   Wand2,
@@ -17,7 +18,7 @@ import {
 import Image from "next/image";
 import React, { CSSProperties, ReactNode, useEffect, useState } from "react";
 
-export type HubProductId = "spec-generator" | "tech-launch" | "spec-check";
+export type HubProductId = "spec-generator" | "tech-launch" | "spec-check" | "admin";
 type Theme = "dark" | "light";
 
 function readStoredTheme(): Theme {
@@ -44,6 +45,7 @@ const products: ProductItem[] = [
   { id: "spec-generator", label: "Event Studio", href: "/", icon: Wand2, accent: "#7c6cff" },
   { id: "tech-launch", label: "Launch Signal", href: "/tech-launch", icon: Gauge, accent: "#28c7b7" },
   { id: "spec-check", label: "Signal QA", href: "/spec-check", icon: ClipboardCheck, accent: "#f59b56" },
+  { id: "admin", label: "Admin", href: "/admin", icon: Settings, accent: "#f59b56" },
 ];
 
 export type ShellNavItem<T extends string> = {
@@ -57,6 +59,7 @@ type ShellUser = {
   name?: string | null;
   email?: string | null;
   roleLabel?: string;
+  role?: "admin" | "editor" | "viewer";
   accountType?: "internal" | "external";
 };
 
@@ -241,6 +244,7 @@ export default function CerberusShell<T extends string>({
           name: response.user.name,
           email: response.user.email,
           roleLabel: formatRoleLabel(response.user.role),
+          role: response.user.role as ShellUser["role"],
           accountType: response.access?.accountType,
         });
       })
@@ -255,7 +259,10 @@ export default function CerberusShell<T extends string>({
 
   const sidebarUser = hasExplicitUser ? user : sessionUser;
   const isLoadingUser = !hasExplicitUser && sessionUser === undefined;
-  const visibleProducts = sidebarUser?.accountType === "external" ? products.filter((product) => product.id === "tech-launch") : products;
+  const visibleProducts = products.filter((product) => {
+    if (sidebarUser?.accountType === "external") return product.id === "tech-launch";
+    return product.id !== "admin" || sidebarUser?.role === "admin";
+  });
   const toggleTheme = () => {
     const nextTheme = theme === "dark" ? "light" : "dark";
     applyTheme(nextTheme);

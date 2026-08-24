@@ -7,6 +7,7 @@ import { parse as parseCsv } from "csv-parse/sync";
 import { listAdMetricAlertStates, markAdMetricAlertSlackDelivered, saveAdMetricAlertStates } from "@/lib/db";
 import { type CountQuery } from "@/lib/count-api";
 import { allAppVersionsAlertScope, allPlatformsAlertScope, gameplayAlertWebhookUrls, type GameplayAlertCronFilters } from "@/lib/gameplay-alerts";
+import { newSlackDeliveryTraceId, postSlackWebhookMessage, type SlackQueryTrace } from "@/lib/slack-delivery";
 import { techLaunchAppIds } from "@/lib/tech-launch";
 
 const sqlPath = path.join(process.cwd(), "data", "tech_launch_ad_metric_alerts.sql");
@@ -33,7 +34,7 @@ export type AdMetricAlertState = {
   threshold: number;
   slackOpenDeliveredAt?: string;
 };
-export type AdMetricAlertTransition = { type: "opened"; state: AdMetricAlertState };
+export type AdMetricAlertTransition = { type: "opened"; state: AdMetricAlertState; queryTrace?: SlackQueryTrace };
 
 function sqlLiteral(value: string) { return `'${value.replaceAll("'", "''")}'`; }
 function sqlList(values: string[]) { return values.map(sqlLiteral).join(", "); }
@@ -176,22 +177,22 @@ export async function undeliveredAdMetricAlertTransitions(filters: GameplayAlert
 
 function scopeLabel(value: string, all: string, label: string) { return value === all ? `All ${label}` : value; }
 function metricLabel(metric: AdMetric) { return metric.toUpperCase(); }
-export function formatAdMetricAlertSlackMessage(transitions: AdMetricAlertTransition[]) {
+export function formatAdMetricAlertSlackMessage(transitions: AdMetricAlertTransition[], traceId?: string, queryTraces: SlackQueryTrace[] = []) {
   return ["*Ad engagement anomaly alert*", ...transitions.sort((a, b) => a.state.metric.localeCompare(b.state.metric)).map(({ state }) => [
     `*Game:* ${state.appName}`,
     `*Platform:* ${scopeLabel(state.platform, allPlatformsAlertScope, "platforms")}`,
     `*Version:* ${scopeLabel(state.appVersion, allAppVersionsAlertScope, "versions")}`,
     `• ${state.cohortGroup} · ${metricLabel(state.metric)}: ${(state.currentValue).toFixed(3)} vs ${(state.baselineMean).toFixed(3)} 24-hour mean · z-score ${state.zScore.toFixed(2)} (threshold ≤ −${state.threshold.toFixed(1)})`,
-  ].join("\n"))].join("\n\n");
+  ].join("\n")), ...(traceId ? [`_Delivery trace: ${traceId}_`] : []), ...(queryTraces.length ? [`_Query jobs: ${queryTraces.map((trace) => `\`${trace.jobKey}\``).join(", ")}_`] : [])].join("\n\n");
 }
 
 export async function deliverAdMetricAlertTransitions(transitions: AdMetricAlertTransition[]) {
   const webhooks = gameplayAlertWebhookUrls();
-  if (!webhooks.length || !transitions.length) return { delivered: 0, skipped: transitions.length, configured: webhooks.length > 0 };
-  const body = JSON.stringify({ text: formatAdMetricAlertSlackMessage(transitions) });
-  const responses = await Promise.all(webhooks.map((webhook) => fetch(webhook, { method: "POST", headers: { "content-type": "application/json" }, body })));
-  const failed = responses.find((response) => !response.ok);
-  if (failed) throw new Error(`Slack webhook returned ${failed.status}`);
+  if (!transitions.length) return { delivered: 0, skipped: 0, configured: webhooks.length > 0 };
+  const traceId = newSlackDeliveryTraceId("ad-metric-alert");
+  const queryTraces = [...new Map(transitions.flatMap((transition) => transition.queryTrace ? [[transition.queryTrace.jobKey, transition.queryTrace] as const] : [])).values()];
+  if (!webhooks.length) return { delivered: 0, skipped: transitions.length, configured: false, trace: await postSlackWebhookMessage([], "", traceId, queryTraces) };
+  const trace = await postSlackWebhookMessage(webhooks, JSON.stringify({ text: formatAdMetricAlertSlackMessage(transitions, traceId, queryTraces) }), traceId, queryTraces);
   await markAdMetricAlertSlackDelivered(transitions.map((transition) => transition.state.alertKey), new Date().toISOString());
-  return { delivered: transitions.length, skipped: 0, configured: true };
+  return { delivered: transitions.length, skipped: 0, configured: true, trace };
 }

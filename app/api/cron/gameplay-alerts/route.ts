@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { getCountQuery, submitCountSql } from "@/lib/count-api";
+import { getCountQuery, submitCountSql, type CountQuery } from "@/lib/count-api";
 import { listGameplayAlertQueryJobs, markGameplayAlertQueryJobsSlackStatusDelivered, saveGameplayAlertQueryJobRecords, type GameplayAlertQueryJobRecord } from "@/lib/db";
 import {
   buildCriticalLevelFailRateSql,
@@ -17,6 +17,7 @@ import {
   undeliveredGameplayAlertTransitions,
 } from "@/lib/gameplay-alerts";
 import { isGameplayAlertCronWindow } from "@/lib/gameplay-alert-cron-window";
+import { isSlackDeliveryError, type SlackDeliveryTrace, type SlackQueryTrace } from "@/lib/slack-delivery";
 import {
   adMetricAlertEvaluationKey,
   buildAdMetricAlertSql,
@@ -39,6 +40,11 @@ type EvaluationResult = {
   dailyStatusEvaluationKeys: string[];
 };
 type AdMetricEvaluationResult = Omit<EvaluationResult, "transitions"> & { transitions: AdMetricAlertTransition[] };
+type AlertDeliveryTrace = SlackDeliveryTrace & { alertType: "daily" | "critical" | "ad-metrics" };
+
+function captureDeliveryTrace(traces: AlertDeliveryTrace[], alertType: AlertDeliveryTrace["alertType"], delivery: { trace?: SlackDeliveryTrace }) {
+  if (delivery.trace) traces.push({ alertType, ...delivery.trace });
+}
 
 function emptyEvaluationResult(): EvaluationResult {
   return { transitions: [], jobUpdates: [], failures: [], submittedCount: 0, completedCount: 0, dailyStatusEvaluationKeys: [] };
@@ -60,6 +66,41 @@ function dailyQueryFilters(filters: AlertTarget) {
     startDate: filters.startDate,
     endDate: filters.endDate,
   };
+}
+
+type AlertTransitionWithScope = { state: { appName: string; platform: string; appVersion: string } };
+
+function targetForState(targets: AlertTarget[], state: AlertTransitionWithScope["state"]) {
+  return targets.find((target) => target.appName === state.appName && target.platform === state.platform && target.appVersion === state.appVersion);
+}
+
+async function queryTraceForJob(job: GameplayAlertQueryJobRecord, fallbackSql: string): Promise<SlackQueryTrace> {
+  try {
+    const query: CountQuery = (await getCountQuery(job.jobKey, 1)).query;
+    return { jobKey: job.jobKey, sql: query.compiled_sql ?? query.sql ?? fallbackSql };
+  } catch {
+    // A completed Count job can be temporarily unavailable. The submitted SQL
+    // is still a reproducible fallback and keeps delivery independent of it.
+    return { jobKey: job.jobKey, sql: fallbackSql };
+  }
+}
+
+async function attachQueryTraces<T extends AlertTransitionWithScope>(
+  transitions: T[],
+  targets: AlertTarget[],
+  jobFor: (evaluationKey: string) => GameplayAlertQueryJobRecord | undefined,
+  evaluationKeyFor: (filters: AlertTarget) => string,
+  sqlFor: (filters: AlertTarget, job: GameplayAlertQueryJobRecord) => string,
+) {
+  const traces = new Map<string, Promise<SlackQueryTrace>>();
+  return Promise.all(transitions.map(async (transition) => {
+    const target = targetForState(targets, transition.state);
+    const job = target && jobFor(evaluationKeyFor(target));
+    if (!target || !job) return transition;
+    const trace = traces.get(job.jobKey) ?? queryTraceForJob(job, sqlFor(target, job));
+    traces.set(job.jobKey, trace);
+    return { ...transition, queryTrace: await trace };
+  }));
 }
 
 /**
@@ -270,41 +311,53 @@ export async function GET(request: Request) {
     evaluateAdMetricTargets(targets, existingByKey, settings.adMetricZScoreThreshold, now, shouldSubmitHourlyAdMetrics),
   ]);
   await saveGameplayAlertQueryJobRecords([...daily.jobUpdates, ...critical.jobUpdates, ...adMetrics.jobUpdates]);
+  const jobFor = (key: string) => [...daily.jobUpdates, ...critical.jobUpdates, ...adMetrics.jobUpdates].find((job) => job.evaluationKey === key) ?? existingByKey.get(key);
 
   const criticalRetryTransitions = (await Promise.all(targets.map((filters) => undeliveredGameplayAlertTransitions(filters, "critical")))).flat();
   const adMetricRetryTransitions = (await Promise.all(targets.map(undeliveredAdMetricAlertTransitions))).flat();
+  const [dailyDeliveryTransitions, criticalDeliveryTransitions, adMetricDeliveryTransitions] = await Promise.all([
+    attachQueryTraces(uniqueTransitions(daily.transitions), targets, jobFor, gameplayAlertEvaluationKey, (filters) => buildDailyLevelFailRateSql(dailyQueryFilters(filters), settings)),
+    attachQueryTraces(uniqueTransitions([...critical.transitions, ...criticalRetryTransitions]), targets, jobFor, criticalGameplayAlertEvaluationKey, (filters) => buildCriticalLevelFailRateSql(dailyQueryFilters(filters))),
+    attachQueryTraces(uniqueTransitions([...adMetrics.transitions, ...adMetricRetryTransitions]), targets, jobFor, (filters) => adMetricAlertEvaluationKey(filters, now), (filters, job) => buildAdMetricAlertSql(filters, new Date(job.submittedAt))),
+  ]);
 
   const failures = [...daily.failures, ...critical.failures];
   const deliveryParts: Array<{ delivered: number; skipped: number; configured: boolean }> = [];
+  const deliveryTrace: AlertDeliveryTrace[] = [];
   try {
     const delivery = await deliverGameplayAlertTransitions(uniqueTransitions([
-      ...daily.transitions,
+      ...dailyDeliveryTransitions,
     ]));
     deliveryParts.push(delivery);
+    captureDeliveryTrace(deliveryTrace, "daily", delivery);
     if (delivery.configured) {
       await markGameplayAlertQueryJobsSlackStatusDelivered(daily.dailyStatusEvaluationKeys, new Date().toISOString());
     }
   } catch (error) {
+    if (isSlackDeliveryError(error)) deliveryTrace.push({ alertType: "daily", ...error.trace });
     failures.push(`Slack daily: ${error instanceof Error ? error.message : "delivery failed"}`);
   }
   try {
-    deliveryParts.push(await deliverGameplayAlertTransitions(uniqueTransitions([
-      ...critical.transitions,
-      ...criticalRetryTransitions,
-    ])));
+    const delivery = await deliverGameplayAlertTransitions(uniqueTransitions([
+      ...criticalDeliveryTransitions,
+    ]));
+    deliveryParts.push(delivery);
+    captureDeliveryTrace(deliveryTrace, "critical", delivery);
   } catch (error) {
+    if (isSlackDeliveryError(error)) deliveryTrace.push({ alertType: "critical", ...error.trace });
     failures.push(`Slack critical: ${error instanceof Error ? error.message : "delivery failed"}`);
   }
   try {
-    deliveryParts.push(await deliverAdMetricAlertTransitions([
-      ...adMetrics.transitions,
-      ...adMetricRetryTransitions,
-    ]));
+    const delivery = await deliverAdMetricAlertTransitions([
+      ...adMetricDeliveryTransitions,
+    ]);
+    deliveryParts.push(delivery);
+    captureDeliveryTrace(deliveryTrace, "ad-metrics", delivery);
   } catch (error) {
+    if (isSlackDeliveryError(error)) deliveryTrace.push({ alertType: "ad-metrics", ...error.trace });
     failures.push(`Slack ad metrics: ${error instanceof Error ? error.message : "delivery failed"}`);
   }
 
-  const jobFor = (key: string) => [...daily.jobUpdates, ...critical.jobUpdates, ...adMetrics.jobUpdates].find((job) => job.evaluationKey === key) ?? existingByKey.get(key);
   const dailyRunningCount = shouldRunDaily ? targets.filter((filters) => jobFor(gameplayAlertEvaluationKey(filters))?.status === "running").length : 0;
   const criticalRunningCount = targets.filter((filters) => jobFor(criticalGameplayAlertEvaluationKey(filters))?.status === "running").length;
   const adMetricRunningCount = targets.filter((filters) => jobFor(adMetricAlertEvaluationKey(filters, now))?.status === "running").length;
@@ -350,6 +403,7 @@ export async function GET(request: Request) {
     adMetricTransitionCount: adMetrics.transitions.length,
     dailyOpenDeliveryCount: daily.transitions.length,
     delivery,
+    deliveryTrace,
     failures,
     evaluations,
   });

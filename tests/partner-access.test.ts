@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({ getPartnerDomainAccess: vi.fn() }));
 vi.mock("@/lib/db", () => ({ getPartnerDomainAccess: mocks.getPartnerDomainAccess }));
 
 import {
+  getExternalLaunchSignalAccess,
   getExternalTechLaunchApps,
   isAllowedExternalGoogleEmail,
   normalizePartnerDomain,
@@ -26,6 +27,15 @@ describe("partner domain access", () => {
     mocks.getPartnerDomainAccess.mockResolvedValue({ enabled: true, expiresAt: "2099-01-01T00:00:00.000Z", allowedApps: ["woodoku"] });
     await expect(isAllowedExternalGoogleEmail("partner@partnerstudio.com", true)).resolves.toBe(true);
     await expect(getExternalTechLaunchApps("partner@partnerstudio.com")).resolves.toEqual(["woodoku"]);
+    await expect(getExternalLaunchSignalAccess("partner@partnerstudio.com")).resolves.toEqual({
+      allowedApps: ["woodoku"],
+      dashboardSuite: [
+        { id: "technical-readiness", label: "Technical Readiness" },
+        { id: "level-funnel", label: "Level Funnel Check" },
+        { id: "game-monitoring", label: "Game Monitoring" },
+        { id: "incent-config-validator", label: "Incent Config Validator" },
+      ],
+    });
   });
 
   it("rejects unverified, expired, and unknown partner accounts", async () => {

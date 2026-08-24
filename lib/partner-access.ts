@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { getPartnerDomainAccess } from "@/lib/db";
+import { launchSignalDashboardSuite } from "@/lib/launch-signal-access";
 import { techLaunchAppOptions } from "@/lib/tech-launch";
 
 const publicEmailDomains = new Set([
@@ -66,6 +67,14 @@ export const partnerDomainAccessInputSchema = z.object({
 });
 
 export type PartnerDomainAccessInput = z.infer<typeof partnerDomainAccessInputSchema>;
+
+export async function getExternalLaunchSignalAccess(email: string) {
+  const allowedApps = await getExternalTechLaunchApps(email);
+  return {
+    allowedApps,
+    dashboardSuite: allowedApps.length ? [...launchSignalDashboardSuite] : [],
+  };
+}
 
 export async function getExternalTechLaunchApps(email: string) {
   if (isTripledotEmail(email)) return [...techLaunchAppOptions];

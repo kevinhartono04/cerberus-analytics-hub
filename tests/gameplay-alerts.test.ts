@@ -79,6 +79,11 @@ describe("layout-hash gameplay alerts", () => {
     expect(message).not.toContain("layout-hash");
   });
 
+  it("adds a supplied delivery trace to the Slack message", () => {
+    const message = formatGameplayAlertSlackMessage([], new Date("2026-08-04T04:30:00.000Z"), "gameplay-alert-123");
+    expect(message).toContain("Delivery trace: gameplay-alert-123");
+  });
+
   it("uses configured gameplay webhooks without exposing them", () => {
     expect(gameplayAlertWebhookUrls({ SLACK_GAMEPLAY_ALERT_WEBHOOK_URL: " https://hooks.slack.com/services/primary ", SLACK_GAMEPLAY_ALERT_ADDITIONAL_WEBHOOK_URL: "https://hooks.slack.com/services/additional" })).toEqual(["https://hooks.slack.com/services/primary", "https://hooks.slack.com/services/additional"]);
     expect(gameplayAlertCronFilters({ normalThreshold: 0.5, hardThreshold: 0.7, minPlayers: 50, adMetricZScoreThreshold: 3, alertTargets: [{ appName: "stacksmash", platforms: ["android"], appVersion: "" }] }, new Date("2026-07-29T12:00:00.000Z"))).toEqual([expect.objectContaining({ appVersion: allAppVersionsAlertScope })]);
