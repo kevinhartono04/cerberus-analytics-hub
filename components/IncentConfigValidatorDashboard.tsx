@@ -16,7 +16,7 @@ type ReferenceLine = { value: number; label: string; color?: string };
 
 const pendingStorageKey = "tech-launch:incent-config-validator:pending-count-job";
 const sessionStorageKey = "cerberus.incent-config-validator.snapshot.v1";
-const appOptions = ["blockkingdom", "bloomsort", "bubblego", "bubblewordchain", "dotpaint", "hexago", "hexastack", "jelly", "mahjongbloom", "marble", "sizzle", "stacksmash", "treasureshot", "tripletile", "wooblast", "woodoku", "wordblast", "wordoku", "wordrush"] as const;
+const appOptions = ["blockkingdom", "bloomsort", "bubblego", "bubblewordchain", "dotpaint", "hexago", "hexastack", "jelly", "mahjongbloom", "marble", "marbledrop", "sizzle", "stacksmash", "treasureshot", "tripletile", "wooblast", "woodoku", "wordblast", "wordoku", "wordrush"] as const;
 const policy = { firstAdMinLevel: 3, firstAdMaxLevel: 6, minEligibleUsers: 100, densityBaselineHours: 48, densityZScoreThreshold: -3, noAdsPurchaseLimit: 10 } as const;
 const inputClass = "focus-ring h-10 w-full rounded-[8px] border border-line/70 bg-surface-panel px-3 text-sm font-semibold text-slate-300";
 const labelClass = "mb-2 block font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-slate-500";

@@ -8,7 +8,7 @@ import { FunnelDateRangePicker, FunnelFilterDropdown, FunnelLevelRange, FunnelMu
 import { readDashboardSession, sameDashboardFilters, writeDashboardSession } from "@/lib/dashboard-session";
 
 const appOptions = [
-  "blockkingdom", "bloomsort", "bubblego", "bubblewordchain", "dotpaint", "hexago", "hexastack", "jelly", "mahjongbloom", "marble",
+  "blockkingdom", "bloomsort", "bubblego", "bubblewordchain", "dotpaint", "hexago", "hexastack", "jelly", "mahjongbloom", "marble", "marbledrop",
   "sizzle", "stacksmash", "treasureshot", "tripletile", "wooblast", "woodoku", "wordblast", "wordoku", "wordrush",
 ] as const;
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;

@@ -32,6 +32,7 @@ describe("buildSpecCheckSql", () => {
 
   it("maps every app name to its app id", () => {
     expect(specCheckAppIds.bloomsort).toBe(3003);
+    expect(specCheckAppIds.marbledrop).toBe(3007);
     expect(specCheckAppIds.wordblast).toBe(122);
     expect(specCheckAppIds.hexastack).toBe(3008);
     expect(specCheckAppIds.stacksmash).toBe(3011);
@@ -39,6 +40,9 @@ describe("buildSpecCheckSql", () => {
     expect(specCheckAppIds.wordoku).toBe(3013);
     const sql = buildSpecCheckSql({ ...baseFilters, appName: "bloomsort" });
     expect(sql).toContain("3003 as app_id, -- modifiable parameter");
+
+    const marbledropSql = buildSpecCheckSql({ ...baseFilters, appName: "marbledrop" });
+    expect(marbledropSql).toContain("3007 as app_id, -- modifiable parameter");
 
     const stacksmashSql = buildSpecCheckSql({ ...baseFilters, appName: "stacksmash" });
     expect(stacksmashSql).toContain("3011 as app_id, -- modifiable parameter");

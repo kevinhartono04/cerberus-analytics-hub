@@ -50,7 +50,7 @@ import {
 
 const techLaunchApps = [
   "blockkingdom", "bloomsort", "bubblego", "bubblewordchain", "dotpaint", "hexago", "hexastack", "jelly", "mahjongbloom",
-  "marble", "sizzle", "stacksmash", "treasureshot", "tripletile", "wooblast", "woodoku", "wordblast", "wordoku", "wordrush",
+  "marble", "marbledrop", "sizzle", "stacksmash", "treasureshot", "tripletile", "wooblast", "woodoku", "wordblast", "wordoku", "wordrush",
 ] as const;
 
 function defaultPartnerExpiryDate() {

@@ -68,6 +68,7 @@ export const specCheckAppIds: Record<(typeof techLaunchAppOptions)[number], numb
   hexago: 18,
   hexastack: 3008,
   marble: 22,
+  marbledrop: 3007,
   tripletile: 9,
   wooblast: 28,
   woodoku: 4,

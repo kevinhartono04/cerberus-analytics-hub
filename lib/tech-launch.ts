@@ -15,6 +15,7 @@ export const techLaunchAppOptions = [
   "hexago",
   "hexastack",
   "marble",
+  "marbledrop",
   "tripletile",
   "wooblast",
   "woodoku",
@@ -39,6 +40,7 @@ export const techLaunchAppIds: Record<(typeof techLaunchAppOptions)[number], num
   hexago: 18,
   hexastack: 3008,
   marble: 22,
+  marbledrop: 3007,
   tripletile: 9,
   wooblast: 28,
   woodoku: 4,
@@ -242,7 +244,7 @@ with events as (
     ep.app_version,
     ep.created_at::date as event_date
   from (
-      select * from tds_db.raw.ludios_telemetry_events_production where app_id in (3001, 3003, 3004, 3005, 3006, 3008, 3011, 3012, 3013)
+      select * from tds_db.raw.ludios_telemetry_events_production where app_id in (3001, 3003, 3004, 3005, 3006, 3007, 3008, 3011, 3012, 3013)
           union all
       select * from tds_db.raw.telemetry_events_production where app_id in (18,22,117,122)
   ) ep

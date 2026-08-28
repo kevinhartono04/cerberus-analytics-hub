@@ -8,7 +8,7 @@ import { FunnelDateRangePicker, FunnelFilterDropdown, FunnelMultiSelect, FunnelV
 import { readDashboardSession, writeDashboardSession } from "@/lib/dashboard-session";
 import type { GameMonitoringFilters as Filters, GameMonitoringPoint as Point, GameMonitoringRunResponse as RunResponse } from "@/lib/game-monitoring";
 
-const appOptions = ["blockkingdom", "bloomsort", "bubblego", "bubblewordchain", "dotpaint", "hexago", "hexastack", "jelly", "mahjongbloom", "marble", "sizzle", "stacksmash", "treasureshot", "tripletile", "wooblast", "woodoku", "wordblast", "wordoku", "wordrush"] as const;
+const appOptions = ["blockkingdom", "bloomsort", "bubblego", "bubblewordchain", "dotpaint", "hexago", "hexastack", "jelly", "mahjongbloom", "marble", "marbledrop", "sizzle", "stacksmash", "treasureshot", "tripletile", "wooblast", "woodoku", "wordblast", "wordoku", "wordrush"] as const;
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 const pendingStorageKey = "tech-launch:game-monitoring:pending-count-job";
 const sessionStorageKey = "cerberus.game-monitoring.snapshot.v1";
