@@ -147,16 +147,41 @@ async function reportingRequest<T>(path: string, init?: RequestInit): Promise<T>
   throw new Error("Google Play Reporting API failed after retries");
 }
 
+function normalizedVersionLabel(value: string) {
+  return value.trim().toLowerCase().replace(/^version\s+/, "");
+}
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// Play Console display names often include the version code, for example
+// "125 (0.7.0)". Telemetry only knows the app version, so recognise it as a
+// standalone token without allowing a partial match such as 0.7.0 -> 0.7.0.1.
+export function releaseMatchesAppVersion(releaseDisplayName: string | undefined, appVersion: string) {
+  if (!releaseDisplayName) return false;
+  const normalizedRelease = normalizedVersionLabel(releaseDisplayName);
+  const normalizedVersion = normalizedVersionLabel(appVersion);
+  if (!normalizedVersion) return false;
+  if (normalizedRelease === normalizedVersion) return true;
+
+  const versionToken = normalizedVersion.replace(/^v(?=\d)/, "");
+  const expression = new RegExp(
+    `(?:^|[^\\p{L}\\p{N}])v?${escapeRegExp(versionToken)}(?![\\p{L}\\p{N}]|[-.][\\p{L}\\p{N}])`,
+    "iu",
+  );
+  return expression.test(normalizedRelease);
+}
+
 async function resolveVersionCodes(appVersion: string, config: AppMap[string]) {
   const override = config.versionCodeOverrides?.[appVersion];
   if (override?.length) return override;
   const releaseOptions = await reportingRequest<{ tracks?: Array<{ servingReleases?: Array<{ displayName?: string; versionCodes?: string[] }> }> }>(
     `/apps/${encodeURIComponent(config.packageName)}:fetchReleaseFilterOptions`,
   );
-  const normalized = appVersion.trim().toLocaleLowerCase().replace(/^version\s+/, "");
   const matches = (releaseOptions.tracks ?? [])
     .flatMap((track) => track.servingReleases ?? [])
-    .filter((release) => release.displayName?.trim().toLocaleLowerCase().replace(/^version\s+/, "") === normalized)
+    .filter((release) => releaseMatchesAppVersion(release.displayName, appVersion))
     .flatMap((release) => release.versionCodes ?? []);
   return [...new Set(matches)];
 }
