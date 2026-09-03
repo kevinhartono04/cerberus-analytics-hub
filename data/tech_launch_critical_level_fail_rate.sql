@@ -16,6 +16,7 @@ with game_end_events as (
   where ep.app_id = 122 -- modifiable parameter
     and ep.platform in ('android') -- modifiable parameter
     and ep.app_version in ('1.0.0') -- modifiable parameter
+    and 1 = 1 -- test country exclusion parameter
     and ep.created_at >= dateadd(hour, -36, current_timestamp()) -- modifiable parameter
     and ep.created_at < current_timestamp() -- modifiable parameter
     and ep.name = 'Game_End'

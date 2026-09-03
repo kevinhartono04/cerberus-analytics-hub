@@ -56,6 +56,7 @@ export const gameplayAlertSettingsSchema = z.object({
   normalThreshold: z.number().min(0).max(1),
   hardThreshold: z.number().min(0).max(1),
   minPlayers: z.number().int().min(1).max(1_000_000),
+  excludeTestCountries: z.boolean().default(true),
   adMetricZScoreThreshold: z.number().min(0.5).max(5).default(3),
   alertTargets: z.array(gameplayAlertTargetSchema).max(25).default([]),
   updatedAt: z.string().optional(),
@@ -106,6 +107,7 @@ export const gameplayAlertSettingsInputSchema = gameplayAlertSettingsSchema.pick
   normalThreshold: true,
   hardThreshold: true,
   minPlayers: true,
+  excludeTestCountries: true,
   adMetricZScoreThreshold: true,
   alertTargets: true,
 });
@@ -218,6 +220,7 @@ const defaultSettings: GameplayAlertSettings = {
   normalThreshold: 0.5,
   hardThreshold: 0.7,
   minPlayers: 50,
+  excludeTestCountries: true,
   adMetricZScoreThreshold: 3,
   alertTargets: [{ appName: "stacksmash", platforms: ["android", "ios"], appVersion: "" }],
 };
@@ -247,7 +250,26 @@ function replaceRequired(sql: string, pattern: RegExp, replacement: string) {
   return sql.replace(pattern, replacement);
 }
 
-export function buildLevelFailRateSql(filtersInput: unknown, policy: Pick<GameplayAlertSettings, "normalThreshold" | "hardThreshold" | "minPlayers"> = { normalThreshold: 0.4, hardThreshold: 0.7, minPlayers: 100 }) {
+type LevelFunnelAlertPolicy = Pick<GameplayAlertSettings, "normalThreshold" | "hardThreshold" | "minPlayers"> & { excludeTestCountries?: boolean };
+
+const defaultLevelFunnelAlertPolicy: LevelFunnelAlertPolicy = {
+  normalThreshold: 0.4,
+  hardThreshold: 0.7,
+  minPlayers: 100,
+  excludeTestCountries: true,
+};
+
+function applyTestCountryExclusion(sql: string, excludeTestCountries: boolean) {
+  return replaceRequired(
+    sql,
+    /1\s*=\s*1\s*-- test country exclusion parameter/i,
+    excludeTestCountries
+      ? "ep.country_code NOT IN ('ID', 'PH', 'AU') -- test country exclusion parameter"
+      : "1 = 1 -- test country exclusion parameter",
+  );
+}
+
+export function buildLevelFailRateSql(filtersInput: unknown, policy: LevelFunnelAlertPolicy = defaultLevelFunnelAlertPolicy) {
   const filters = normalizedLevelFunnelFilters(filtersInput);
   const appId = techLaunchAppIds[filters.appName];
   const threshold = Math.min(1, Math.max(0, policy.normalThreshold));
@@ -257,6 +279,7 @@ export function buildLevelFailRateSql(filtersInput: unknown, policy: Pick<Gamepl
   sql = replaceRequired(sql, /ep\.app_id\s*=\s*\d+\s*-- modifiable parameter/, `ep.app_id = ${appId} -- modifiable parameter`);
   sql = replaceRequired(sql, /ep\.platform\s+in\s*\([^)]*\)\s*-- modifiable parameter/, `ep.platform in (${sqlList(filters.platforms)}) -- modifiable parameter`);
   sql = replaceRequired(sql, /ep\.app_version\s+in\s*\([^)]*\)\s*-- modifiable parameter/, filters.appVersions.length ? `ep.app_version in (${sqlList(filters.appVersions)}) -- modifiable parameter` : "1 = 1 -- modifiable parameter");
+  sql = applyTestCountryExclusion(sql, policy.excludeTestCountries !== false);
   sql = replaceRequired(
     sql,
     /ep\.created_at\s*>=\s*current_date\(\)\s*-\s*7\s*-- modifiable parameter\s*and\s+ep\.created_at\s*<\s*dateadd\(day,\s*1,\s*current_date\(\)\)\s*-- modifiable parameter/i,
@@ -281,7 +304,7 @@ export function buildLevelFailRateSql(filtersInput: unknown, policy: Pick<Gamepl
  * does not reconcile previous alert state, so it can use the short rolling
  * window without treating an absent historical row as a resolution.
  */
-export function buildDailyLevelFailRateSql(filtersInput: unknown, policy: Pick<GameplayAlertSettings, "normalThreshold" | "hardThreshold" | "minPlayers"> = { normalThreshold: 0.4, hardThreshold: 0.7, minPlayers: 100 }) {
+export function buildDailyLevelFailRateSql(filtersInput: unknown, policy: LevelFunnelAlertPolicy = defaultLevelFunnelAlertPolicy) {
   const filters = normalizedLevelFunnelFilters(filtersInput);
   // Dashboard queries are deliberately bounded to a user-selected range so
   // Count's preview limit cannot hide later levels. Scheduled alert coverage
@@ -301,13 +324,14 @@ export function buildDailyLevelFailRateSql(filtersInput: unknown, policy: Pick<G
 }
 
 /** A short, current-revision query used only by the all-day critical evaluator. */
-export function buildCriticalLevelFailRateSql(filtersInput: unknown) {
+export function buildCriticalLevelFailRateSql(filtersInput: unknown, policy: { excludeTestCountries?: boolean } = defaultLevelFunnelAlertPolicy) {
   const filters = normalizedLevelFunnelFilters(filtersInput);
   const appId = techLaunchAppIds[filters.appName];
   let sql = readCriticalSql();
   sql = replaceRequired(sql, /ep\.app_id\s*=\s*\d+\s*-- modifiable parameter/, `ep.app_id = ${appId} -- modifiable parameter`);
   sql = replaceRequired(sql, /ep\.platform\s+in\s*\([^)]*\)\s*-- modifiable parameter/, `ep.platform in (${sqlList(filters.platforms)}) -- modifiable parameter`);
   sql = replaceRequired(sql, /ep\.app_version\s+in\s*\([^)]*\)\s*-- modifiable parameter/, filters.appVersions.length ? `ep.app_version in (${sqlList(filters.appVersions)}) -- modifiable parameter` : "1 = 1 -- modifiable parameter");
+  sql = applyTestCountryExclusion(sql, policy.excludeTestCountries !== false);
   return sql;
 }
 
@@ -416,6 +440,7 @@ function settingsFromRecord(record: GameplayAlertSettingsRecord | null): Gamepla
     normalThreshold: record.normalThreshold,
     hardThreshold: record.hardThreshold,
     minPlayers: record.minPlayers,
+    excludeTestCountries: record.excludeTestCountries,
     adMetricZScoreThreshold: record.adMetricZScoreThreshold,
     alertTargets: record.alertTargets,
     updatedAt: record.updatedAt,

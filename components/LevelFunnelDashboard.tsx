@@ -38,6 +38,7 @@ type GameplayAlertSettings = {
   normalThreshold: number;
   hardThreshold: number;
   minPlayers: number;
+  excludeTestCountries: boolean;
   adMetricZScoreThreshold?: number;
   alertTargets: GameplayAlertTarget[];
   updatedAt?: string;
@@ -281,10 +282,14 @@ async function responseMessage(response: Response) {
   }
 }
 
-function AlertSettings({ settings, canManage, onSave }: { settings: GameplayAlertSettings; canManage: boolean; onSave: (value: Pick<GameplayAlertSettings, "normalThreshold" | "hardThreshold" | "minPlayers" | "adMetricZScoreThreshold" | "alertTargets">) => Promise<void> }) {
+function AlertSettings({ settings, canManage, onSave }: { settings: GameplayAlertSettings; canManage: boolean; onSave: (value: Pick<GameplayAlertSettings, "normalThreshold" | "hardThreshold" | "minPlayers" | "excludeTestCountries" | "adMetricZScoreThreshold" | "alertTargets">) => Promise<void> }) {
   const [normal, setNormal] = useState(String(Math.round(settings.normalThreshold * 100)));
   const [hard, setHard] = useState(String(Math.round(settings.hardThreshold * 100)));
   const [minimum, setMinimum] = useState(String(settings.minPlayers));
+  // Saved dashboard snapshots from before this setting existed omit the field.
+  // Treat those as the default-on policy, so the checkbox is controlled from
+  // its first render rather than changing from undefined after interaction.
+  const [excludeTestCountries, setExcludeTestCountries] = useState(settings.excludeTestCountries !== false);
   const [adMetricZScore, setAdMetricZScore] = useState(String(settings.adMetricZScoreThreshold ?? 3));
   const [targets, setTargets] = useState<GameplayAlertTarget[]>(settings.alertTargets);
   const [saving, setSaving] = useState(false);
@@ -294,6 +299,7 @@ function AlertSettings({ settings, canManage, onSave }: { settings: GameplayAler
     setNormal(String(Math.round(settings.normalThreshold * 100)));
     setHard(String(Math.round(settings.hardThreshold * 100)));
     setMinimum(String(settings.minPlayers));
+    setExcludeTestCountries(settings.excludeTestCountries !== false);
     setAdMetricZScore(String(settings.adMetricZScoreThreshold ?? 3));
     setTargets(settings.alertTargets);
   }, [settings]);
@@ -322,6 +328,7 @@ function AlertSettings({ settings, canManage, onSave }: { settings: GameplayAler
         <label><span className="font-mono text-[10px] uppercase text-slate-500">Hard %</span><input aria-label="Hard fail threshold" value={hard} onChange={(event) => setHard(event.target.value)} type="number" min="0" max="100" className="mt-1 h-8 w-full rounded border border-line bg-surface-popover px-2 text-slate-200" /></label>
         <label><span className="font-mono text-[10px] uppercase text-slate-500">Min players</span><input aria-label="Minimum players" value={minimum} onChange={(event) => setMinimum(event.target.value)} type="number" min="1" className="mt-1 h-8 w-full rounded border border-line bg-surface-popover px-2 text-slate-200" /></label>
       </div>
+      <label className="mt-3 flex items-start gap-2 rounded border border-line/70 bg-surface-popover p-2.5 text-[11px] text-slate-300"><input aria-label="Exclude Test Countries" type="checkbox" checked={excludeTestCountries} onChange={(event) => setExcludeTestCountries(event.target.checked)} className="mt-0.5" /><span><span className="block font-semibold">Exclude Test Countries</span><span className="mt-0.5 block text-slate-500">Exclude ID, PH, and AU from daily and real-time critical level-funnel alerts.</span></span></label>
       <div className="mt-4 border-t border-line/60 pt-3">
         <div className="flex flex-wrap items-center justify-between gap-2"><div><p className="font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">Slack alert targets</p><p className="mt-1 text-[11px] text-slate-500">Each target is used by both daily and real-time alerts; it can evaluate one version or aggregate all versions for its game and platforms.</p></div><button type="button" onClick={() => setTargets((current) => [...current, { appName: "stacksmash", platforms: ["android", "ios"], appVersion: "" }])} className="rounded border border-line px-2 py-1 font-semibold text-slate-300 hover:bg-sage">Add target</button></div>
         <div className="mt-3 space-y-2">
@@ -335,7 +342,7 @@ function AlertSettings({ settings, canManage, onSave }: { settings: GameplayAler
         </div>
       </div>
       <button type="button" disabled={saving} onClick={() => {
-        const value = { normalThreshold: Number(normal) / 100, hardThreshold: Number(hard) / 100, minPlayers: Number(minimum), adMetricZScoreThreshold: Number(adMetricZScore), alertTargets: targets.map((target) => ({ ...target, appVersion: target.appVersion.trim() })) };
+        const value = { normalThreshold: Number(normal) / 100, hardThreshold: Number(hard) / 100, minPlayers: Number(minimum), excludeTestCountries, adMetricZScoreThreshold: Number(adMetricZScore), alertTargets: targets.map((target) => ({ ...target, appVersion: target.appVersion.trim() })) };
         if (!Number.isFinite(value.normalThreshold) || !Number.isFinite(value.hardThreshold) || !Number.isInteger(value.minPlayers) || !Number.isFinite(value.adMetricZScoreThreshold) || value.adMetricZScoreThreshold < 0.5 || value.adMetricZScoreThreshold > 5) { setMessage("Enter valid thresholds and player count."); return; }
         if (value.alertTargets.some((target) => !target.platforms.length)) { setMessage("Every alert target needs at least one platform."); return; }
         setSaving(true); setMessage("");
@@ -704,7 +711,7 @@ export default function LevelFunnelDashboard() {
     writeFiltersToUrl(filters, false);
   }, [filters, pendingUrlRun]);
 
-  async function saveSettings(value: Pick<GameplayAlertSettings, "normalThreshold" | "hardThreshold" | "minPlayers" | "adMetricZScoreThreshold" | "alertTargets">) {
+  async function saveSettings(value: Pick<GameplayAlertSettings, "normalThreshold" | "hardThreshold" | "minPlayers" | "excludeTestCountries" | "adMetricZScoreThreshold" | "alertTargets">) {
     const response = await fetch("/api/tech-launch/gameplay-alert-settings", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(value) });
     if (!response.ok) throw new Error(await responseMessage(response));
     const settings = (await response.json()) as GameplayAlertSettings;

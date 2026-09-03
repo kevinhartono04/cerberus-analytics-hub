@@ -16,6 +16,7 @@ with game_end_events as (
   where ep.app_id = 122 -- modifiable parameter
     and ep.platform in ('android') -- modifiable parameter
     and ep.app_version in ('1.0.0') -- modifiable parameter
+    and 1 = 1 -- test country exclusion parameter
     and ep.created_at >= current_date() - 7 -- modifiable parameter
     and ep.created_at < dateadd(day, 1, current_date()) -- modifiable parameter
     and try_to_number(ep.payload:level::varchar)::int between 1 and 1000 -- level range parameter

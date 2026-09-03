@@ -19,6 +19,7 @@ function unavailableResult() {
   return {
     status: "unavailable",
     filters,
+    // A pre-toggle saved response does not include this newly introduced field.
     settings: { normalThreshold: 0.5, hardThreshold: 0.7, minPlayers: 50, alertTargets: [] },
     points: [],
     summary: { breachCount: 0, eligibleLevelCount: 0, unavailableReason: "No telemetry" },
@@ -30,7 +31,7 @@ function multiLayoutResult() {
   return {
     status: "completed",
     filters,
-    settings: { normalThreshold: 0.5, hardThreshold: 0.7, minPlayers: 50, alertTargets: [] },
+    settings: { normalThreshold: 0.5, hardThreshold: 0.7, minPlayers: 50, excludeTestCountries: true, alertTargets: [] },
     points: [
       { level: 10, layoutBankId: "bank-a", layoutHash: "hash-a", layoutShare: 1, layoutCoverage: 1, layoutAgeHours: 48, hasRecentActivity: true, layoutStable: true, layoutUpdatePending: false, difficultyTier: "normal", usedDifficultyFallback: false, reachedPlayers: 100, failedPlayers: 20, failRate: 0.2, threshold: 0.5, eligible: true, breached: false },
       { level: 10, layoutBankId: "bank-b", layoutHash: "hash-b", layoutShare: 1, layoutCoverage: 1, layoutAgeHours: 8, hasRecentActivity: true, layoutStable: false, layoutUpdatePending: true, difficultyTier: "normal", usedDifficultyFallback: false, reachedPlayers: 40, failedPlayers: 30, failRate: 0.75, threshold: 0.5, eligible: false, breached: false },
@@ -208,6 +209,7 @@ describe("LevelFunnelDashboard Count polling", () => {
     expect(screen.getByText("Runs every hour across the same Slack targets. A recovered level can alert again if it re-breaches.")).toBeInTheDocument();
     expect(screen.getByText(">70%")).toBeInTheDocument();
     expect(screen.getByText("Last 48h")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Exclude Test Countries" })).toBeChecked();
     expect(screen.getByText(/Each target is used by both daily and real-time alerts/i)).toBeInTheDocument();
   });
 

@@ -192,7 +192,7 @@ async function evaluateDailyTargets(targets: AlertTarget[], existingByKey: Map<s
  * invocation. This gives every target a fresh 36-hour query every hour
  * while retaining a single job record for asynchronous polling.
  */
-async function evaluateCriticalTargets(targets: AlertTarget[], existingByKey: Map<string, GameplayAlertQueryJobRecord>) {
+async function evaluateCriticalTargets(targets: AlertTarget[], existingByKey: Map<string, GameplayAlertQueryJobRecord>, settings: Awaited<ReturnType<typeof getGameplayAlertSettings>>) {
   const result = emptyEvaluationResult();
   await Promise.all(targets.map(async (filters) => {
     const evaluationKey = criticalGameplayAlertEvaluationKey(filters);
@@ -214,7 +214,7 @@ async function evaluateCriticalTargets(targets: AlertTarget[], existingByKey: Ma
         return;
       }
 
-      const submitted = (await submitCountSql(buildCriticalLevelFailRateSql(dailyQueryFilters(filters)), { cacheStrategy: "force" })).query;
+      const submitted = (await submitCountSql(buildCriticalLevelFailRateSql(dailyQueryFilters(filters), settings), { cacheStrategy: "force" })).query;
       result.submittedCount += 1;
       job = { evaluationKey, jobKey: submitted.job_key, filters: JSON.stringify(filters), status: "running", submittedAt: new Date().toISOString() };
       if (submitted.status === "error") {
@@ -307,7 +307,7 @@ export async function GET(request: Request) {
 
   const [daily, critical, adMetrics] = await Promise.all([
     evaluateDailyTargets(targets, existingByKey, settings, shouldRunDaily),
-    evaluateCriticalTargets(targets, existingByKey),
+    evaluateCriticalTargets(targets, existingByKey, settings),
     evaluateAdMetricTargets(targets, existingByKey, settings.adMetricZScoreThreshold, now, shouldSubmitHourlyAdMetrics),
   ]);
   await saveGameplayAlertQueryJobRecords([...daily.jobUpdates, ...critical.jobUpdates, ...adMetrics.jobUpdates]);
@@ -317,7 +317,7 @@ export async function GET(request: Request) {
   const adMetricRetryTransitions = (await Promise.all(targets.map(undeliveredAdMetricAlertTransitions))).flat();
   const [dailyDeliveryTransitions, criticalDeliveryTransitions, adMetricDeliveryTransitions] = await Promise.all([
     attachQueryTraces(uniqueTransitions(daily.transitions), targets, jobFor, gameplayAlertEvaluationKey, (filters) => buildDailyLevelFailRateSql(dailyQueryFilters(filters), settings)),
-    attachQueryTraces(uniqueTransitions([...critical.transitions, ...criticalRetryTransitions]), targets, jobFor, criticalGameplayAlertEvaluationKey, (filters) => buildCriticalLevelFailRateSql(dailyQueryFilters(filters))),
+    attachQueryTraces(uniqueTransitions([...critical.transitions, ...criticalRetryTransitions]), targets, jobFor, criticalGameplayAlertEvaluationKey, (filters) => buildCriticalLevelFailRateSql(dailyQueryFilters(filters), settings)),
     attachQueryTraces(uniqueTransitions([...adMetrics.transitions, ...adMetricRetryTransitions]), targets, jobFor, (filters) => adMetricAlertEvaluationKey(filters, now), (filters, job) => buildAdMetricAlertSql(filters, new Date(job.submittedAt))),
   ]);
 
