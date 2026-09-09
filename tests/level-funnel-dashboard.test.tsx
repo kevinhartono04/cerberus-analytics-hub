@@ -42,9 +42,23 @@ function multiLayoutResult() {
   };
 }
 
+function sharedHashResult() {
+  const result = multiLayoutResult();
+  const basePoint = result.points[0];
+  return {
+    ...result,
+    points: [
+      { ...basePoint, level: 3, levelId: "level-id-a", layoutBankId: "bank-a", layoutHash: "shared-hash" },
+      { ...basePoint, level: 3, levelId: "level-id-b", layoutBankId: "bank-b", layoutHash: "shared-hash" },
+    ],
+    summary: { breachCount: 0, eligibleLevelCount: 2 },
+  };
+}
+
 describe("LevelFunnelDashboard Count polling", () => {
   afterEach(() => {
     cleanup();
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
@@ -284,5 +298,30 @@ describe("LevelFunnelDashboard Count polling", () => {
     fireEvent.click(screen.getByRole("button", { name: "Show 1 inactive" }));
     expect(screen.getByRole("button", { name: "Hide 1 inactive" })).toBeInTheDocument();
     expect([...chart.querySelectorAll("title")].some((title) => title.textContent?.includes("retired-bank"))).toBe(true);
+  });
+
+  it("keeps rows with a shared level and layout hash as distinct chart points", async () => {
+    vi.stubGlobal("ResizeObserver", class {
+      observe() {}
+      disconnect() {}
+    });
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/me") return Promise.resolve(jsonResponse({ authenticated: true, user: { role: "viewer" }, access: { techLaunchApps: ["stacksmash"] } }));
+      if (url === "/api/tech-launch/app-versions") return Promise.resolve(jsonResponse({ versions: [{ appVersion: "0.2.0", sampleCount: 100 }] }));
+      if (url === "/api/tech-launch/level-fail-rate") return Promise.resolve(jsonResponse(sharedHashResult()));
+      return Promise.reject(new Error(`Unexpected request: ${url}`));
+    });
+
+    render(<LevelFunnelDashboard />);
+    fireEvent.click(await screen.findByRole("button", { name: /^run$/i }));
+
+    const chart = await screen.findByRole("img", { name: "Level fail rate layout scatter plot" });
+    const pointCircles = [...chart.querySelectorAll("circle")].filter((circle) => circle.querySelector("title"));
+    expect(pointCircles).toHaveLength(2);
+    expect(new Set(pointCircles.map((circle) => circle.getAttribute("cx"))).size).toBe(2);
+    expect(consoleError.mock.calls.some((call) => call.some((value) => String(value).includes("same key")))).toBe(false);
   });
 });

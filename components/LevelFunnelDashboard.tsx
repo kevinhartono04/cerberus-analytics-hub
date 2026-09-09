@@ -416,7 +416,13 @@ function FailRateChart({ data, loading }: { data: LevelFailRateResponse; loading
     Math.abs(rate - dashboardNormalThreshold) < 0.0001 ? `Normal ${percent(rate)}` : null,
     Math.abs(rate - dashboardHardThreshold) < 0.0001 ? `Hard ${percent(rate)}` : null,
   ].filter(Boolean).join(" · ");
-  const pointKey = (point: LevelFailRatePoint) => `${point.level}-${point.layoutHash ? `hash:${point.layoutHash}` : `bank:${point.layoutBankId}`}-${point.difficultyTier}`;
+  const pointKey = (point: LevelFailRatePoint) => [
+    `level:${point.level}`,
+    `id:${point.levelId ?? "none"}`,
+    `bank:${point.layoutBankId}`,
+    `hash:${point.layoutHash ?? "none"}`,
+    `difficulty:${point.difficultyTier}`,
+  ].join("|");
   const visiblePoints = showInactiveLayouts ? points : points.filter((point) => point.hasRecentActivity);
   const pointsByLevel = visiblePoints.reduce((groups, point) => {
     const group = groups.get(point.level) ?? [];
