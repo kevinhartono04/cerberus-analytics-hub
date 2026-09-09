@@ -1,4 +1,4 @@
-import { integer, pgTable, text } from "drizzle-orm/pg-core";
+import { boolean, doublePrecision, integer, pgTable, text } from "drizzle-orm/pg-core";
 
 export const savedSpecs = pgTable("saved_specs", {
   id: text("id").primaryKey(),
@@ -34,6 +34,10 @@ export const techLaunchReadinessCache = pgTable("tech_launch_readiness_cache", {
 
 export const gameplayAlertSettings = pgTable("gameplay_alert_settings", {
   id: text("id").primaryKey(),
+  dashboardNormalThreshold: doublePrecision("dashboard_normal_threshold").notNull(),
+  dashboardHardThreshold: doublePrecision("dashboard_hard_threshold").notNull(),
+  dashboardMinPlayers: integer("dashboard_min_players").notNull(),
+  dashboardExcludeTestCountries: boolean("dashboard_exclude_test_countries").notNull(),
   normalThreshold: text("normal_threshold").notNull(),
   hardThreshold: text("hard_threshold").notNull(),
   minPlayers: integer("min_players").notNull(),

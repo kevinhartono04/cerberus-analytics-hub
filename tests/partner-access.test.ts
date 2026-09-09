@@ -34,6 +34,7 @@ describe("partner domain access", () => {
         { id: "level-funnel", label: "Level Funnel Check" },
         { id: "game-monitoring", label: "Game Monitoring" },
         { id: "incent-config-validator", label: "Incent Config Validator" },
+        { id: "adjust-events-check", label: "Adjust Events Check" },
       ],
     });
   });

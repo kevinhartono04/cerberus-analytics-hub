@@ -275,6 +275,10 @@ async function ensureGameplayAlertTables() {
       await transaction`
         CREATE TABLE IF NOT EXISTS gameplay_alert_settings (
           id TEXT PRIMARY KEY NOT NULL,
+          dashboard_normal_threshold DOUBLE PRECISION NOT NULL DEFAULT 0.4,
+          dashboard_hard_threshold DOUBLE PRECISION NOT NULL DEFAULT 0.7,
+          dashboard_min_players INTEGER NOT NULL DEFAULT 100,
+          dashboard_exclude_test_countries BOOLEAN NOT NULL DEFAULT FALSE,
           normal_threshold DOUBLE PRECISION NOT NULL,
           hard_threshold DOUBLE PRECISION NOT NULL,
           min_players INTEGER NOT NULL,
@@ -285,6 +289,10 @@ async function ensureGameplayAlertTables() {
           updated_by TEXT NOT NULL
         )
       `;
+      await transaction`ALTER TABLE gameplay_alert_settings ADD COLUMN IF NOT EXISTS dashboard_normal_threshold DOUBLE PRECISION NOT NULL DEFAULT 0.4`;
+      await transaction`ALTER TABLE gameplay_alert_settings ADD COLUMN IF NOT EXISTS dashboard_hard_threshold DOUBLE PRECISION NOT NULL DEFAULT 0.7`;
+      await transaction`ALTER TABLE gameplay_alert_settings ADD COLUMN IF NOT EXISTS dashboard_min_players INTEGER NOT NULL DEFAULT 100`;
+      await transaction`ALTER TABLE gameplay_alert_settings ADD COLUMN IF NOT EXISTS dashboard_exclude_test_countries BOOLEAN NOT NULL DEFAULT FALSE`;
       await transaction`ALTER TABLE gameplay_alert_settings ADD COLUMN IF NOT EXISTS alert_targets TEXT`;
       await transaction`ALTER TABLE gameplay_alert_settings ADD COLUMN IF NOT EXISTS exclude_test_countries BOOLEAN NOT NULL DEFAULT TRUE`;
       await transaction`ALTER TABLE gameplay_alert_settings ALTER COLUMN exclude_test_countries SET DEFAULT TRUE`;
@@ -380,7 +388,12 @@ async function ensureGameplayAlertTables() {
 function ensureSqliteGameplayAlertTables() {
   sqliteExec(`
     CREATE TABLE IF NOT EXISTS gameplay_alert_settings (
-      id TEXT PRIMARY KEY NOT NULL, normal_threshold REAL NOT NULL, hard_threshold REAL NOT NULL,
+      id TEXT PRIMARY KEY NOT NULL,
+      dashboard_normal_threshold REAL NOT NULL DEFAULT 0.4,
+      dashboard_hard_threshold REAL NOT NULL DEFAULT 0.7,
+      dashboard_min_players INTEGER NOT NULL DEFAULT 100,
+      dashboard_exclude_test_countries INTEGER NOT NULL DEFAULT 0,
+      normal_threshold REAL NOT NULL, hard_threshold REAL NOT NULL,
       min_players INTEGER NOT NULL,
       exclude_test_countries INTEGER NOT NULL DEFAULT 1,
       ad_metric_z_score_threshold REAL NOT NULL DEFAULT 3,
@@ -408,6 +421,10 @@ function ensureSqliteGameplayAlertTables() {
       submitted_at TEXT NOT NULL, completed_at TEXT, slack_status_delivered_at TEXT, error TEXT
     );
   `);
+  if (!sqliteColumnExists("gameplay_alert_settings", "dashboard_normal_threshold")) sqliteExec("ALTER TABLE gameplay_alert_settings ADD COLUMN dashboard_normal_threshold REAL NOT NULL DEFAULT 0.4");
+  if (!sqliteColumnExists("gameplay_alert_settings", "dashboard_hard_threshold")) sqliteExec("ALTER TABLE gameplay_alert_settings ADD COLUMN dashboard_hard_threshold REAL NOT NULL DEFAULT 0.7");
+  if (!sqliteColumnExists("gameplay_alert_settings", "dashboard_min_players")) sqliteExec("ALTER TABLE gameplay_alert_settings ADD COLUMN dashboard_min_players INTEGER NOT NULL DEFAULT 100");
+  if (!sqliteColumnExists("gameplay_alert_settings", "dashboard_exclude_test_countries")) sqliteExec("ALTER TABLE gameplay_alert_settings ADD COLUMN dashboard_exclude_test_countries INTEGER NOT NULL DEFAULT 0");
   if (!sqliteColumnExists("gameplay_alert_settings", "alert_targets")) {
     sqliteExec("ALTER TABLE gameplay_alert_settings ADD COLUMN alert_targets TEXT");
     sqliteExec("UPDATE gameplay_alert_settings SET alert_targets = '[{\"appName\":\"stacksmash\",\"platforms\":[\"android\",\"ios\"],\"appVersion\":\"\"}]' WHERE alert_targets IS NULL");
@@ -1264,6 +1281,10 @@ function rowToGameplayAlertSettings(row: Record<string, unknown>): GameplayAlert
     // Invalid historical configuration should not make the dashboard unavailable.
   }
   return {
+    dashboardNormalThreshold: Number(row.dashboard_normal_threshold ?? 0.4),
+    dashboardHardThreshold: Number(row.dashboard_hard_threshold ?? 0.7),
+    dashboardMinPlayers: Number(row.dashboard_min_players ?? 100),
+    dashboardExcludeTestCountries: row.dashboard_exclude_test_countries === true || row.dashboard_exclude_test_countries === 1 || row.dashboard_exclude_test_countries === "1" || row.dashboard_exclude_test_countries === "true",
     normalThreshold: Number(row.normal_threshold), hardThreshold: Number(row.hard_threshold), minPlayers: Number(row.min_players),
     excludeTestCountries: row.exclude_test_countries === undefined || row.exclude_test_countries === null
       ? true
@@ -1373,22 +1394,22 @@ function rowToGameplayAlertQueryJob(row: Record<string, unknown>): GameplayAlert
 export async function getGameplayAlertSettingsRecord(): Promise<GameplayAlertSettingsRecord | null> {
   if (shouldUseLocalSqlite()) {
     ensureSqliteGameplayAlertTables();
-    const [row] = sqliteJsonRows<Record<string, unknown>>(`SELECT normal_threshold, hard_threshold, min_players, exclude_test_countries, ad_metric_z_score_threshold, alert_targets, updated_at, updated_by FROM gameplay_alert_settings WHERE id = 'global' LIMIT 1`);
+    const [row] = sqliteJsonRows<Record<string, unknown>>(`SELECT dashboard_normal_threshold, dashboard_hard_threshold, dashboard_min_players, dashboard_exclude_test_countries, normal_threshold, hard_threshold, min_players, exclude_test_countries, ad_metric_z_score_threshold, alert_targets, updated_at, updated_by FROM gameplay_alert_settings WHERE id = 'global' LIMIT 1`);
     return row ? rowToGameplayAlertSettings(row) : null;
   }
   const sql = await ensureGameplayAlertTables();
-  const [row] = await sql<Record<string, unknown>[]>`SELECT normal_threshold, hard_threshold, min_players, exclude_test_countries, ad_metric_z_score_threshold, alert_targets, updated_at, updated_by FROM gameplay_alert_settings WHERE id = 'global' LIMIT 1`;
+  const [row] = await sql<Record<string, unknown>[]>`SELECT dashboard_normal_threshold, dashboard_hard_threshold, dashboard_min_players, dashboard_exclude_test_countries, normal_threshold, hard_threshold, min_players, exclude_test_countries, ad_metric_z_score_threshold, alert_targets, updated_at, updated_by FROM gameplay_alert_settings WHERE id = 'global' LIMIT 1`;
   return row ? rowToGameplayAlertSettings(row) : null;
 }
 
 export async function saveGameplayAlertSettingsRecord(record: GameplayAlertSettingsRecord) {
   if (shouldUseLocalSqlite()) {
     ensureSqliteGameplayAlertTables();
-    sqliteExec(`INSERT INTO gameplay_alert_settings (id, normal_threshold, hard_threshold, min_players, exclude_test_countries, ad_metric_z_score_threshold, alert_targets, updated_at, updated_by) VALUES ('global', ${record.normalThreshold}, ${record.hardThreshold}, ${record.minPlayers}, ${record.excludeTestCountries ? 1 : 0}, ${record.adMetricZScoreThreshold}, ${sqliteLiteral(JSON.stringify(record.alertTargets))}, ${sqliteLiteral(record.updatedAt)}, ${sqliteLiteral(record.updatedBy)}) ON CONFLICT(id) DO UPDATE SET normal_threshold = excluded.normal_threshold, hard_threshold = excluded.hard_threshold, min_players = excluded.min_players, exclude_test_countries = excluded.exclude_test_countries, ad_metric_z_score_threshold = excluded.ad_metric_z_score_threshold, alert_targets = excluded.alert_targets, updated_at = excluded.updated_at, updated_by = excluded.updated_by`);
+    sqliteExec(`INSERT INTO gameplay_alert_settings (id, dashboard_normal_threshold, dashboard_hard_threshold, dashboard_min_players, dashboard_exclude_test_countries, normal_threshold, hard_threshold, min_players, exclude_test_countries, ad_metric_z_score_threshold, alert_targets, updated_at, updated_by) VALUES ('global', ${record.dashboardNormalThreshold}, ${record.dashboardHardThreshold}, ${record.dashboardMinPlayers}, ${record.dashboardExcludeTestCountries ? 1 : 0}, ${record.normalThreshold}, ${record.hardThreshold}, ${record.minPlayers}, ${record.excludeTestCountries ? 1 : 0}, ${record.adMetricZScoreThreshold}, ${sqliteLiteral(JSON.stringify(record.alertTargets))}, ${sqliteLiteral(record.updatedAt)}, ${sqliteLiteral(record.updatedBy)}) ON CONFLICT(id) DO UPDATE SET dashboard_normal_threshold = excluded.dashboard_normal_threshold, dashboard_hard_threshold = excluded.dashboard_hard_threshold, dashboard_min_players = excluded.dashboard_min_players, dashboard_exclude_test_countries = excluded.dashboard_exclude_test_countries, normal_threshold = excluded.normal_threshold, hard_threshold = excluded.hard_threshold, min_players = excluded.min_players, exclude_test_countries = excluded.exclude_test_countries, ad_metric_z_score_threshold = excluded.ad_metric_z_score_threshold, alert_targets = excluded.alert_targets, updated_at = excluded.updated_at, updated_by = excluded.updated_by`);
     return;
   }
   const sql = await ensureGameplayAlertTables();
-  await sql`INSERT INTO gameplay_alert_settings (id, normal_threshold, hard_threshold, min_players, exclude_test_countries, ad_metric_z_score_threshold, alert_targets, updated_at, updated_by) VALUES ('global', ${record.normalThreshold}, ${record.hardThreshold}, ${record.minPlayers}, ${record.excludeTestCountries}, ${record.adMetricZScoreThreshold}, ${JSON.stringify(record.alertTargets)}, ${record.updatedAt}, ${record.updatedBy}) ON CONFLICT(id) DO UPDATE SET normal_threshold = excluded.normal_threshold, hard_threshold = excluded.hard_threshold, min_players = excluded.min_players, exclude_test_countries = excluded.exclude_test_countries, ad_metric_z_score_threshold = excluded.ad_metric_z_score_threshold, alert_targets = excluded.alert_targets, updated_at = excluded.updated_at, updated_by = excluded.updated_by`;
+  await sql`INSERT INTO gameplay_alert_settings (id, dashboard_normal_threshold, dashboard_hard_threshold, dashboard_min_players, dashboard_exclude_test_countries, normal_threshold, hard_threshold, min_players, exclude_test_countries, ad_metric_z_score_threshold, alert_targets, updated_at, updated_by) VALUES ('global', ${record.dashboardNormalThreshold}, ${record.dashboardHardThreshold}, ${record.dashboardMinPlayers}, ${record.dashboardExcludeTestCountries}, ${record.normalThreshold}, ${record.hardThreshold}, ${record.minPlayers}, ${record.excludeTestCountries}, ${record.adMetricZScoreThreshold}, ${JSON.stringify(record.alertTargets)}, ${record.updatedAt}, ${record.updatedBy}) ON CONFLICT(id) DO UPDATE SET dashboard_normal_threshold = excluded.dashboard_normal_threshold, dashboard_hard_threshold = excluded.dashboard_hard_threshold, dashboard_min_players = excluded.dashboard_min_players, dashboard_exclude_test_countries = excluded.dashboard_exclude_test_countries, normal_threshold = excluded.normal_threshold, hard_threshold = excluded.hard_threshold, min_players = excluded.min_players, exclude_test_countries = excluded.exclude_test_countries, ad_metric_z_score_threshold = excluded.ad_metric_z_score_threshold, alert_targets = excluded.alert_targets, updated_at = excluded.updated_at, updated_by = excluded.updated_by`;
 }
 
 export async function listGameplayAlertQueryJobs(evaluationKeys: string[]): Promise<GameplayAlertQueryJobRecord[]> {

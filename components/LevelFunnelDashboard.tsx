@@ -35,6 +35,10 @@ type AccessResponse = {
 type AppVersionsResponse = { versions: Array<{ appVersion: string; sampleCount: number }> };
 
 type GameplayAlertSettings = {
+  dashboardNormalThreshold: number;
+  dashboardHardThreshold: number;
+  dashboardMinPlayers: number;
+  dashboardExcludeTestCountries: boolean;
   normalThreshold: number;
   hardThreshold: number;
   minPlayers: number;
@@ -282,7 +286,13 @@ async function responseMessage(response: Response) {
   }
 }
 
-function AlertSettings({ settings, canManage, onSave }: { settings: GameplayAlertSettings; canManage: boolean; onSave: (value: Pick<GameplayAlertSettings, "normalThreshold" | "hardThreshold" | "minPlayers" | "excludeTestCountries" | "adMetricZScoreThreshold" | "alertTargets">) => Promise<void> }) {
+type ConfigurableGameplaySettings = Pick<GameplayAlertSettings, "dashboardNormalThreshold" | "dashboardHardThreshold" | "dashboardMinPlayers" | "dashboardExcludeTestCountries" | "normalThreshold" | "hardThreshold" | "minPlayers" | "excludeTestCountries" | "adMetricZScoreThreshold" | "alertTargets">;
+
+function AlertSettings({ settings, canManage, onSave }: { settings: GameplayAlertSettings; canManage: boolean; onSave: (value: Partial<ConfigurableGameplaySettings>) => Promise<void> }) {
+  const [dashboardNormal, setDashboardNormal] = useState(String(Math.round((settings.dashboardNormalThreshold ?? 0.4) * 100)));
+  const [dashboardHard, setDashboardHard] = useState(String(Math.round((settings.dashboardHardThreshold ?? 0.7) * 100)));
+  const [dashboardMinimum, setDashboardMinimum] = useState(String(settings.dashboardMinPlayers ?? 100));
+  const [dashboardExcludeTestCountries, setDashboardExcludeTestCountries] = useState(settings.dashboardExcludeTestCountries === true);
   const [normal, setNormal] = useState(String(Math.round(settings.normalThreshold * 100)));
   const [hard, setHard] = useState(String(Math.round(settings.hardThreshold * 100)));
   const [minimum, setMinimum] = useState(String(settings.minPlayers));
@@ -292,10 +302,15 @@ function AlertSettings({ settings, canManage, onSave }: { settings: GameplayAler
   const [excludeTestCountries, setExcludeTestCountries] = useState(settings.excludeTestCountries !== false);
   const [adMetricZScore, setAdMetricZScore] = useState(String(settings.adMetricZScoreThreshold ?? 3));
   const [targets, setTargets] = useState<GameplayAlertTarget[]>(settings.alertTargets);
-  const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState("");
+  const [savingSection, setSavingSection] = useState<"dashboard" | "alerts" | null>(null);
+  const [dashboardMessage, setDashboardMessage] = useState("");
+  const [alertMessage, setAlertMessage] = useState("");
 
   useEffect(() => {
+    setDashboardNormal(String(Math.round((settings.dashboardNormalThreshold ?? 0.4) * 100)));
+    setDashboardHard(String(Math.round((settings.dashboardHardThreshold ?? 0.7) * 100)));
+    setDashboardMinimum(String(settings.dashboardMinPlayers ?? 100));
+    setDashboardExcludeTestCountries(settings.dashboardExcludeTestCountries === true);
     setNormal(String(Math.round(settings.normalThreshold * 100)));
     setHard(String(Math.round(settings.hardThreshold * 100)));
     setMinimum(String(settings.minPlayers));
@@ -304,10 +319,36 @@ function AlertSettings({ settings, canManage, onSave }: { settings: GameplayAler
     setTargets(settings.alertTargets);
   }, [settings]);
 
+  function saveDashboardSettings() {
+    const value = { dashboardNormalThreshold: Number(dashboardNormal) / 100, dashboardHardThreshold: Number(dashboardHard) / 100, dashboardMinPlayers: Number(dashboardMinimum), dashboardExcludeTestCountries };
+    if (!Number.isFinite(value.dashboardNormalThreshold) || !Number.isFinite(value.dashboardHardThreshold) || !Number.isInteger(value.dashboardMinPlayers)) { setDashboardMessage("Enter valid dashboard thresholds and player count."); return; }
+    setSavingSection("dashboard"); setDashboardMessage("");
+    void onSave(value).then(() => setDashboardMessage("Dashboard settings saved. Run the check again to apply them.")).catch((error) => setDashboardMessage(error instanceof Error ? error.message : "Could not save dashboard settings.")).finally(() => setSavingSection(null));
+  }
+
+  function saveAlertSettings() {
+    const value = { normalThreshold: Number(normal) / 100, hardThreshold: Number(hard) / 100, minPlayers: Number(minimum), excludeTestCountries, adMetricZScoreThreshold: Number(adMetricZScore), alertTargets: targets.map((target) => ({ ...target, appVersion: target.appVersion.trim() })) };
+    if (!Number.isFinite(value.normalThreshold) || !Number.isFinite(value.hardThreshold) || !Number.isInteger(value.minPlayers) || !Number.isFinite(value.adMetricZScoreThreshold) || value.adMetricZScoreThreshold < 0.5 || value.adMetricZScoreThreshold > 5) { setAlertMessage("Enter valid alert thresholds and player count."); return; }
+    if (value.alertTargets.some((target) => !target.platforms.length)) { setAlertMessage("Every alert target needs at least one platform."); return; }
+    setSavingSection("alerts"); setAlertMessage("");
+    void onSave(value).then(() => setAlertMessage("Alert settings saved.")).catch((error) => setAlertMessage(error instanceof Error ? error.message : "Could not save alert settings.")).finally(() => setSavingSection(null));
+  }
+
   if (!canManage) return null;
   return (
     <details className="rounded-[9px] border border-line/70 bg-surface-panel px-3 py-2 text-xs text-slate-400">
-      <summary className="cursor-pointer font-semibold text-slate-300">Alert delivery and thresholds (admin)</summary>
+      <summary className="cursor-pointer font-semibold text-slate-300">Dashboard and alert settings (admin)</summary>
+      <section className="mt-3 rounded-[9px] border border-emerald/30 bg-emerald/5 p-3" aria-label="Dashboard level-funnel configuration">
+        <div><p className="font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-emerald">Dashboard check</p><p className="mt-1 text-[11px] text-slate-400">Applies only to analyst-initiated Run and Refresh queries. It does not change scheduled Slack alerts.</p></div>
+        <div className="mt-3 grid gap-2 sm:grid-cols-3">
+          <label><span className="font-mono text-[10px] uppercase text-slate-500">Normal %</span><input aria-label="Dashboard normal fail threshold" value={dashboardNormal} onChange={(event) => setDashboardNormal(event.target.value)} type="number" min="0" max="100" className="mt-1 h-8 w-full rounded border border-line bg-surface-popover px-2 text-slate-200" /></label>
+          <label><span className="font-mono text-[10px] uppercase text-slate-500">Hard %</span><input aria-label="Dashboard hard fail threshold" value={dashboardHard} onChange={(event) => setDashboardHard(event.target.value)} type="number" min="0" max="100" className="mt-1 h-8 w-full rounded border border-line bg-surface-popover px-2 text-slate-200" /></label>
+          <label><span className="font-mono text-[10px] uppercase text-slate-500">Min players</span><input aria-label="Dashboard minimum players" value={dashboardMinimum} onChange={(event) => setDashboardMinimum(event.target.value)} type="number" min="1" className="mt-1 h-8 w-full rounded border border-line bg-surface-popover px-2 text-slate-200" /></label>
+        </div>
+        <label className="mt-3 flex items-start gap-2 rounded border border-line/70 bg-surface-popover p-2.5 text-[11px] text-slate-300"><input aria-label="Dashboard: Exclude Test Countries" type="checkbox" checked={dashboardExcludeTestCountries} onChange={(event) => setDashboardExcludeTestCountries(event.target.checked)} className="mt-0.5" /><span><span className="block font-semibold">Exclude Test Countries</span><span className="mt-0.5 block text-slate-500">Exclude ID, PH, and AU from interactive dashboard results only.</span></span></label>
+        <button type="button" disabled={savingSection !== null} onClick={saveDashboardSettings} className="mt-3 h-8 rounded bg-emerald px-3 font-semibold text-[#0a111e] disabled:opacity-60">{savingSection === "dashboard" ? "Saving" : "Save dashboard settings"}</button>
+        {dashboardMessage ? <p className="mt-2 text-xs text-amber">{dashboardMessage}</p> : null}
+      </section>
       <section className="mt-3 rounded-[9px] border border-rose/30 bg-rose/5 p-3" aria-label="Real-time critical alert configuration">
         <div className="flex flex-wrap items-start justify-between gap-2"><div><p className="font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-rose">Real-time critical alert</p><p className="mt-1 text-[11px] text-slate-400">Runs every hour across the same Slack targets. A recovered level can alert again if it re-breaches.</p></div><span className="rounded border border-rose/30 bg-rose/10 px-2 py-1 font-mono text-[10px] font-semibold text-rose">ACTIVE POLICY</span></div>
         <div className="mt-3 grid gap-2 sm:grid-cols-4">
@@ -323,12 +364,12 @@ function AlertSettings({ settings, canManage, onSave }: { settings: GameplayAler
         <p className="mt-2 text-[11px] text-slate-500">Alert when z-score is ≤ −{Number(adMetricZScore).toFixed(1) || "3.0"}; default is −3.0.</p>
       </section>
       <div className="mt-3 grid gap-2 sm:grid-cols-4">
-        <p className="sm:col-span-4 text-[11px] text-slate-500">Level Funnel Check uses the Normal % and Min players values below. Run the check again after saving to apply the new policy.</p>
-        <label><span className="font-mono text-[10px] uppercase text-slate-500">Normal %</span><input aria-label="Normal fail threshold" value={normal} onChange={(event) => setNormal(event.target.value)} type="number" min="0" max="100" className="mt-1 h-8 w-full rounded border border-line bg-surface-popover px-2 text-slate-200" /></label>
-        <label><span className="font-mono text-[10px] uppercase text-slate-500">Hard %</span><input aria-label="Hard fail threshold" value={hard} onChange={(event) => setHard(event.target.value)} type="number" min="0" max="100" className="mt-1 h-8 w-full rounded border border-line bg-surface-popover px-2 text-slate-200" /></label>
-        <label><span className="font-mono text-[10px] uppercase text-slate-500">Min players</span><input aria-label="Minimum players" value={minimum} onChange={(event) => setMinimum(event.target.value)} type="number" min="1" className="mt-1 h-8 w-full rounded border border-line bg-surface-popover px-2 text-slate-200" /></label>
+        <p className="sm:col-span-4 font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">Scheduled level-funnel alert</p>
+        <label><span className="font-mono text-[10px] uppercase text-slate-500">Normal %</span><input aria-label="Alert normal fail threshold" value={normal} onChange={(event) => setNormal(event.target.value)} type="number" min="0" max="100" className="mt-1 h-8 w-full rounded border border-line bg-surface-popover px-2 text-slate-200" /></label>
+        <label><span className="font-mono text-[10px] uppercase text-slate-500">Hard %</span><input aria-label="Alert hard fail threshold" value={hard} onChange={(event) => setHard(event.target.value)} type="number" min="0" max="100" className="mt-1 h-8 w-full rounded border border-line bg-surface-popover px-2 text-slate-200" /></label>
+        <label><span className="font-mono text-[10px] uppercase text-slate-500">Min players</span><input aria-label="Alert minimum players" value={minimum} onChange={(event) => setMinimum(event.target.value)} type="number" min="1" className="mt-1 h-8 w-full rounded border border-line bg-surface-popover px-2 text-slate-200" /></label>
       </div>
-      <label className="mt-3 flex items-start gap-2 rounded border border-line/70 bg-surface-popover p-2.5 text-[11px] text-slate-300"><input aria-label="Exclude Test Countries" type="checkbox" checked={excludeTestCountries} onChange={(event) => setExcludeTestCountries(event.target.checked)} className="mt-0.5" /><span><span className="block font-semibold">Exclude Test Countries</span><span className="mt-0.5 block text-slate-500">Exclude ID, PH, and AU from daily and real-time critical level-funnel alerts.</span></span></label>
+      <label className="mt-3 flex items-start gap-2 rounded border border-line/70 bg-surface-popover p-2.5 text-[11px] text-slate-300"><input aria-label="Alert: Exclude Test Countries" type="checkbox" checked={excludeTestCountries} onChange={(event) => setExcludeTestCountries(event.target.checked)} className="mt-0.5" /><span><span className="block font-semibold">Exclude Test Countries</span><span className="mt-0.5 block text-slate-500">Exclude ID, PH, and AU from daily and real-time critical level-funnel alerts.</span></span></label>
       <div className="mt-4 border-t border-line/60 pt-3">
         <div className="flex flex-wrap items-center justify-between gap-2"><div><p className="font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">Slack alert targets</p><p className="mt-1 text-[11px] text-slate-500">Each target is used by both daily and real-time alerts; it can evaluate one version or aggregate all versions for its game and platforms.</p></div><button type="button" onClick={() => setTargets((current) => [...current, { appName: "stacksmash", platforms: ["android", "ios"], appVersion: "" }])} className="rounded border border-line px-2 py-1 font-semibold text-slate-300 hover:bg-sage">Add target</button></div>
         <div className="mt-3 space-y-2">
@@ -341,14 +382,8 @@ function AlertSettings({ settings, canManage, onSave }: { settings: GameplayAler
           {!targets.length ? <p className="rounded border border-dashed border-line/70 px-3 py-2 text-[11px] text-slate-500">No Slack targets configured. The scheduled evaluator will not send alerts.</p> : null}
         </div>
       </div>
-      <button type="button" disabled={saving} onClick={() => {
-        const value = { normalThreshold: Number(normal) / 100, hardThreshold: Number(hard) / 100, minPlayers: Number(minimum), excludeTestCountries, adMetricZScoreThreshold: Number(adMetricZScore), alertTargets: targets.map((target) => ({ ...target, appVersion: target.appVersion.trim() })) };
-        if (!Number.isFinite(value.normalThreshold) || !Number.isFinite(value.hardThreshold) || !Number.isInteger(value.minPlayers) || !Number.isFinite(value.adMetricZScoreThreshold) || value.adMetricZScoreThreshold < 0.5 || value.adMetricZScoreThreshold > 5) { setMessage("Enter valid thresholds and player count."); return; }
-        if (value.alertTargets.some((target) => !target.platforms.length)) { setMessage("Every alert target needs at least one platform."); return; }
-        setSaving(true); setMessage("");
-        void onSave(value).then(() => setMessage("Saved.")).catch((error) => setMessage(error instanceof Error ? error.message : "Could not save settings.")).finally(() => setSaving(false));
-      }} className="mt-4 h-8 rounded bg-cobalt px-3 font-semibold text-white disabled:opacity-60">{saving ? "Saving" : "Save alert configuration"}</button>
-      {message ? <p className="mt-2 text-xs text-amber">{message}</p> : null}
+      <button type="button" disabled={savingSection !== null} onClick={saveAlertSettings} className="mt-4 h-8 rounded bg-cobalt px-3 font-semibold text-white disabled:opacity-60">{savingSection === "alerts" ? "Saving" : "Save alert settings"}</button>
+      {alertMessage ? <p className="mt-2 text-xs text-amber">{alertMessage}</p> : null}
     </details>
   );
 }
@@ -373,11 +408,13 @@ function FailRateChart({ data, loading }: { data: LevelFailRateResponse; loading
   const x = (level: number) => plotStart + (level - xMin) * pixelsPerLevel;
   const y = (rate: number) => 180 - rate * 140;
   const percent = (value: number) => `${Math.round(value * 100)}%`;
-  const referenceRates = Array.from(new Set([0, data.settings.normalThreshold, data.settings.hardThreshold, 1])).sort((first, second) => first - second);
-  const isThreshold = (rate: number) => Math.abs(rate - data.settings.normalThreshold) < 0.0001 || Math.abs(rate - data.settings.hardThreshold) < 0.0001;
+  const dashboardNormalThreshold = data.settings.dashboardNormalThreshold ?? data.settings.normalThreshold;
+  const dashboardHardThreshold = data.settings.dashboardHardThreshold ?? data.settings.hardThreshold;
+  const referenceRates = Array.from(new Set([0, dashboardNormalThreshold, dashboardHardThreshold, 1])).sort((first, second) => first - second);
+  const isThreshold = (rate: number) => Math.abs(rate - dashboardNormalThreshold) < 0.0001 || Math.abs(rate - dashboardHardThreshold) < 0.0001;
   const thresholdLabel = (rate: number) => [
-    Math.abs(rate - data.settings.normalThreshold) < 0.0001 ? `Normal ${percent(rate)}` : null,
-    Math.abs(rate - data.settings.hardThreshold) < 0.0001 ? `Hard ${percent(rate)}` : null,
+    Math.abs(rate - dashboardNormalThreshold) < 0.0001 ? `Normal ${percent(rate)}` : null,
+    Math.abs(rate - dashboardHardThreshold) < 0.0001 ? `Hard ${percent(rate)}` : null,
   ].filter(Boolean).join(" · ");
   const pointKey = (point: LevelFailRatePoint) => `${point.level}-${point.layoutHash ? `hash:${point.layoutHash}` : `bank:${point.layoutBankId}`}-${point.difficultyTier}`;
   const visiblePoints = showInactiveLayouts ? points : points.filter((point) => point.hasRecentActivity);
@@ -452,7 +489,7 @@ function FailRateChart({ data, loading }: { data: LevelFailRateResponse; loading
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line/40 px-[18px] py-2 font-mono text-[10px] text-slate-500"><span>Each dot is a layout revision. Layouts on the same level are shown side-by-side.</span><div className="flex items-center gap-3"><button type="button" onClick={() => setShowInactiveLayouts((current) => !current)} className="focus-ring rounded border border-line/70 px-2 py-1 text-[10px] text-slate-400 hover:border-slate-500 hover:text-slate-200">{showInactiveLayouts ? "Hide" : "Show"} {inactiveLayouts.length} inactive</button><span className="shrink-0">100 levels per view</span></div></div>
         <div ref={chartScrollRef} className="overflow-x-auto overscroll-x-contain px-4 pb-2 pt-5" tabIndex={0} aria-label="Scrollable level fail rate chart">
           <svg viewBox={`0 0 ${chartWidth} 215`} style={{ width: chartWidth, minWidth: chartWidth }} className="h-[230px] max-w-none" role="img" aria-label="Level fail rate layout scatter plot">
-            {referenceRates.map((rate) => <g key={rate}><line x1={plotStart} x2={plotEnd} y1={y(rate)} y2={y(rate)} stroke={isThreshold(rate) ? "#64748b" : "#263247"} strokeDasharray={isThreshold(rate) ? "4 4" : undefined} /><text x="6" y={y(rate) + 4} fill="var(--chart-label)" fontSize="10">{percent(rate)}</text>{isThreshold(rate) ? <text x={plotEnd + 7} y={y(rate) + 4} fill={Math.abs(rate - data.settings.hardThreshold) < 0.0001 ? "#c084fc" : "#94a3b8"} fontSize="10">{thresholdLabel(rate)}</text> : null}</g>)}
+            {referenceRates.map((rate) => <g key={rate}><line x1={plotStart} x2={plotEnd} y1={y(rate)} y2={y(rate)} stroke={isThreshold(rate) ? "#64748b" : "#263247"} strokeDasharray={isThreshold(rate) ? "4 4" : undefined} /><text x="6" y={y(rate) + 4} fill="var(--chart-label)" fontSize="10">{percent(rate)}</text>{isThreshold(rate) ? <text x={plotEnd + 7} y={y(rate) + 4} fill={Math.abs(rate - dashboardHardThreshold) < 0.0001 ? "#c084fc" : "#94a3b8"} fontSize="10">{thresholdLabel(rate)}</text> : null}</g>)}
             {tickLevels.map((level) => <g key={level}><line x1={x(level)} x2={x(level)} y1="184" y2="188" stroke="var(--chart-axis)" /><text x={x(level)} y="204" textAnchor="middle" fill="var(--chart-label)" fontSize="10">{level}</text></g>)}
             {visiblePoints.map((point) => {
               const selected = pointKey(point) === selectedPointKey;
@@ -711,7 +748,7 @@ export default function LevelFunnelDashboard() {
     writeFiltersToUrl(filters, false);
   }, [filters, pendingUrlRun]);
 
-  async function saveSettings(value: Pick<GameplayAlertSettings, "normalThreshold" | "hardThreshold" | "minPlayers" | "excludeTestCountries" | "adMetricZScoreThreshold" | "alertTargets">) {
+  async function saveSettings(value: Partial<ConfigurableGameplaySettings>) {
     const response = await fetch("/api/tech-launch/gameplay-alert-settings", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(value) });
     if (!response.ok) throw new Error(await responseMessage(response));
     const settings = (await response.json()) as GameplayAlertSettings;
@@ -727,7 +764,7 @@ export default function LevelFunnelDashboard() {
   return (
     <CerberusShell currentProduct="tech-launch" activeLaunchSection="level-funnel" collapsed={sidebarCollapsed} onToggleCollapsed={() => setSidebarCollapsed((collapsed) => !collapsed)} contentClassName="max-w-[1320px]">
       <header className="mb-6 flex flex-wrap items-end justify-between gap-4">
-        <div><div className="font-mono text-[11px] font-semibold uppercase tracking-[0.13em] text-cobalt">Launch Readiness · Level Funnel Check</div><h1 className="mt-2 font-display text-3xl font-extrabold tracking-tight text-ink">Level Funnel Check</h1><p className="mt-2 max-w-2xl text-sm text-slate-500">Monitor current layout hashes across releases using the configured Normal fail-rate threshold and minimum-player floor.</p></div>
+        <div><div className="font-mono text-[11px] font-semibold uppercase tracking-[0.13em] text-cobalt">Launch Readiness · Level Funnel Check</div><h1 className="mt-2 font-display text-3xl font-extrabold tracking-tight text-ink">Level Funnel Check</h1><p className="mt-2 max-w-2xl text-sm text-slate-500">Monitor current layout hashes across releases using the independently configured dashboard thresholds.</p></div>
         <div className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-semibold ${alertUnavailable ? "border-amber/30 bg-amber/10 text-amber" : data ? breachCount ? "border-rose/30 bg-rose/10 text-rose" : "border-emerald/30 bg-emerald/10 text-emerald" : "border-line/70 bg-surface-panel text-slate-400"}`}>{alertUnavailable ? <XCircle className="h-4 w-4" /> : data ? breachCount ? <AlertTriangle className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" /> : <XCircle className="h-4 w-4" />}{alertUnavailable ? "Gameplay data unavailable" : data ? `${breachCount} open alert${breachCount === 1 ? "" : "s"}` : "Awaiting a level check"}</div>
       </header>
 
@@ -753,7 +790,7 @@ export default function LevelFunnelDashboard() {
       </form>
 
       {error ? <div className="mb-5 rounded-[10px] border border-rose/30 bg-rose/10 px-4 py-3 text-sm font-semibold text-rose">{error}</div> : null}
-      {data ? <div className="space-y-4"><FailRateChart data={data} loading={loading} />{role === "admin" ? <div className="rounded-2xl border border-line/70 bg-surface-card p-4 shadow-soft"><div className="mb-3 text-sm font-bold text-ink">Alert configuration</div><AlertSettings settings={data.settings} canManage onSave={saveSettings} /></div> : null}<p className="text-right font-mono text-[10px] text-slate-500">Query freshness: {new Date(data.metadata.executedAt).toLocaleString()}</p></div> : !loading && !accessError ? <div className="rounded-2xl border border-dashed border-line/70 bg-surface-card/70 px-6 py-14 text-center text-sm text-slate-500">Select filters, then run the check to view level fail-rate alerts.</div> : null}
+      {data ? <div className="space-y-4"><FailRateChart data={data} loading={loading} />{role === "admin" ? <div className="rounded-2xl border border-line/70 bg-surface-card p-4 shadow-soft"><div className="mb-3 text-sm font-bold text-ink">Dashboard and alert configuration</div><AlertSettings settings={data.settings} canManage onSave={saveSettings} /></div> : null}<p className="text-right font-mono text-[10px] text-slate-500">Query freshness: {new Date(data.metadata.executedAt).toLocaleString()}</p></div> : !loading && !accessError ? <div className="rounded-2xl border border-dashed border-line/70 bg-surface-card/70 px-6 py-14 text-center text-sm text-slate-500">Select filters, then run the check to view level fail-rate alerts.</div> : null}
     </CerberusShell>
   );
 }

@@ -3,13 +3,14 @@ import { describe, expect, it } from "vitest";
 import { allAppVersionsAlertScope, allPlatformsAlertScope, buildCriticalLevelFailRateSql, buildDailyLevelFailRateSql, buildLevelFailRateSql, dailyGameplayAlertFilters, formatGameplayAlertSlackMessage, gameplayAlertCronFilters, gameplayAlertEvaluationKey, gameplayAlertSettingsInputSchema, gameplayAlertTimeZone, gameplayAlertWebhookUrls, parseLevelFailRateRows } from "@/lib/gameplay-alerts";
 
 const filters = { appName: "wordblast", platform: "android", appVersion: "1.0.0", startDate: "2026-07-01", endDate: "2026-07-07" };
-const settings = { normalThreshold: 0.5, hardThreshold: 0.7, minPlayers: 50, excludeTestCountries: true, adMetricZScoreThreshold: 3, alertTargets: [] };
+const settings = { dashboardNormalThreshold: 0.4, dashboardHardThreshold: 0.7, dashboardMinPlayers: 100, dashboardExcludeTestCountries: false, normalThreshold: 0.5, hardThreshold: 0.7, minPlayers: 50, excludeTestCountries: true, adMetricZScoreThreshold: 3, alertTargets: [] };
 
 describe("layout-hash gameplay alerts", () => {
   it("keeps the all-version scheduled scope", () => {
     const configuredSettings = gameplayAlertSettingsInputSchema.parse({ normalThreshold: 0.5, hardThreshold: 0.7, minPlayers: 50, alertTargets: [{ appName: "stacksmash", platforms: ["ios", "android", "android"], appVersion: "0.2.0" }] });
     expect(configuredSettings.alertTargets).toEqual([{ appName: "stacksmash", platforms: ["android", "ios"], appVersion: "0.2.0" }]);
     expect(configuredSettings.excludeTestCountries).toBe(true);
+    expect(configuredSettings.dashboardExcludeTestCountries).toBe(false);
     expect(dailyGameplayAlertFilters(new Date("2026-07-29T12:00:00.000Z"))).toEqual([{ appName: "stacksmash", platform: allPlatformsAlertScope, platforms: ["android", "ios"], appVersion: allAppVersionsAlertScope, appVersions: [], startDate: "2026-07-28", endDate: "2026-07-29" }]);
     expect(gameplayAlertTimeZone).toBe("Australia/Melbourne");
   });
@@ -94,6 +95,6 @@ describe("layout-hash gameplay alerts", () => {
 
   it("uses configured gameplay webhooks without exposing them", () => {
     expect(gameplayAlertWebhookUrls({ SLACK_GAMEPLAY_ALERT_WEBHOOK_URL: " https://hooks.slack.com/services/primary ", SLACK_GAMEPLAY_ALERT_ADDITIONAL_WEBHOOK_URL: "https://hooks.slack.com/services/additional" })).toEqual(["https://hooks.slack.com/services/primary", "https://hooks.slack.com/services/additional"]);
-    expect(gameplayAlertCronFilters({ normalThreshold: 0.5, hardThreshold: 0.7, minPlayers: 50, excludeTestCountries: true, adMetricZScoreThreshold: 3, alertTargets: [{ appName: "stacksmash", platforms: ["android"], appVersion: "" }] }, new Date("2026-07-29T12:00:00.000Z"))).toEqual([expect.objectContaining({ appVersion: allAppVersionsAlertScope })]);
+    expect(gameplayAlertCronFilters({ ...settings, alertTargets: [{ appName: "stacksmash", platforms: ["android"], appVersion: "" }] }, new Date("2026-07-29T12:00:00.000Z"))).toEqual([expect.objectContaining({ appVersion: allAppVersionsAlertScope })]);
   });
 });

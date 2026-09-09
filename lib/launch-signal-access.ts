@@ -3,6 +3,7 @@ export const launchSignalDashboardSuite = [
   { id: "level-funnel", label: "Level Funnel Check" },
   { id: "game-monitoring", label: "Game Monitoring" },
   { id: "incent-config-validator", label: "Incent Config Validator" },
+  { id: "adjust-events-check", label: "Adjust Events Check" },
 ] as const;
 
 export type LaunchSignalDashboardId = (typeof launchSignalDashboardSuite)[number]["id"];

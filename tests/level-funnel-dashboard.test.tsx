@@ -31,7 +31,7 @@ function multiLayoutResult() {
   return {
     status: "completed",
     filters,
-    settings: { normalThreshold: 0.5, hardThreshold: 0.7, minPlayers: 50, excludeTestCountries: true, alertTargets: [] },
+    settings: { dashboardNormalThreshold: 0.4, dashboardHardThreshold: 0.7, dashboardMinPlayers: 100, dashboardExcludeTestCountries: false, normalThreshold: 0.5, hardThreshold: 0.7, minPlayers: 50, excludeTestCountries: true, alertTargets: [] },
     points: [
       { level: 10, layoutBankId: "bank-a", layoutHash: "hash-a", layoutShare: 1, layoutCoverage: 1, layoutAgeHours: 48, hasRecentActivity: true, layoutStable: true, layoutUpdatePending: false, difficultyTier: "normal", usedDifficultyFallback: false, reachedPlayers: 100, failedPlayers: 20, failRate: 0.2, threshold: 0.5, eligible: true, breached: false },
       { level: 10, layoutBankId: "bank-b", layoutHash: "hash-b", layoutShare: 1, layoutCoverage: 1, layoutAgeHours: 8, hasRecentActivity: true, layoutStable: false, layoutUpdatePending: true, difficultyTier: "normal", usedDifficultyFallback: false, reachedPlayers: 40, failedPlayers: 30, failRate: 0.75, threshold: 0.5, eligible: false, breached: false },
@@ -203,14 +203,59 @@ describe("LevelFunnelDashboard Count polling", () => {
 
     render(<LevelFunnelDashboard />);
     fireEvent.click(await screen.findByRole("button", { name: /^run$/i }));
-    fireEvent.click(await screen.findByText("Alert delivery and thresholds (admin)"));
+    fireEvent.click(await screen.findByText("Dashboard and alert settings (admin)"));
 
+    expect(await screen.findByRole("region", { name: "Dashboard level-funnel configuration" })).toBeInTheDocument();
+    expect(screen.getByRole("spinbutton", { name: "Dashboard normal fail threshold" })).toHaveValue(40);
+    expect(screen.getByRole("checkbox", { name: "Dashboard: Exclude Test Countries" })).not.toBeChecked();
     expect(await screen.findByRole("region", { name: "Real-time critical alert configuration" })).toBeInTheDocument();
     expect(screen.getByText("Runs every hour across the same Slack targets. A recovered level can alert again if it re-breaches.")).toBeInTheDocument();
     expect(screen.getByText(">70%")).toBeInTheDocument();
     expect(screen.getByText("Last 48h")).toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: "Exclude Test Countries" })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Alert: Exclude Test Countries" })).toBeChecked();
     expect(screen.getByText(/Each target is used by both daily and real-time alerts/i)).toBeInTheDocument();
+  });
+
+  it("saves dashboard and alert level-funnel policies independently", async () => {
+    vi.stubGlobal("ResizeObserver", class {
+      observe() {}
+      disconnect() {}
+    });
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/me") return Promise.resolve(jsonResponse({ authenticated: true, user: { role: "admin" }, access: { techLaunchApps: ["stacksmash"] } }));
+      if (url === "/api/tech-launch/app-versions") return Promise.resolve(jsonResponse({ versions: [{ appVersion: "0.2.0", sampleCount: 100 }] }));
+      if (url === "/api/tech-launch/level-fail-rate") return Promise.resolve(jsonResponse(multiLayoutResult()));
+      if (url === "/api/tech-launch/gameplay-alert-settings") return Promise.resolve(jsonResponse({ ...multiLayoutResult().settings, ...JSON.parse(String(init?.body)) }));
+      return Promise.reject(new Error(`Unexpected request: ${url}`));
+    });
+
+    render(<LevelFunnelDashboard />);
+    fireEvent.click(await screen.findByRole("button", { name: /^run$/i }));
+    fireEvent.click(await screen.findByText("Dashboard and alert settings (admin)"));
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Dashboard normal fail threshold" }), { target: { value: "35" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save dashboard settings" }));
+
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find(([input]) => String(input) === "/api/tech-launch/gameplay-alert-settings");
+      expect(JSON.parse(String((call?.[1] as RequestInit).body))).toEqual({
+        dashboardNormalThreshold: 0.35,
+        dashboardHardThreshold: 0.7,
+        dashboardMinPlayers: 100,
+        dashboardExcludeTestCountries: false,
+      });
+    });
+    await screen.findByText("Dashboard settings saved. Run the check again to apply them.");
+
+    fetchMock.mockClear();
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Alert normal fail threshold" }), { target: { value: "55" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save alert settings" }));
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find(([input]) => String(input) === "/api/tech-launch/gameplay-alert-settings");
+      expect(JSON.parse(String((call?.[1] as RequestInit).body))).toMatchObject({ normalThreshold: 0.55, excludeTestCountries: true });
+      expect(JSON.parse(String((call?.[1] as RequestInit).body))).not.toHaveProperty("dashboardNormalThreshold");
+    });
   });
 
   it("uses a scatter plot for concurrent layouts and hides inactive layout candidates by default", async () => {

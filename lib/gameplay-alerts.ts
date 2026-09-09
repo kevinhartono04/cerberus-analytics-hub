@@ -53,6 +53,10 @@ export type GameplayAlertCronFilters = GameplayAlertStateScope & {
 };
 
 export const gameplayAlertSettingsSchema = z.object({
+  dashboardNormalThreshold: z.number().min(0).max(1).default(0.4),
+  dashboardHardThreshold: z.number().min(0).max(1).default(0.7),
+  dashboardMinPlayers: z.number().int().min(1).max(1_000_000).default(100),
+  dashboardExcludeTestCountries: z.boolean().default(false),
   normalThreshold: z.number().min(0).max(1),
   hardThreshold: z.number().min(0).max(1),
   minPlayers: z.number().int().min(1).max(1_000_000),
@@ -104,6 +108,10 @@ export function normalizedLevelFunnelFilters(input: unknown): LevelFunnelFilters
 }
 
 export const gameplayAlertSettingsInputSchema = gameplayAlertSettingsSchema.pick({
+  dashboardNormalThreshold: true,
+  dashboardHardThreshold: true,
+  dashboardMinPlayers: true,
+  dashboardExcludeTestCountries: true,
   normalThreshold: true,
   hardThreshold: true,
   minPlayers: true,
@@ -111,6 +119,11 @@ export const gameplayAlertSettingsInputSchema = gameplayAlertSettingsSchema.pick
   adMetricZScoreThreshold: true,
   alertTargets: true,
 });
+
+const gameplayAlertSettingsPatchSchema = gameplayAlertSettingsInputSchema.partial().refine(
+  (settings) => Object.keys(settings).length > 0,
+  "Provide at least one dashboard or alert setting",
+);
 
 export const levelFailRatePointSchema = z.object({
   level: z.number().int().nonnegative(),
@@ -217,6 +230,10 @@ export type GameplayAlertTransition = {
 };
 
 const defaultSettings: GameplayAlertSettings = {
+  dashboardNormalThreshold: 0.4,
+  dashboardHardThreshold: 0.7,
+  dashboardMinPlayers: 100,
+  dashboardExcludeTestCountries: false,
   normalThreshold: 0.5,
   hardThreshold: 0.7,
   minPlayers: 50,
@@ -258,6 +275,15 @@ const defaultLevelFunnelAlertPolicy: LevelFunnelAlertPolicy = {
   minPlayers: 100,
   excludeTestCountries: true,
 };
+
+function dashboardLevelFunnelPolicy(settings: GameplayAlertSettings): LevelFunnelAlertPolicy {
+  return {
+    normalThreshold: settings.dashboardNormalThreshold,
+    hardThreshold: settings.dashboardHardThreshold,
+    minPlayers: settings.dashboardMinPlayers,
+    excludeTestCountries: settings.dashboardExcludeTestCountries,
+  };
+}
 
 function applyTestCountryExclusion(sql: string, excludeTestCountries: boolean) {
   return replaceRequired(
@@ -437,6 +463,10 @@ export function parseCriticalLevelFailRateRows(resultPreview: string | undefined
 function settingsFromRecord(record: GameplayAlertSettingsRecord | null): GameplayAlertSettings {
   if (!record) return defaultSettings;
   return gameplayAlertSettingsSchema.parse({
+    dashboardNormalThreshold: record.dashboardNormalThreshold,
+    dashboardHardThreshold: record.dashboardHardThreshold,
+    dashboardMinPlayers: record.dashboardMinPlayers,
+    dashboardExcludeTestCountries: record.dashboardExcludeTestCountries,
     normalThreshold: record.normalThreshold,
     hardThreshold: record.hardThreshold,
     minPlayers: record.minPlayers,
@@ -453,7 +483,9 @@ export async function getGameplayAlertSettings() {
 }
 
 export async function updateGameplayAlertSettings(input: unknown, actorId: string) {
-  const settings = gameplayAlertSettingsInputSchema.parse(input);
+  const patch = gameplayAlertSettingsPatchSchema.parse(input);
+  const current = await getGameplayAlertSettings();
+  const settings = gameplayAlertSettingsInputSchema.parse({ ...current, ...patch });
   const now = new Date().toISOString();
   await saveGameplayAlertSettingsRecord({ ...settings, updatedAt: now, updatedBy: actorId });
   return { ...settings, updatedAt: now, updatedBy: actorId };
@@ -472,14 +504,19 @@ function isUnavailableTelemetryError(error: unknown) {
   return /public_user_id|invalid identifier|unknown column|does not exist/i.test(message);
 }
 
-async function completedLevelFailRateResponse(query: CountQuery, filters: LevelFunnelFilters, settings: GameplayAlertSettings): Promise<LevelFailRateResponse> {
+async function completedLevelFailRateResponse(
+  query: CountQuery,
+  filters: LevelFunnelFilters,
+  settings: GameplayAlertSettings,
+  policy: LevelFunnelAlertPolicy = settings,
+): Promise<LevelFailRateResponse> {
   if (query.status === "error") {
     const error = new Error(query.error ?? "Count query failed");
     if (isUnavailableTelemetryError(error)) return unavailableLevelFailRateResponse(filters, settings);
     throw error;
   }
   if (query.status !== "completed") throw new Error("Count query is still running");
-  const points = parseLevelFailRateRows(query.result_preview, settings);
+  const points = parseLevelFailRateRows(query.result_preview, { ...settings, ...policy });
   const now = new Date().toISOString();
   return {
     status: "completed",
@@ -500,9 +537,10 @@ async function completedLevelFailRateResponse(query: CountQuery, filters: LevelF
 export async function getLevelFailRate(input: unknown): Promise<LevelFailRateResponse> {
   const filters = normalizedLevelFunnelFilters(input);
   const settings = await getGameplayAlertSettings();
+  const dashboardPolicy = dashboardLevelFunnelPolicy(settings);
   try {
-    const result = await runCountSql(buildLevelFailRateSql(filters, settings), { cacheStrategy: "default", previewRows: 1000 });
-    return completedLevelFailRateResponse(result.query, filters, settings);
+    const result = await runCountSql(buildLevelFailRateSql(filters, dashboardPolicy), { cacheStrategy: "default", previewRows: 1000 });
+    return completedLevelFailRateResponse(result.query, filters, settings, dashboardPolicy);
   } catch (error) {
     if (isUnavailableTelemetryError(error)) return unavailableLevelFailRateResponse(filters, settings);
     throw error;
@@ -513,12 +551,13 @@ export async function startLevelFailRate(input: unknown): Promise<LevelFailRateR
   const request = levelFailRateRequestSchema.parse(input);
   const filters = normalizedLevelFunnelFilters(request);
   const settings = await getGameplayAlertSettings();
+  const dashboardPolicy = dashboardLevelFunnelPolicy(settings);
   try {
-    const submitted = await submitCountSql(buildLevelFailRateSql(filters, settings), { cacheStrategy: request.forceRefresh ? "force" : "default" });
-    if (submitted.query.status === "error") return completedLevelFailRateResponse(submitted.query, filters, settings);
+    const submitted = await submitCountSql(buildLevelFailRateSql(filters, dashboardPolicy), { cacheStrategy: request.forceRefresh ? "force" : "default" });
+    if (submitted.query.status === "error") return completedLevelFailRateResponse(submitted.query, filters, settings, dashboardPolicy);
     if (submitted.query.status === "completed") {
       const completed = await getCountQuery(submitted.query.job_key, 1000);
-      return completedLevelFailRateResponse(completed.query, filters, settings);
+      return completedLevelFailRateResponse(completed.query, filters, settings, dashboardPolicy);
     }
     return {
       status: "running",
@@ -537,6 +576,7 @@ export async function getLevelFailRateStatus(input: unknown): Promise<LevelFailR
   const request = levelFailRateStatusRequestSchema.parse(input);
   const filters = normalizedLevelFunnelFilters(request.filters);
   const settings = await getGameplayAlertSettings();
+  const dashboardPolicy = dashboardLevelFunnelPolicy(settings);
   try {
     const result = await getCountQuery(request.jobKey, 1000);
     if (result.query.status === "running") {
@@ -548,7 +588,7 @@ export async function getLevelFailRateStatus(input: unknown): Promise<LevelFailR
         pollAfterMs: 1500,
       };
     }
-    return completedLevelFailRateResponse(result.query, filters, settings);
+    return completedLevelFailRateResponse(result.query, filters, settings, dashboardPolicy);
   } catch (error) {
     if (isUnavailableTelemetryError(error)) return unavailableLevelFailRateResponse(filters, settings);
     throw error;
@@ -670,7 +710,10 @@ async function reconcileGameplayAlertResponse(filters: GameplayAlertStateScope, 
 
 export async function reconcileGameplayAlerts(filtersInput: unknown) {
   const filters = normalizedTechLaunchFilters(filtersInput);
-  return reconcileGameplayAlertResponse(filters, await getLevelFailRate(filters));
+  const queryFilters = normalizedLevelFunnelFilters(filters);
+  const settings = await getGameplayAlertSettings();
+  const result = await runCountSql(buildLevelFailRateSql(queryFilters, settings), { cacheStrategy: "default", previewRows: 1000 });
+  return reconcileGameplayAlertResponse(filters, await completedLevelFailRateResponse(result.query, queryFilters, settings));
 }
 
 export async function reconcileGameplayAlertsFromQuery(filtersInput: unknown, query: CountQuery, queryFiltersInput: unknown = filtersInput) {

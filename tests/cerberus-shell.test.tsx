@@ -72,4 +72,15 @@ describe("CerberusShell theme switch", () => {
 
     expect(screen.queryByRole("link", { name: "Admin" })).not.toBeInTheDocument();
   });
+
+  it("includes Adjust Events Check in the expanded Launch Signal navigation", () => {
+    render(
+      <CerberusShell currentProduct="tech-launch" activeLaunchSection="adjust-events-check" user={{ authenticated: true, accountType: "internal", role: "viewer" }}>
+        <div>Dashboard content</div>
+      </CerberusShell>,
+    );
+
+    expect(screen.getByRole("link", { name: "Adjust Events Check" })).toHaveAttribute("href", "/tech-launch/adjust-events-check");
+    expect(screen.getByRole("link", { name: "Adjust Events Check" })).toHaveAttribute("aria-current", "page");
+  });
 });
