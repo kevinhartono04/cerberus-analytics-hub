@@ -5,6 +5,7 @@ import {
   evaluateIncentDensityMetric,
   evaluateIncentFirstAd,
   evaluateNoAdsPurchases,
+  evaluateSeasonPassPurchases,
   incentConfigPolicy,
   latestIncentEvaluationHour,
   type DensityPoint,
@@ -44,6 +45,9 @@ describe("Incent Config Validator", () => {
     expect(sql).toContain("'first_ad_hourly' as row_type");
     expect(sql).toContain("having count(distinct user_id) > 100 -- hourly first-ad sample floor");
     expect(sql).toContain("'no_ads_hourly' as row_type");
+    expect(sql).toContain("'season_pass_hourly' as row_type");
+    expect(sql).toContain("try_to_number(ep.payload:argument::varchar)::int as argument_value");
+    expect(sql).toContain("argument_value in (903, 904, 905, 907)");
     expect(sql).toContain("report_hours(event_hour) as (");
     expect(sql).toContain("2026-08-10 00:00:00")
     expect(sql).toContain("2026-08-19 01:00:00")
@@ -63,6 +67,8 @@ describe("Incent Config Validator", () => {
     expect(evaluateIncentFirstAd({ eligibleUsers: 99, medianLevel: 4, observedFirstAds: 99 }).verdict).toBe("insufficient_data");
     expect(evaluateNoAdsPurchases(9)).toBe("pass");
     expect(evaluateNoAdsPurchases(10)).toBe("fail");
+    expect(evaluateSeasonPassPurchases(0)).toBe("pass");
+    expect(evaluateSeasonPassPurchases(1)).toBe("fail");
   });
 
   it("requires a complete eligible baseline and fails at z-score -3", () => {

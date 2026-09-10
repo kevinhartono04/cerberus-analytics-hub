@@ -9,7 +9,7 @@ const evaluationNow = new Date("2026-08-20T01:15:00Z");
 const evaluationHour = "2026-08-20T00:00:00Z";
 
 function hourBefore(value: string, hours: number) { const date = new Date(value); date.setUTCHours(date.getUTCHours() - hours); return date.toISOString().replace(/\.\d{3}Z$/, "Z"); }
-function preview({ firstUsers = 101, firstMedian = 7, eligibleUsers = 100, noAds = 11 }: { firstUsers?: number; firstMedian?: number; eligibleUsers?: number; noAds?: number } = {}) {
+function preview({ firstUsers = 101, firstMedian = 7, eligibleUsers = 100, noAds = 11, seasonPass = 1 }: { firstUsers?: number; firstMedian?: number; eligibleUsers?: number; noAds?: number; seasonPass?: number } = {}) {
   const lines = ["row_type,row_key,event_hour,metric_value,event_count,user_count", `first_interstitial,median_level,${evaluationHour},${firstMedian},${firstUsers},${firstUsers}`];
   for (let index = 0; index <= 48; index += 1) {
     const hour = hourBefore(evaluationHour, 48 - index);
@@ -17,6 +17,7 @@ function preview({ firstUsers = 101, firstMedian = 7, eligibleUsers = 100, noAds
     lines.push(`density,fipg,${hour},${value},150,${eligibleUsers}`, `density,ripg,${hour},${value},150,${eligibleUsers}`);
   }
   lines.push(`no_ads,purchase_events,${evaluationHour},${noAds},${noAds},${eligibleUsers}`);
+  lines.push(`season_pass,purchase_events,${evaluationHour},${seasonPass},${seasonPass},${eligibleUsers}`);
   return lines.join("\n");
 }
 
@@ -36,9 +37,9 @@ describe("Incent Config hourly alerts", () => {
     expect(sql).not.toContain("2026-08-21 00:00:00");
   });
 
-  it("alerts on all four breaches and skips low-volume latest-hour data", () => {
+  it("alerts on all five breaches and skips low-volume latest-hour data", () => {
     const result = alertsFromIncentConfigQuery(configuration, { status: "completed", result_preview: preview() } as CountQuery, evaluationNow);
-    expect(result.alerts.map((alert) => alert.kind).sort()).toEqual(["fipg", "first_interstitial", "no_ads", "ripg"]);
+    expect(result.alerts.map((alert) => alert.kind).sort()).toEqual(["fipg", "first_interstitial", "no_ads", "ripg", "season_pass"]);
     const lowVolume = alertsFromIncentConfigQuery(configuration, { status: "completed", result_preview: preview({ firstUsers: 100, eligibleUsers: 99 }) } as CountQuery, evaluationNow);
     expect(lowVolume.alerts).toEqual([]);
   });

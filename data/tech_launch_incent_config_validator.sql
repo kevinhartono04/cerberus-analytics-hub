@@ -23,7 +23,8 @@ with recursive hours(event_hour) as (
     ep.created_at,
     try_to_number(ep.cohort_day::varchar)::int as cohort_day,
     try_to_number(ep.payload:"level"::varchar)::int as level,
-    lower(coalesce(ep.payload:item_type::varchar, ep.payload:itemtype::varchar)) as item_type
+    lower(coalesce(ep.payload:item_type::varchar, ep.payload:itemtype::varchar)) as item_type,
+    try_to_number(ep.payload:argument::varchar)::int as argument_value
   from public.events_production_ludios_union ep
   join incentivized_users iu on iu.user_id = ep.user_id::varchar
   where ep.app_id = 3011 -- app id parameter
@@ -97,6 +98,20 @@ with recursive hours(event_hour) as (
   from date_range_events
   where event_name = 'store_product_purchase_success'
     and item_type = 'no_ads'
+), season_pass_hourly as (
+  select
+    date_trunc('hour', created_at) as event_hour,
+    count(*) as purchase_events,
+    count(distinct user_id) as purchasers
+  from date_range_events
+  where event_name = 'store_product_purchase_success'
+    and argument_value in (903, 904, 905, 907)
+  group by 1
+), season_pass_summary as (
+  select count(*) as purchase_events, count(distinct user_id) as purchasers
+  from date_range_events
+  where event_name = 'store_product_purchase_success'
+    and argument_value in (903, 904, 905, 907)
 )
 select
   'first_ad_summary' as row_type,
@@ -157,4 +172,24 @@ select
   coalesce(n.purchase_events, 0)::int as event_count,
   coalesce(n.purchasers, 0)::int as user_count
 from report_hours h left join no_ads_hourly n on n.event_hour = h.event_hour
+union all
+select
+  'season_pass_summary' as row_type,
+  'season_pass' as row_key,
+  null::varchar as event_hour,
+  null::int as level,
+  sps.purchase_events::float as metric_value,
+  sps.purchase_events::int as event_count,
+  sps.purchasers::int as user_count
+from season_pass_summary sps
+union all
+select
+  'season_pass_hourly' as row_type,
+  'season_pass' as row_key,
+  to_varchar(h.event_hour, 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as event_hour,
+  null::int as level,
+  coalesce(s.purchase_events, 0)::float as metric_value,
+  coalesce(s.purchase_events, 0)::int as event_count,
+  coalesce(s.purchasers, 0)::int as user_count
+from report_hours h left join season_pass_hourly s on s.event_hour = h.event_hour
 order by row_type, row_key, event_hour, level;

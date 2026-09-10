@@ -17,7 +17,8 @@ with recursive hours(event_hour) as (
     ep.created_at,
     try_to_number(ep.cohort_day::varchar)::int as cohort_day,
     try_to_number(ep.payload:"level"::varchar)::int as level,
-    lower(coalesce(ep.payload:item_type::varchar, ep.payload:itemtype::varchar)) as item_type
+    lower(coalesce(ep.payload:item_type::varchar, ep.payload:itemtype::varchar)) as item_type,
+    try_to_number(ep.payload:argument::varchar)::int as argument_value
   from public.events_production_ludios_union ep
   join incentivized_users iu on iu.user_id = ep.user_id::varchar
   where ep.app_id = 3011 -- app id parameter
@@ -61,6 +62,13 @@ with recursive hours(event_hour) as (
   from scoped_events
   where created_at >= to_timestamp_ntz('2026-08-21 00:00:00') -- evaluation hour parameter
     and created_at < to_timestamp_ntz('2026-08-21 01:00:00') -- evaluation end parameter
+), current_season_pass as (
+  select
+    count_if(event_name = 'store_product_purchase_success' and argument_value in (903, 904, 905, 907)) as purchase_events,
+    count(distinct iff(event_name = 'game_end', user_id, null)) as eligible_users
+  from scoped_events
+  where created_at >= to_timestamp_ntz('2026-08-21 00:00:00') -- evaluation hour parameter
+    and created_at < to_timestamp_ntz('2026-08-21 01:00:00') -- evaluation end parameter
 )
 select
   'first_interstitial' as row_type,
@@ -98,4 +106,13 @@ select
   purchase_events::int as event_count,
   eligible_users::int as user_count
 from current_no_ads
+union all
+select
+  'season_pass' as row_type,
+  'purchase_events' as row_key,
+  to_varchar(to_timestamp_ntz('2026-08-21 00:00:00'), 'YYYY-MM-DD"T"HH24:MI:SS"Z"') as event_hour,
+  purchase_events::float as metric_value,
+  purchase_events::int as event_count,
+  eligible_users::int as user_count
+from current_season_pass
 order by row_type, row_key, event_hour;

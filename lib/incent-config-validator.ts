@@ -24,6 +24,7 @@ export const incentConfigPolicy = {
   densityZScoreThreshold: -3,
   evaluationBufferMinutes: 15,
   noAdsPurchaseLimit: 10,
+  seasonPassPurchaseLimit: 1,
 } as const;
 
 const mediaSourceSchema = z.string().trim().min(1).max(100).regex(/^[a-z0-9_.-]+$/i, "Media sources may contain letters, numbers, dots, underscores, and hyphens").transform((value) => value.toLowerCase());
@@ -48,6 +49,7 @@ export type IncentVerdict = "pass" | "fail" | "insufficient_data";
 export type DensityPoint = { eventHour: string; fipg: number | null; ripg: number | null; completedGames: number; eligibleUsers: number };
 export type FirstAdHourlyPoint = { eventHour: string; medianLevel: number; users: number };
 export type NoAdsHourlyPoint = { eventHour: string; purchaseEvents: number; purchasers: number };
+export type SeasonPassHourlyPoint = { eventHour: string; purchaseEvents: number; purchasers: number };
 
 export type IncentConfigValidatorResult = {
   status: "completed";
@@ -60,6 +62,7 @@ export type IncentConfigValidatorResult = {
     fipg: { verdict: IncentVerdict; currentValue: number | null; baselineMean: number | null; baselineStddev: number | null; zScore: number | null; reason?: string };
     ripg: { verdict: IncentVerdict; currentValue: number | null; baselineMean: number | null; baselineStddev: number | null; zScore: number | null; reason?: string };
     noAds: { verdict: "pass" | "fail"; purchaseEvents: number; purchasers: number; peakHour?: string; hourly: NoAdsHourlyPoint[] };
+    seasonPass: { verdict: "pass" | "fail"; purchaseEvents: number; purchasers: number; peakHour?: string; hourly: SeasonPassHourlyPoint[] };
   };
   densityPoints: DensityPoint[];
   metadata: { executedAt: string; durationMs?: number };
@@ -172,6 +175,10 @@ export function evaluateNoAdsPurchases(purchaseEvents: number) {
   return purchaseEvents >= incentConfigPolicy.noAdsPurchaseLimit ? "fail" as const : "pass" as const;
 }
 
+export function evaluateSeasonPassPurchases(purchaseEvents: number) {
+  return purchaseEvents >= incentConfigPolicy.seasonPassPurchaseLimit ? "fail" as const : "pass" as const;
+}
+
 function completedResponse(query: CountQuery, filters: IncentConfigValidatorFilters, configuration: IncentConfigValidatorSettings, now = new Date()): IncentConfigValidatorResult {
   if (query.status === "error") throw new Error(query.error ?? "Count query failed");
   if (query.status !== "completed") throw new Error("Count query is still running");
@@ -191,7 +198,9 @@ function completedResponse(query: CountQuery, filters: IncentConfigValidatorFilt
   const firstSummary = rows.find((row) => row.rowType === "first_ad_summary");
   const firstAdHourly = rows.filter((row) => row.rowType === "first_ad_hourly" && row.eventHour && row.metricValue != null).map((row) => ({ eventHour: row.eventHour, medianLevel: row.metricValue!, users: row.userCount })).sort((first, second) => first.eventHour.localeCompare(second.eventHour));
   const noAdsHourly = rows.filter((row) => row.rowType === "no_ads_hourly" && row.eventHour).map((row) => ({ eventHour: row.eventHour, purchaseEvents: row.eventCount, purchasers: row.userCount })).sort((first, second) => first.eventHour.localeCompare(second.eventHour));
+  const seasonPassHourly = rows.filter((row) => row.rowType === "season_pass_hourly" && row.eventHour).map((row) => ({ eventHour: row.eventHour, purchaseEvents: row.eventCount, purchasers: row.userCount })).sort((first, second) => first.eventHour.localeCompare(second.eventHour));
   const noAdsPeak = noAdsHourly.reduce<NoAdsHourlyPoint | undefined>((peak, point) => !peak || point.purchaseEvents > peak.purchaseEvents ? point : peak, undefined);
+  const seasonPassPeak = seasonPassHourly.reduce<SeasonPassHourlyPoint | undefined>((peak, point) => !peak || point.purchaseEvents > peak.purchaseEvents ? point : peak, undefined);
   // Use the final generated density point as the source of truth. A Count job
   // can complete after the next 15-minute boundary, so recalculating from
   // `now` here could otherwise evaluate an hour that was not queried.
@@ -203,6 +212,7 @@ function completedResponse(query: CountQuery, filters: IncentConfigValidatorFilt
       fipg: evaluateIncentDensityMetric(densityPoints, "fipg", evaluatedHour),
       ripg: evaluateIncentDensityMetric(densityPoints, "ripg", evaluatedHour),
       noAds: { verdict: evaluateNoAdsPurchases(noAdsPeak?.purchaseEvents ?? 0), purchaseEvents: noAdsPeak?.purchaseEvents ?? 0, purchasers: noAdsPeak?.purchasers ?? 0, ...(noAdsPeak ? { peakHour: noAdsPeak.eventHour } : {}), hourly: noAdsHourly },
+      seasonPass: { verdict: evaluateSeasonPassPurchases(seasonPassPeak?.purchaseEvents ?? 0), purchaseEvents: seasonPassPeak?.purchaseEvents ?? 0, purchasers: seasonPassPeak?.purchasers ?? 0, ...(seasonPassPeak ? { peakHour: seasonPassPeak.eventHour } : {}), hourly: seasonPassHourly },
     },
     densityPoints,
     metadata: { executedAt: new Date().toISOString(), ...(query.result_metadata?.duration ? { durationMs: query.result_metadata.duration } : {}) },

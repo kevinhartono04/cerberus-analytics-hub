@@ -12,14 +12,19 @@ import { techLaunchAppIds } from "@/lib/tech-launch";
 
 const sqlPath = path.join(process.cwd(), "data", "tech_launch_incent_config_alerts.sql");
 
-export type IncentConfigAlertKind = "first_interstitial" | "fipg" | "ripg" | "no_ads";
+export type IncentConfigAlertKind = "first_interstitial" | "fipg" | "ripg" | "no_ads" | "season_pass";
 export type IncentConfigAlert = { kind: IncentConfigAlertKind; appName: string; evaluationHour: string; currentValue: number; sampleUsers: number; baselineMean?: number; zScore?: number; queryTrace?: SlackQueryTrace };
 type RawRow = { rowType: string; rowKey: string; eventHour: string; metricValue: number | null; eventCount: number; userCount: number };
 
 function sqlLiteral(value: string) { return `'${value.replaceAll("'", "''")}'`; }
 function sqlTimestampLiteral(value: string) { return `TO_TIMESTAMP_NTZ(${sqlLiteral(value.replace("T", " ").replace("Z", ""))})`; }
 function hourBefore(value: string, hours: number) { const date = new Date(value); date.setUTCHours(date.getUTCHours() - hours); return date.toISOString().replace(/\.\d{3}Z$/, "Z"); }
-function replaceRequired(sql: string, pattern: RegExp, replacement: string) { if (!pattern.test(sql)) throw new Error("Could not apply Incent Config alert SQL parameter replacement"); return sql.replace(pattern, replacement); }
+function replaceRequired(sql: string, pattern: RegExp, replacement: string) {
+  const globalPattern = pattern.global ? pattern : new RegExp(pattern.source, `${pattern.flags}g`);
+  if (!globalPattern.test(sql)) throw new Error("Could not apply Incent Config alert SQL parameter replacement");
+  globalPattern.lastIndex = 0;
+  return sql.replace(globalPattern, replacement);
+}
 function rowValue(row: Record<string, unknown>, key: string) { return row[key] ?? row[key.toUpperCase()] ?? row[key.toLowerCase()]; }
 function numeric(value: unknown) { const parsed = Number(value); return Number.isFinite(parsed) ? parsed : null; }
 function nonNegativeInteger(value: unknown) { return Math.max(0, Math.round(Number(value) || 0)); }
@@ -84,6 +89,8 @@ export function alertsFromIncentConfigQuery(configuration: IncentConfigValidator
   }
   const noAds = rows.find((row) => row.rowType === "no_ads" && row.eventHour === evaluationHour);
   if (noAds && noAds.userCount >= incentConfigPolicy.minEligibleUsers && noAds.eventCount > incentConfigPolicy.noAdsPurchaseLimit) alerts.push({ kind: "no_ads", appName: configuration.appName, evaluationHour, currentValue: noAds.eventCount, sampleUsers: noAds.userCount });
+  const seasonPass = rows.find((row) => row.rowType === "season_pass" && row.eventHour === evaluationHour);
+  if (seasonPass && seasonPass.userCount >= incentConfigPolicy.minEligibleUsers && seasonPass.eventCount >= incentConfigPolicy.seasonPassPurchaseLimit) alerts.push({ kind: "season_pass", appName: configuration.appName, evaluationHour, currentValue: seasonPass.eventCount, sampleUsers: seasonPass.userCount });
   return { alerts, evaluationHour, density };
 }
 
@@ -91,10 +98,10 @@ export async function listIncentConfigAlertConfigurations() { return (await list
 export async function submitIncentConfigAlertQuery(configuration: IncentConfigValidatorSettingsRecord, now = new Date()) { return (await submitCountSql(buildIncentConfigAlertSql(configuration, now), { cacheStrategy: "force" })).query; }
 export async function getIncentConfigAlertQuery(jobKey: string) { return (await getCountQuery(jobKey, 1000)).query; }
 
-function label(kind: IncentConfigAlertKind) { return kind === "first_interstitial" ? "First interstitial median level" : kind === "no_ads" ? "No-ads purchases" : kind.toUpperCase(); }
+function label(kind: IncentConfigAlertKind) { return kind === "first_interstitial" ? "First interstitial median level" : kind === "no_ads" ? "No-ads purchases" : kind === "season_pass" ? "Season Pass purchases" : kind.toUpperCase(); }
 export function formatIncentConfigAlertSlackMessage(alerts: IncentConfigAlert[], traceId?: string, queryTraces: SlackQueryTrace[] = []) {
   return ["*Incent Config Validator alert*", ...alerts.map((alert) => {
-    const detail = alert.kind === "first_interstitial" ? `${alert.currentValue.toFixed(1)} (threshold > ${incentConfigPolicy.firstAdMaxLevel})` : alert.kind === "no_ads" ? `${alert.currentValue} purchases (threshold > ${incentConfigPolicy.noAdsPurchaseLimit})` : `${alert.currentValue.toFixed(3)} vs ${alert.baselineMean!.toFixed(3)} baseline · z-score ${alert.zScore!.toFixed(2)} (threshold ≤ ${incentConfigPolicy.densityZScoreThreshold})`;
+    const detail = alert.kind === "first_interstitial" ? `${alert.currentValue.toFixed(1)} (threshold > ${incentConfigPolicy.firstAdMaxLevel})` : alert.kind === "no_ads" ? `${alert.currentValue} purchases (threshold > ${incentConfigPolicy.noAdsPurchaseLimit})` : alert.kind === "season_pass" ? `${alert.currentValue} purchases (must remain at 0)` : `${alert.currentValue.toFixed(3)} vs ${alert.baselineMean!.toFixed(3)} baseline · z-score ${alert.zScore!.toFixed(2)} (threshold ≤ ${incentConfigPolicy.densityZScoreThreshold})`;
     return [`*Game:* ${alert.appName}`, `*Hour:* ${alert.evaluationHour}`, `• ${label(alert.kind)}: ${detail} · ${alert.sampleUsers} eligible users`].join("\n");
   }), ...(traceId ? [`_Delivery trace: ${traceId}_`] : []), ...(queryTraces.length ? [`_Query jobs: ${queryTraces.map((trace) => `\`${trace.jobKey}\``).join(", ")}_`] : [])].join("\n\n");
 }
