@@ -18,7 +18,7 @@ with recursive hours(event_hour) as (
     try_to_number(ep.cohort_day::varchar)::int as cohort_day,
     try_to_number(ep.payload:"level"::varchar)::int as level,
     lower(coalesce(ep.payload:item_type::varchar, ep.payload:itemtype::varchar)) as item_type,
-    try_to_number(ep.payload:argument::varchar)::int as argument_value
+    try_to_number(ep.argument_value::varchar)::int as argument_value
   from public.events_production_ludios_union ep
   join incentivized_users iu on iu.user_id = ep.user_id::varchar
   where ep.app_id = 3011 -- app id parameter

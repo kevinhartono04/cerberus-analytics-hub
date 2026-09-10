@@ -90,7 +90,7 @@ export function alertsFromIncentConfigQuery(configuration: IncentConfigValidator
   const noAds = rows.find((row) => row.rowType === "no_ads" && row.eventHour === evaluationHour);
   if (noAds && noAds.userCount >= incentConfigPolicy.minEligibleUsers && noAds.eventCount > incentConfigPolicy.noAdsPurchaseLimit) alerts.push({ kind: "no_ads", appName: configuration.appName, evaluationHour, currentValue: noAds.eventCount, sampleUsers: noAds.userCount });
   const seasonPass = rows.find((row) => row.rowType === "season_pass" && row.eventHour === evaluationHour);
-  if (seasonPass && seasonPass.userCount >= incentConfigPolicy.minEligibleUsers && seasonPass.eventCount >= incentConfigPolicy.seasonPassPurchaseLimit) alerts.push({ kind: "season_pass", appName: configuration.appName, evaluationHour, currentValue: seasonPass.eventCount, sampleUsers: seasonPass.userCount });
+  if (seasonPass && seasonPass.userCount >= incentConfigPolicy.minEligibleUsers && seasonPass.eventCount > incentConfigPolicy.seasonPassPurchaseLimit) alerts.push({ kind: "season_pass", appName: configuration.appName, evaluationHour, currentValue: seasonPass.eventCount, sampleUsers: seasonPass.userCount });
   return { alerts, evaluationHour, density };
 }
 
@@ -101,7 +101,7 @@ export async function getIncentConfigAlertQuery(jobKey: string) { return (await 
 function label(kind: IncentConfigAlertKind) { return kind === "first_interstitial" ? "First interstitial median level" : kind === "no_ads" ? "No-ads purchases" : kind === "season_pass" ? "Season Pass purchases" : kind.toUpperCase(); }
 export function formatIncentConfigAlertSlackMessage(alerts: IncentConfigAlert[], traceId?: string, queryTraces: SlackQueryTrace[] = []) {
   return ["*Incent Config Validator alert*", ...alerts.map((alert) => {
-    const detail = alert.kind === "first_interstitial" ? `${alert.currentValue.toFixed(1)} (threshold > ${incentConfigPolicy.firstAdMaxLevel})` : alert.kind === "no_ads" ? `${alert.currentValue} purchases (threshold > ${incentConfigPolicy.noAdsPurchaseLimit})` : alert.kind === "season_pass" ? `${alert.currentValue} purchases (must remain at 0)` : `${alert.currentValue.toFixed(3)} vs ${alert.baselineMean!.toFixed(3)} baseline · z-score ${alert.zScore!.toFixed(2)} (threshold ≤ ${incentConfigPolicy.densityZScoreThreshold})`;
+    const detail = alert.kind === "first_interstitial" ? `${alert.currentValue.toFixed(1)} (threshold > ${incentConfigPolicy.firstAdMaxLevel})` : alert.kind === "no_ads" ? `${alert.currentValue} purchases (threshold > ${incentConfigPolicy.noAdsPurchaseLimit})` : alert.kind === "season_pass" ? `${alert.currentValue} purchases (threshold > ${incentConfigPolicy.seasonPassPurchaseLimit})` : `${alert.currentValue.toFixed(3)} vs ${alert.baselineMean!.toFixed(3)} baseline · z-score ${alert.zScore!.toFixed(2)} (threshold ≤ ${incentConfigPolicy.densityZScoreThreshold})`;
     return [`*Game:* ${alert.appName}`, `*Hour:* ${alert.evaluationHour}`, `• ${label(alert.kind)}: ${detail} · ${alert.sampleUsers} eligible users`].join("\n");
   }), ...(traceId ? [`_Delivery trace: ${traceId}_`] : []), ...(queryTraces.length ? [`_Query jobs: ${queryTraces.map((trace) => `\`${trace.jobKey}\``).join(", ")}_`] : [])].join("\n\n");
 }

@@ -24,7 +24,7 @@ export const incentConfigPolicy = {
   densityZScoreThreshold: -3,
   evaluationBufferMinutes: 15,
   noAdsPurchaseLimit: 10,
-  seasonPassPurchaseLimit: 1,
+  seasonPassPurchaseLimit: 10,
 } as const;
 
 const mediaSourceSchema = z.string().trim().min(1).max(100).regex(/^[a-z0-9_.-]+$/i, "Media sources may contain letters, numbers, dots, underscores, and hyphens").transform((value) => value.toLowerCase());

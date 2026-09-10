@@ -9,7 +9,7 @@ const evaluationNow = new Date("2026-08-20T01:15:00Z");
 const evaluationHour = "2026-08-20T00:00:00Z";
 
 function hourBefore(value: string, hours: number) { const date = new Date(value); date.setUTCHours(date.getUTCHours() - hours); return date.toISOString().replace(/\.\d{3}Z$/, "Z"); }
-function preview({ firstUsers = 101, firstMedian = 7, eligibleUsers = 100, noAds = 11, seasonPass = 1 }: { firstUsers?: number; firstMedian?: number; eligibleUsers?: number; noAds?: number; seasonPass?: number } = {}) {
+function preview({ firstUsers = 101, firstMedian = 7, eligibleUsers = 100, noAds = 11, seasonPass = 11 }: { firstUsers?: number; firstMedian?: number; eligibleUsers?: number; noAds?: number; seasonPass?: number } = {}) {
   const lines = ["row_type,row_key,event_hour,metric_value,event_count,user_count", `first_interstitial,median_level,${evaluationHour},${firstMedian},${firstUsers},${firstUsers}`];
   for (let index = 0; index <= 48; index += 1) {
     const hour = hourBefore(evaluationHour, 48 - index);
@@ -32,6 +32,8 @@ describe("Incent Config hourly alerts", () => {
   it("builds a query with the configured source and exact 48-hour baseline", () => {
     const sql = buildIncentConfigAlertSql(configuration, evaluationNow);
     expect(sql).toContain("lower(media_source::varchar) in ('freecash_int') -- media sources parameter");
+    expect(sql).toContain("try_to_number(ep.argument_value::varchar)::int as argument_value");
+    expect(sql).toContain("argument_value in (903, 904, 905, 907)");
     expect(sql).toContain("2026-08-18 00:00:00");
     expect(sql).toContain("2026-08-20 01:00:00");
     expect(sql).not.toContain("2026-08-21 00:00:00");
