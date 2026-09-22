@@ -62,6 +62,7 @@ const filters = { appName: "stacksmash", platform: "android", platforms: ["andro
 describe("gameplay alert cron", () => {
   afterEach(() => {
     vi.useRealTimers();
+    vi.unstubAllEnvs();
   });
 
   beforeEach(() => {
@@ -90,6 +91,21 @@ describe("gameplay alert cron", () => {
     mocks.openStates.mockReset().mockResolvedValue([]);
     mocks.undelivered.mockReset().mockResolvedValue([]);
     mocks.deliver.mockReset().mockResolvedValue({ delivered: 0, skipped: 0, configured: true });
+  });
+
+  it("pauses even forced evaluations before database or Count access during recovery", async () => {
+    vi.stubEnv("CEREBRAL_RECOVERY_MODE", "true");
+    const response = await GET(new Request("https://example.com/api/cron/gameplay-alerts?force=1", { headers: { authorization: "Bearer test-secret" } }));
+    expect(await response.json()).toMatchObject({ paused: true });
+    expect(mocks.getSettings).not.toHaveBeenCalled();
+    expect(mocks.submit).not.toHaveBeenCalled();
+    expect(mocks.saveJobs).not.toHaveBeenCalled();
+  });
+
+  it("still requires authorization when recovery is active", async () => {
+    vi.stubEnv("CEREBRAL_RECOVERY_MODE", "true");
+    const response = await GET(new Request("https://example.com/api/cron/gameplay-alerts"));
+    expect(response.status).toBe(401);
   });
 
   it("submits an asynchronous Count job without waiting for completion", async () => {

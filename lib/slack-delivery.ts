@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { isRecoveryMode } from "@/lib/recovery-mode";
 
 export type SlackQueryTrace = {
   jobKey: string;
@@ -35,7 +36,7 @@ export function newSlackDeliveryTraceId(scope: string) {
 /** Sends a payload to each configured Slack webhook without exposing webhook URLs. */
 export async function postSlackWebhookMessage(webhooks: string[], body: string, traceId: string, queries: SlackQueryTrace[] = []): Promise<SlackDeliveryTrace> {
   const attemptedAt = new Date().toISOString();
-  if (!webhooks.length) return { id: traceId, attemptedAt, outcome: "skipped", destinations: [], queries };
+  if (isRecoveryMode() || !webhooks.length) return { id: traceId, attemptedAt, outcome: "skipped", destinations: [], queries };
 
   const destinations = await Promise.all(webhooks.map(async (webhook, index) => {
     const destination = `webhook-${index + 1}`;

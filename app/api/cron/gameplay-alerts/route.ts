@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isRecoveryMode } from "@/lib/recovery-mode";
 
 import { getCountQuery, submitCountSql, type CountQuery } from "@/lib/count-api";
 import { listGameplayAlertQueryJobs, markGameplayAlertQueryJobsSlackStatusDelivered, saveGameplayAlertQueryJobRecords, type GameplayAlertQueryJobRecord } from "@/lib/db";
@@ -291,6 +292,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  if (isRecoveryMode()) return NextResponse.json({ paused: true, reason: "Database recovery: alert settings and delivery history require review" });
   const now = new Date();
   const force = new URL(request.url).searchParams.get("force") === "1";
   const settings = await getGameplayAlertSettings();

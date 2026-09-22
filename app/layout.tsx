@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { isRecoveryMode } from "@/lib/recovery-mode";
 
 import "./globals.css";
 
@@ -23,7 +24,15 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
           }}
         />
       </head>
-      <body>{children}</body>
+      <body>
+        {isRecoveryMode() ? (
+          <aside role="status" className="border-b border-amber-300 bg-amber-50 px-4 py-3 text-center text-sm text-amber-950">
+            <strong>Recovery mode:</strong> Historical specs are temporarily unavailable. New work is saved.
+            {" "}Automated alerts are paused. Dashboard settings use recovery defaults until reviewed by an administrator.
+          </aside>
+        ) : null}
+        {children}
+      </body>
     </html>
   );
 }

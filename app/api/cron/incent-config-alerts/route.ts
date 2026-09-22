@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isRecoveryMode } from "@/lib/recovery-mode";
 
 import { listGameplayAlertQueryJobs, markGameplayAlertQueryJobsSlackStatusDelivered, saveGameplayAlertQueryJobRecords, type GameplayAlertQueryJobRecord } from "@/lib/db";
 import {
@@ -20,6 +21,7 @@ export const runtime = "nodejs";
 export async function GET(request: Request) {
   if (!process.env.CRON_SECRET || request.headers.get("authorization") !== `Bearer ${process.env.CRON_SECRET}`) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  if (isRecoveryMode()) return NextResponse.json({ paused: true, reason: "Database recovery: alert settings and delivery history require review" });
   const now = new Date();
   const configurations = await listIncentConfigAlertConfigurations();
   const currentEvaluationHour = incentConfigAlertEvaluationHour(now);

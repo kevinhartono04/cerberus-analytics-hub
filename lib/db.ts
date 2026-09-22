@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import postgres from "postgres";
+import { supabaseCa } from "@/lib/supabase-ca";
 
 import type {
   AppUser,
@@ -35,6 +36,7 @@ let incentConfigValidatorSettingsTableReady: Promise<void> | null = null;
 
 function getDatabaseUrl() {
   return (
+    process.env.CEREBRAL_DATABASE_URL ||
     process.env.DATABASE_URL ||
     process.env.POSTGRES_URL ||
     process.env.POSTGRES_PRISMA_URL ||
@@ -98,7 +100,14 @@ function getSql() {
   }
 
   if (!sqlClient) {
-    sqlClient = postgres(databaseUrl, { max: 1, prepare: false });
+    const hostname = new URL(databaseUrl).hostname;
+    const isSupabase = hostname.endsWith(".pooler.supabase.com") || hostname.endsWith(".supabase.co");
+    sqlClient = postgres(databaseUrl, {
+      max: 1,
+      prepare: false,
+      connect_timeout: 15,
+      ...(isSupabase ? { ssl: { ca: supabaseCa, rejectUnauthorized: true } } : {}),
+    });
   }
 
   return sqlClient;
