@@ -3,7 +3,16 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { isSlackDeliveryError, postSlackWebhookMessage } from "@/lib/slack-delivery";
 
 describe("Slack delivery traces", () => {
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
+
+  it("does not send webhook requests during recovery", async () => {
+    vi.stubEnv("CEREBRAL_RECOVERY_MODE", "true");
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
+    const trace = await postSlackWebhookMessage(["https://hooks.slack.com/services/secret"], '{}', "recovery");
+    expect(trace.outcome).toBe("skipped");
+    expect(fetch).not.toHaveBeenCalled();
+  });
 
   it("records each destination's accepted status without retaining webhook URLs", async () => {
     const fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });

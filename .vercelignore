@@ -1,0 +1,10 @@
+.git
+.vercel
+.next
+node_modules
+.env*
+data/*.sqlite
+data/*.sqlite-*
+coverage
+test-results
+playwright-report
