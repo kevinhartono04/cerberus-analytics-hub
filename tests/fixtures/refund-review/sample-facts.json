@@ -1,0 +1,326 @@
+{
+  "purchases": [
+    {
+      "kind": "purchase",
+      "id": "purchase-3d0468ff234be4c7",
+      "at": "2026-08-19T14:32:38.680Z",
+      "productId": "905",
+      "transactionId": "sample-transaction-905",
+      "dollarValue": 14.99,
+      "session": "2",
+      "offline": false,
+      "lastInterstitialBefore": "2026-08-19T14:06:10.086Z",
+      "firstInterstitialAfter": "2026-09-02T20:36:45.940Z",
+      "lastActivityBeforeReturn": "2026-09-02T20:36:41.871Z",
+      "activeDaysBeforeReturn": 15,
+      "activityBeforeReturn": 7884,
+      "rewardedBeforeReturn": 1182,
+      "interstitialAfter": 330
+    },
+    {
+      "kind": "purchase",
+      "id": "purchase-9786fee79830ee21",
+      "at": "2026-09-04T17:20:12.949Z",
+      "productId": "910",
+      "transactionId": "sample-transaction-910",
+      "dollarValue": 1.99,
+      "session": "110",
+      "offline": false,
+      "lastInterstitialBefore": "2026-09-04T17:17:34.032Z",
+      "firstInterstitialAfter": "2026-09-04T17:21:00.151Z",
+      "lastActivityBeforeReturn": "2026-09-04T17:20:56.444Z",
+      "activeDaysBeforeReturn": 1,
+      "activityBeforeReturn": 5,
+      "rewardedBeforeReturn": 0,
+      "interstitialAfter": 282
+    }
+  ],
+  "resources": [
+    {
+      "kind": "resource",
+      "purchaseId": "purchase-3d0468ff234be4c7",
+      "item": "coins",
+      "source": "level_win",
+      "direction": "received",
+      "amount": 60,
+      "count": 2,
+      "firstAt": "2026-08-19T14:33:38.203Z",
+      "lastAt": "2026-08-19T14:34:18.987Z"
+    },
+    {
+      "kind": "resource",
+      "purchaseId": "purchase-3d0468ff234be4c7",
+      "item": "powerup_big_ball",
+      "source": "season_pass_reward",
+      "direction": "received",
+      "amount": 2,
+      "count": 1,
+      "firstAt": "2026-08-19T14:33:50.058Z",
+      "lastAt": "2026-08-19T14:33:50.058Z"
+    },
+    {
+      "kind": "resource",
+      "purchaseId": "purchase-3d0468ff234be4c7",
+      "item": "coins",
+      "source": "season_pass_reward",
+      "direction": "received",
+      "amount": 500,
+      "count": 1,
+      "firstAt": "2026-08-19T14:33:54.055Z",
+      "lastAt": "2026-08-19T14:33:54.055Z"
+    },
+    {
+      "kind": "resource",
+      "purchaseId": "purchase-9786fee79830ee21",
+      "item": "coins",
+      "source": "purchase",
+      "direction": "received",
+      "amount": 1000,
+      "count": 1,
+      "firstAt": "2026-09-04T17:20:12.872Z",
+      "lastAt": "2026-09-04T17:20:12.872Z"
+    },
+    {
+      "kind": "resource",
+      "purchaseId": "purchase-9786fee79830ee21",
+      "item": "powerup_rocket",
+      "source": "purchase",
+      "direction": "received",
+      "amount": 1,
+      "count": 1,
+      "firstAt": "2026-09-04T17:20:12.888Z",
+      "lastAt": "2026-09-04T17:20:12.888Z"
+    },
+    {
+      "kind": "resource",
+      "purchaseId": "purchase-9786fee79830ee21",
+      "item": "powerup_triple_shot",
+      "source": "purchase",
+      "direction": "received",
+      "amount": 1,
+      "count": 1,
+      "firstAt": "2026-09-04T17:20:12.894Z",
+      "lastAt": "2026-09-04T17:20:12.894Z"
+    },
+    {
+      "kind": "resource",
+      "purchaseId": "purchase-9786fee79830ee21",
+      "item": "powerup_big_ball",
+      "source": "purchase",
+      "direction": "received",
+      "amount": 1,
+      "count": 1,
+      "firstAt": "2026-09-04T17:20:12.900Z",
+      "lastAt": "2026-09-04T17:20:12.900Z"
+    },
+    {
+      "kind": "resource",
+      "purchaseId": "purchase-9786fee79830ee21",
+      "item": "powerup_machine_gun",
+      "source": "purchase",
+      "direction": "received",
+      "amount": 1,
+      "count": 1,
+      "firstAt": "2026-09-04T17:20:12.906Z",
+      "lastAt": "2026-09-04T17:20:12.906Z"
+    },
+    {
+      "kind": "resource",
+      "purchaseId": "purchase-9786fee79830ee21",
+      "item": "powerup_triple_shot",
+      "source": "none",
+      "direction": "spent",
+      "amount": 3,
+      "count": 3,
+      "firstAt": "2026-09-04T17:20:38.585Z",
+      "lastAt": "2026-09-04T17:22:11.216Z"
+    },
+    {
+      "kind": "resource",
+      "purchaseId": "purchase-9786fee79830ee21",
+      "item": "powerup_rocket",
+      "source": "none",
+      "direction": "spent",
+      "amount": 1,
+      "count": 1,
+      "firstAt": "2026-09-04T17:20:42.343Z",
+      "lastAt": "2026-09-04T17:20:42.343Z"
+    },
+    {
+      "kind": "resource",
+      "purchaseId": "purchase-9786fee79830ee21",
+      "item": "powerup_big_ball",
+      "source": "none",
+      "direction": "spent",
+      "amount": 1,
+      "count": 1,
+      "firstAt": "2026-09-04T17:20:56.091Z",
+      "lastAt": "2026-09-04T17:20:56.091Z"
+    },
+    {
+      "kind": "resource",
+      "purchaseId": "purchase-9786fee79830ee21",
+      "item": "coins",
+      "source": "level_win",
+      "direction": "received",
+      "amount": 20,
+      "count": 1,
+      "firstAt": "2026-09-04T17:20:56.444Z",
+      "lastAt": "2026-09-04T17:20:56.444Z"
+    }
+  ],
+  "daily": [
+    {
+      "kind": "daily",
+      "day": "2026-08-19",
+      "events": 940,
+      "interstitials": 39,
+      "rewarded": 89
+    },
+    {
+      "kind": "daily",
+      "day": "2026-08-20",
+      "events": 1065,
+      "interstitials": 0,
+      "rewarded": 153
+    },
+    {
+      "kind": "daily",
+      "day": "2026-08-21",
+      "events": 642,
+      "interstitials": 0,
+      "rewarded": 100
+    },
+    {
+      "kind": "daily",
+      "day": "2026-08-22",
+      "events": 1103,
+      "interstitials": 0,
+      "rewarded": 125
+    },
+    {
+      "kind": "daily",
+      "day": "2026-08-23",
+      "events": 869,
+      "interstitials": 0,
+      "rewarded": 85
+    },
+    {
+      "kind": "daily",
+      "day": "2026-08-24",
+      "events": 840,
+      "interstitials": 0,
+      "rewarded": 149
+    },
+    {
+      "kind": "daily",
+      "day": "2026-08-25",
+      "events": 423,
+      "interstitials": 0,
+      "rewarded": 53
+    },
+    {
+      "kind": "daily",
+      "day": "2026-08-26",
+      "events": 573,
+      "interstitials": 0,
+      "rewarded": 133
+    },
+    {
+      "kind": "daily",
+      "day": "2026-08-27",
+      "events": 186,
+      "interstitials": 0,
+      "rewarded": 33
+    },
+    {
+      "kind": "daily",
+      "day": "2026-08-28",
+      "events": 266,
+      "interstitials": 0,
+      "rewarded": 41
+    },
+    {
+      "kind": "daily",
+      "day": "2026-08-29",
+      "events": 218,
+      "interstitials": 0,
+      "rewarded": 36
+    },
+    {
+      "kind": "daily",
+      "day": "2026-08-30",
+      "events": 600,
+      "interstitials": 0,
+      "rewarded": 129
+    },
+    {
+      "kind": "daily",
+      "day": "2026-08-31",
+      "events": 31,
+      "interstitials": 0,
+      "rewarded": 8
+    },
+    {
+      "kind": "daily",
+      "day": "2026-09-01",
+      "events": 249,
+      "interstitials": 0,
+      "rewarded": 48
+    },
+    {
+      "kind": "daily",
+      "day": "2026-09-02",
+      "events": 21,
+      "interstitials": 3,
+      "rewarded": 2
+    },
+    {
+      "kind": "daily",
+      "day": "2026-09-03",
+      "events": 156,
+      "interstitials": 36,
+      "rewarded": 27
+    },
+    {
+      "kind": "daily",
+      "day": "2026-09-04",
+      "events": 181,
+      "interstitials": 39,
+      "rewarded": 16
+    },
+    {
+      "kind": "daily",
+      "day": "2026-09-06",
+      "events": 457,
+      "interstitials": 98,
+      "rewarded": 83
+    },
+    {
+      "kind": "daily",
+      "day": "2026-09-07",
+      "events": 295,
+      "interstitials": 56,
+      "rewarded": 56
+    },
+    {
+      "kind": "daily",
+      "day": "2026-09-08",
+      "events": 413,
+      "interstitials": 98,
+      "rewarded": 55
+    }
+  ],
+  "meta": {
+    "kind": "meta",
+    "from": "2026-06-10T23:59:59.999Z",
+    "through": "2026-09-08T23:59:59.999Z",
+    "firstAt": "2026-08-19T12:47:05.760Z",
+    "lastAt": "2026-09-08T21:33:34.642Z",
+    "eventCount": 9528,
+    "users": 1,
+    "invalidRows": 0
+  },
+  "complete": true,
+  "limitations": []
+}

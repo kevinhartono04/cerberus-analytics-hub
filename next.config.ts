@@ -2,6 +2,8 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
+    "/api/cs-assistance": ["./data/refund-review/event-trace.sql"],
+    "/api/cs-assistance/status": ["./data/refund-review/products.csv"],
     "/api/tech-launch/readiness": ["./data/tech_launch_telemetry_metrics.sql"],
     "/api/tech-launch/readiness/status": ["./data/tech_launch_telemetry_metrics.sql"],
     "/api/tech-launch/level-fail-rate": ["./data/tech_launch_level_fail_rate.sql"],
