@@ -112,6 +112,7 @@ export type TechLaunchMetricRow = {
   pctOfSample: number | null;
   pctOfSampleWithTolerance: number | null;
   p50Value: number | null;
+  p20Value?: number | null;
   p80Value: number | null;
   benchmark: number | null;
   numSample: number;
@@ -450,6 +451,7 @@ export function parseTechLaunchRows(resultPreview: string | undefined): TechLaun
       pctOfSample: toNumber(rowValue(row, "pct_of_sample")),
       pctOfSampleWithTolerance: toNumber(rowValue(row, "pct_of_sample_w_tolerance")),
       p50Value: toNumber(rowValue(row, "p50_value")),
+      p20Value: toNumber(rowValue(row, "p20_value")),
       p80Value: toNumber(rowValue(row, "p80_value")),
       benchmark: toNumber(rowValue(row, "benchmark")),
       numSample: toNumber(rowValue(row, "num_sample")) ?? 0,

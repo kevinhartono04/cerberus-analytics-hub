@@ -90,6 +90,7 @@ type MetricRow = {
   pctOfSample: number | null;
   pctOfSampleWithTolerance: number | null;
   p50Value: number | null;
+  p20Value?: number | null;
   p80Value: number | null;
   benchmark: number | null;
   numSample: number;
@@ -553,8 +554,8 @@ function IndividualReadinessTable({ data, label, isLoading, statusText, headerAc
       <div className="relative overflow-x-auto">
         <div className={`transition-opacity ${isLoading ? "opacity-35" : "opacity-100"}`}>
           <table className="min-w-[1180px] w-full text-left text-sm">
-            <thead className="bg-surface-table font-mono text-[11px] font-semibold uppercase tracking-[0.04em] text-slate-500"><tr><th className="px-4 py-3">Metric</th><th className="px-4 py-3">Verdict</th><th className="px-4 py-3">% Within Benchmark*</th><th className="px-4 py-3">Benchmark</th><th className="px-4 py-3">Median</th><th className="px-4 py-3">P80</th><th className="px-4 py-3">Samples</th><th className="px-4 py-3 text-right">% vs Benchmark</th></tr></thead>
-            <tbody className="divide-y divide-line/40">{rows.map((row) => <tr key={row.name} className="hover:bg-surface-hover"><td className="px-4 py-4"><div className="text-sm font-semibold text-ink">{row.metricTitle}</div><div className="mt-1 font-mono text-xs text-slate-500">{row.name}</div></td><td className="px-4 py-4"><span className={`inline-flex items-center gap-2 rounded-md border px-2.5 py-1 text-xs font-semibold ${verdictClasses(row.verdict)}`}>{verdictIcon(row.verdict)}{verdictLabel(row.verdict)}</span></td><td className="px-4 py-4"><div className="min-w-44"><div className={`mb-2 font-mono text-xs ${verdictValueClasses(row.verdict)}`}>{pct(row.pctOfSampleWithTolerance)}</div><Bar value={row.pctOfSampleWithTolerance} tone={verdictBarTone(row.verdict)} /></div></td><td className="px-4 py-4 font-mono text-sm text-slate-300">{compactNumber(row.benchmark)}</td><td className="px-4 py-4 font-mono text-sm text-slate-300">{compactNumber(row.p50Value)}</td><td className="px-4 py-4 font-mono text-sm text-slate-300">{compactNumber(row.p80Value)}</td><td className="px-4 py-4 font-mono text-sm text-slate-400">{new Intl.NumberFormat().format(row.numSample)}</td><td className="px-4 py-4 text-right font-mono text-sm" style={{ color: verdictColor(row.verdict) }}>{benchmarkComparisonPct(row)}</td></tr>)}</tbody>
+            <thead className="bg-surface-table font-mono text-[11px] font-semibold uppercase tracking-[0.04em] text-slate-500"><tr><th className="px-4 py-3">Metric</th><th className="px-4 py-3">Verdict</th><th className="px-4 py-3">% Within Benchmark*</th><th className="px-4 py-3">Benchmark</th><th className="px-4 py-3">Median</th><th className="px-4 py-3">P20 / P80</th><th className="px-4 py-3">Samples</th><th className="px-4 py-3 text-right">% vs Benchmark</th></tr></thead>
+            <tbody className="divide-y divide-line/40">{rows.map((row) => <tr key={row.name} className="hover:bg-surface-hover"><td className="px-4 py-4"><div className="text-sm font-semibold text-ink">{row.metricTitle}</div><div className="mt-1 font-mono text-xs text-slate-500">{row.name}</div></td><td className="px-4 py-4"><span className={`inline-flex items-center gap-2 rounded-md border px-2.5 py-1 text-xs font-semibold ${verdictClasses(row.verdict)}`}>{verdictIcon(row.verdict)}{verdictLabel(row.verdict)}</span></td><td className="px-4 py-4"><div className="min-w-44"><div className={`mb-2 font-mono text-xs ${verdictValueClasses(row.verdict)}`}>{pct(row.pctOfSampleWithTolerance)}</div><Bar value={row.pctOfSampleWithTolerance} tone={verdictBarTone(row.verdict)} /></div></td><td className="px-4 py-4 font-mono text-sm text-slate-300">{compactNumber(row.benchmark)}</td><td className="px-4 py-4 font-mono text-sm text-slate-300">{compactNumber(row.p50Value)}</td><td className="px-4 py-4 font-mono text-sm text-slate-300">{compactNumber(row.higherIsBetter ? row.p20Value ?? null : row.p80Value)}</td><td className="px-4 py-4 font-mono text-sm text-slate-400">{new Intl.NumberFormat().format(row.numSample)}</td><td className="px-4 py-4 text-right font-mono text-sm" style={{ color: verdictColor(row.verdict) }}>{benchmarkComparisonPct(row)}</td></tr>)}</tbody>
           </table>
         </div>
         {isLoading ? <div className="pointer-events-none absolute inset-0 flex min-h-56 items-center justify-center bg-mist/70 backdrop-blur-[1px]"><div className="inline-flex items-center gap-3 rounded-[9px] border border-line/70 bg-surface-popover px-4 py-3 text-sm font-semibold text-slate-200 shadow-soft"><LoadingSpinner className="h-5 w-5 text-cobalt" />{statusText || "Running comparison..."}</div></div> : null}
@@ -1807,7 +1808,7 @@ export default function TechLaunchDashboard() {
                         <ColumnHeader label="Median" description="Middle observed value across samples." />
                       </th>
                       <th className="px-4 py-3">
-                        <ColumnHeader label="P80" description="80th percentile value; 80% of samples are at or below this value." />
+                        <ColumnHeader label="P20 / P80" description="P20 for FPS Average (20% of samples are at or below this value); P80 for other metrics (80% at or below)." />
                       </th>
                       <th className="px-4 py-3">
                         <ColumnHeader label="Samples" description="Number of telemetry samples included for this metric." />
@@ -1845,7 +1846,7 @@ export default function TechLaunchDashboard() {
                         </td>
                         <td className="px-4 py-4 font-mono text-sm text-slate-300">{compactNumber(row.benchmark)}</td>
                         <td className="px-4 py-4 font-mono text-sm text-slate-300">{compactNumber(row.p50Value)}</td>
-                        <td className="px-4 py-4 font-mono text-sm text-slate-300">{compactNumber(row.p80Value)}</td>
+                        <td className="px-4 py-4 font-mono text-sm text-slate-300">{compactNumber(row.higherIsBetter ? row.p20Value ?? null : row.p80Value)}</td>
                         <td className="px-4 py-4">
                           <span
                             className={`font-mono text-sm ${row.numSample < 100 ? "text-amber" : "text-slate-400"}`}

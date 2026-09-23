@@ -61,6 +61,7 @@ with source_events as (
       else avg(case when e.value <= b.benchmark * 1.15 then 1.0 else 0.0 end)
     end as pct_of_sample_w_tolerance,
     median(e.value) as p50_value,
+    percentile_cont(0.2) within group (order by e.value) as p20_value,
     percentile_cont(0.8) within group (order by e.value) as p80_value,
     b.benchmark,
     count(*) as num_sample
@@ -74,6 +75,7 @@ select
   pct_of_sample,
   pct_of_sample_w_tolerance,
   p50_value,
+  p20_value,
   p80_value,
   benchmark,
   num_sample,

@@ -33,6 +33,7 @@ describe("Tech Launch readiness helpers", () => {
   it("calculates launch statistics from raw telemetry events", () => {
     const sql = buildTechLaunchSql(filters);
 
+    expect(sql).toContain("percentile_cont(0.2) within group (order by e.value) as p20_value");
     expect(sql).toContain("percentile_cont(0.8) within group (order by e.value) as p80_value");
     expect(sql).toContain("median(e.value) as p50_value");
     expect(sql).toContain("count(*) as num_sample");
@@ -93,15 +94,17 @@ describe("Tech Launch readiness helpers", () => {
   it("parses Count CSV previews into metric rows", () => {
     const rows = parseTechLaunchRows(
       [
-        "name,metric_title,pct_of_sample,pct_of_sample_w_tolerance,p50_value,p80_value,benchmark,num_sample,verdict",
-        "Telemetry_FPS_Average,FPS Average,0.83,0.91,54,48,50,120,green",
-        "Telemetry_First_Load_Time,First Load Time,0.42,0.61,9900,14200,12000,34,insufficient data",
+        "name,metric_title,pct_of_sample,pct_of_sample_w_tolerance,p50_value,p20_value,p80_value,benchmark,num_sample,verdict",
+        "Telemetry_FPS_Average,FPS Average,0.83,0.91,54,48,59,50,120,green",
+        "Telemetry_First_Load_Time,First Load Time,0.42,0.61,9900,8000,14200,12000,34,insufficient data",
       ].join("\n"),
     );
 
     expect(rows).toHaveLength(2);
     expect(rows[0]).toMatchObject({
       metricTitle: "FPS Average",
+      p20Value: 48,
+      p80Value: 59,
       pctOfSampleWithTolerance: 0.91,
       verdict: "green",
       higherIsBetter: true,
