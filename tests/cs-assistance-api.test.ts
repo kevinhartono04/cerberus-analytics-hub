@@ -1,0 +1,26 @@
+// @vitest-environment node
+import fs from "node:fs";
+import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
+import { POST as start } from "@/app/api/cs-assistance/route";
+import { POST as poll } from "@/app/api/cs-assistance/status/route";
+import { openTicket, sealTicket, checkWindow } from "@/lib/cs-assistance";
+import { observedSchema } from "@/lib/refund-review/observed-model";
+import { observedToTrace } from "@/lib/refund-review/event-trace";
+const mocks = vi.hoisted(() => ({ user: { id: "internal-1", email: "cs@tripledotstudios.com" } as { id: string; email: string } | null, submit: vi.fn(), poll: vi.fn() }));
+vi.mock("@/lib/auth", () => ({ requireCurrentAppUser: async () => { if (!mocks.user) throw new Response("Unauthorized", { status: 401 }); return mocks.user; }, assertInternalAppUser: (user: { email: string }) => { if (!user.email.endsWith("@tripledotstudios.com")) throw new Response("Forbidden", { status: 403 }); } }));
+vi.mock("@/lib/refund-review/live-provider", () => ({ liveProvider: () => ({ submit: mocks.submit, poll: mocks.poll }) }));
+const request = (body: unknown, origin?: string) => new Request("http://localhost/api/cs-assistance", { method: "POST", headers: origin ? { origin } : {}, body: JSON.stringify(body) });
+const idfv = "00000000000000000000000000000001";
+beforeEach(() => { mocks.user = { id: "internal-1", email: "cs@tripledotstudios.com" }; mocks.submit.mockResolvedValue("private-query-id"); mocks.poll.mockResolvedValue({ status: "pending" }); for (const key of ["COUNT_API_KEY", "COUNT_PROJECT_KEY", "COUNT_CONNECTION_KEY", "AUTH_SECRET"]) vi.stubEnv(key, "test-secret"); });
+afterEach(() => { vi.clearAllMocks(); vi.unstubAllEnvs(); });
+describe("CS Assistance authenticated live flow", () => {
+ it("rejects anonymous and external users before querying", async () => { mocks.user = null; expect((await start(request({ idfv }))).status).toBe(401); mocks.user = { id: "outside", email: "person@example.com" }; expect((await start(request({ idfv }))).status).toBe(403); expect(mocks.submit).not.toHaveBeenCalled(); });
+ it("rejects cross-origin requests and malformed identifiers/dates", async () => { expect((await start(request({ idfv }, "https://other.example"))).status).toBe(403); expect((await start(request({ idfv: "bad" }))).status).toBe(400); expect((await start(request({ idfv, asOf: "2026-02-30" }))).status).toBe(400); expect(mocks.submit).not.toHaveBeenCalled(); });
+ it("accepts matching browser Host behind a local proxy", async () => { const r = new Request("http://localhost/api/cs-assistance", { method: "POST", headers: { host: "127.0.0.1:3101", origin: "http://127.0.0.1:3101" }, body: JSON.stringify({ idfv }) }); expect((await start(r)).status).toBe(200); });
+ it("normalizes input, uses a fixed window, and returns a private user-bound token", async () => { const response = await start(request({ idfv: "00000000-0000-0000-0000-000000000001", asOf: "2026-09-08" })); const body = await response.json(); expect(body.status).toBe("pending"); expect(response.headers.get("cache-control")).toBe("no-store"); expect(body.token).not.toContain("private-query-id"); expect(mocks.submit.mock.calls[0][0]).toMatchObject({ idfv, through: "2026-09-08T23:59:59.999Z" }); expect(openTicket(body.token, "internal-1").queryId).toBe("private-query-id"); expect(() => openTicket(body.token, "other")).toThrow("access"); });
+ it("rejects modified and expired query tokens", () => { const token = sealTicket({ owner: "a", queryId: "private", createdAt: 0, expiresAt: 100 }); expect(() => openTicket(token, "a", 101)).toThrow("timed out"); expect(() => openTicket("broken" + token, "a", 50)).toThrow("invalid"); });
+ it("polls the live provider and returns the same bot wording plus evidence", async () => { const started = await (await start(request({ idfv }))).json(); expect((await (await poll(request({ token: started.token }))).json()).status).toBe("pending"); const observed = observedSchema.parse(JSON.parse(fs.readFileSync("tests/fixtures/refund-review/sample-facts.json", "utf8"))); mocks.poll.mockResolvedValue({ status: "complete", trace: observedToTrace(observed) }); const result = await (await poll(request({ token: started.token }))).json(); expect(result.status).toBe("completed"); expect(result.assessment.findings[0].verdict).toBe("Recommend not eligible"); expect(result.botSections.join(" ")).toContain("(inferred)"); expect(result.botSections.join(" ")).not.toContain("DEMO"); });
+ it("does not expose provider errors, SQL or credentials", async () => { mocks.submit.mockRejectedValue(new Error("SELECT secret FROM warehouse")); const response = await start(request({ idfv })); expect(response.status).toBe(502); expect(await response.text()).not.toContain("secret"); });
+ it("requires a stable session secret before submitting a query", async () => { vi.stubEnv("AUTH_SECRET", ""); expect((await start(request({ idfv }))).status).toBe(503); expect(mocks.submit).not.toHaveBeenCalled(); });
+ it("provides a configuration error and caps today's ticket cutoff at now", async () => { vi.stubEnv("COUNT_API_KEY", ""); expect((await start(request({ idfv }))).status).toBe(503); const now = Date.parse("2026-09-08T12:00:00Z"); expect(checkWindow("2026-09-08", now).through).toBe("2026-09-08T12:00:00.000Z"); });
+});

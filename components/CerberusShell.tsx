@@ -6,6 +6,7 @@ import {
   ChevronDown,
   ClipboardCheck,
   Gauge,
+  Headphones,
   LogIn,
   LogOut,
   Moon,
@@ -18,7 +19,7 @@ import {
 import Image from "next/image";
 import React, { CSSProperties, ReactNode, useEffect, useState } from "react";
 
-export type HubProductId = "spec-generator" | "tech-launch" | "spec-check" | "admin";
+export type HubProductId = "spec-generator" | "tech-launch" | "spec-check" | "cs-assistance" | "admin";
 type Theme = "dark" | "light";
 
 function readStoredTheme(): Theme {
@@ -45,6 +46,7 @@ const products: ProductItem[] = [
   { id: "spec-generator", label: "Event Studio", href: "/", icon: Wand2, accent: "#7c6cff" },
   { id: "tech-launch", label: "Launch Signal", href: "/tech-launch", icon: Gauge, accent: "#28c7b7" },
   { id: "spec-check", label: "Signal QA", href: "/spec-check", icon: ClipboardCheck, accent: "#f59b56" },
+  { id: "cs-assistance", label: "CS Assistance", href: "/cs-assistance", icon: Headphones, accent: "#28c7b7" },
   { id: "admin", label: "Admin", href: "/admin", icon: Settings, accent: "#f59b56" },
 ];
 
