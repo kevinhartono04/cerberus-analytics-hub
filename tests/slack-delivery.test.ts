@@ -24,6 +24,15 @@ describe("Slack delivery traces", () => {
     expect(JSON.stringify(trace)).not.toContain("hooks.slack.com");
   });
 
+  it("allows explicitly resumed alerts while historical recovery remains active", async () => {
+    vi.stubEnv("CEREBRAL_RECOVERY_MODE", "true");
+    vi.stubEnv("CEREBRAL_ALERTS_PAUSED", "false");
+    const fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    vi.stubGlobal("fetch", fetch);
+    expect((await postSlackWebhookMessage(["https://hooks.slack.com/services/test"], '{}', "resumed")).outcome).toBe("delivered");
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
   it("retains the full trace when one destination rejects the alert", async () => {
     const fetch = vi.fn()
       .mockResolvedValueOnce({ ok: true, status: 200 })

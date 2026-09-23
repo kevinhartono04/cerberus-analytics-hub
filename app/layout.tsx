@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { isRecoveryMode } from "@/lib/recovery-mode";
+import { areAlertsPaused, isRecoveryMode } from "@/lib/recovery-mode";
 
 import "./globals.css";
 
@@ -28,7 +28,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         {isRecoveryMode() ? (
           <aside role="status" className="border-b border-amber-300 bg-amber-50 px-4 py-3 text-center text-sm text-amber-950">
             <strong>Recovery mode:</strong> Historical specs are temporarily unavailable. New work is saved.
-            {" "}Automated alerts are paused. Dashboard settings use recovery defaults until reviewed by an administrator.
+            {" "}{areAlertsPaused() ? "Automated alerts are paused." : "Automated alerts are active with reviewed settings; alert history starts from the recovery cutover."}
           </aside>
         ) : null}
         {children}
