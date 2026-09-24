@@ -8,7 +8,7 @@ export function assessObserved(trace: Trace, catalog: Record<string, CatalogProd
     const product = catalog[p.productId];
     const nearby = o.resources.filter(r => r.purchaseId === p.id);
     const f: Finding = { transactionId: p.transactionId ?? p.id, product: `${product?.name ?? "Unknown product"} (ID ${p.productId})${p.dollarValue === null ? "" : ` · $${p.dollarValue.toFixed(2)}`}`, purchasedAt: p.at,
-      verdict: "Needs review", reason: "Evidence is insufficient to assess this purchase.", nextStep: "Confirm the disputed purchase and inspect the missing evidence.", evidence: [p.id], basis: "observed", details: [] };
+      verdict: "Needs review", reason: "Evidence is insufficient to assess this purchase.", nextStep: "Do not approve or decline yet. Confirm the disputed transaction and resolve the evidence gap described above.", evidence: [p.id], basis: "observed", details: [] };
     const details = f.details!;
     if (product) details.push(`Catalog benefits: ${product.notes}.`);
     if (dispute !== "items" && product?.noAds !== "none") {
@@ -38,7 +38,7 @@ export function assessObserved(trace: Trace, catalog: Record<string, CatalogProd
       f.verdict = "Recommend not eligible";
       f.basis = "inferred";
       f.reason = "The purchase includes temporary no-ads. Interstitials stopped during observed play and later resumed, consistent with the season benefit ending. Exact expiry is not recorded.";
-      f.nextStep = "Explain that VIP no-ads is temporary. Confirm the season dates before a final denial if the customer disputes the expiry; this recommendation does not assess missing items.";
+      f.nextStep = "No refund recommended based on the observed ad history. Explain that VIP Pass includes temporary no ads. Confirm the season end date if the customer disputes the expiry.";
       details.push("The gap is observed behavior, not a fixed season duration or a confirmed entitlement interval.");
       return f;
     }
@@ -46,7 +46,7 @@ export function assessObserved(trace: Trace, catalog: Record<string, CatalogProd
     if (!p.rewardedBeforeReturn || p.activeDaysBeforeReturn < 1) return review("Insufficient post-purchase activity to assess the ad complaint.");
     f.verdict = "Recommend not eligible"; f.basis = "observed";
     f.reason = "Only rewarded ads were recorded after this purchase within the inspected window. Rewarded ads are not covered by no-ads.";
-    f.nextStep = "Explain which ad format the pack removes and confirm whether the customer's complaint concerns rewarded ads. Item delivery is a separate assessment.";
+    f.nextStep = "No refund recommended for this ad complaint. Explain that the pack removes interstitial ads; rewarded ads remain available and optional.";
     return f;
   });
   return { findings, trace };

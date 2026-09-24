@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import DownloadSpecButton from "@/components/DownloadSpecButton";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
   BookOpen,
@@ -3069,6 +3070,7 @@ function SpecViewer({
           </p>
         </div>
         <div className="flex flex-wrap gap-2.5">
+          <DownloadSpecButton key={activeSpec.id} spec={activeSpec} />
           <button
             type="button"
             onClick={() => onCopyShareLink(activeSpec.id)}

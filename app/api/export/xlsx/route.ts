@@ -9,7 +9,7 @@ export async function POST(request: Request) {
   return new NextResponse(new Uint8Array(buffer), {
     headers: {
       "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "Content-Disposition": `attachment; filename="${spec.intake.gameTitle || "analytics-spec"}.xlsx"`,
+      "Content-Disposition": `attachment; filename="analytics-spec.xlsx"`,
     },
   });
 }

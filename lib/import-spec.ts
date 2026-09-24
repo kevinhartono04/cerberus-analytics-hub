@@ -1,4 +1,5 @@
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import { parse as parseCsv } from "csv-parse/sync";
 import { unzipSync, strFromU8 } from "fflate";
 import { XMLParser } from "fast-xml-parser";
@@ -67,6 +68,7 @@ function textFromRichText(value: unknown): string {
   if (Array.isArray(value)) return value.map((item) => textFromRichText(item)).join("");
   if (typeof value === "object") {
     const record = value as Record<string, unknown>;
+    if ("#text" in record) return textFromRichText(record["#text"]);
     if ("t" in record) return textFromRichText(record.t);
     if ("r" in record) return textFromRichText(record.r);
   }
@@ -255,9 +257,9 @@ function parseSharedStrings(workbook: Record<string, Uint8Array>, parser: XMLPar
 function xlsxCellValue(cell: Record<string, unknown>, sharedStrings: string[]) {
   if (cell.t === "s") {
     const index = Number(cell.v ?? 0);
-    return cleanCell(sharedStrings[index]);
+    return sharedStrings[index] ?? "";
   }
-  if (cell.is) return cleanCell(textFromRichText(cell.is));
+  if (cell.is) return textFromRichText(cell.is);
   return cleanCell(cell.v);
 }
 
@@ -268,6 +270,7 @@ function parseXlsxSheets(buffer: Buffer): ParsedSheet[] {
     attributeNamePrefix: "",
     removeNSPrefix: true,
     parseTagValue: false,
+    trimValues: false,
     parseAttributeValue: false,
   });
 
@@ -377,6 +380,63 @@ function selectedFeaturePacks(events: GeneratedEvent[], platformAdPayloads: Gene
   return [...packs];
 }
 
+// Cerebral workbooks use editable tables; IDs keep duplicate event names distinct.
+function parseCerebralWorkbook(sheets: ParsedSheet[], fileName: string): GeneratedSpec | null {
+  const metadata = sheets.find((sheet) => sheet.name === "Spec Metadata");
+  if (!metadata) return null;
+  const records = (name: string): Record<string, string>[] => {
+    const sheet = sheets.find((item) => item.name === name);
+    if (!sheet?.rows.length) return [];
+    const headers = sheet.rows[0].values;
+    return sheet.rows.slice(1).map((row) => Object.fromEntries(headers.map((key, index) => [key, row.values[index] ?? ""])));
+  };
+  const meta = Object.fromEntries(records("Spec Metadata").map((row) => [row.Key, row.Value]));
+  if (meta["Format Version"] !== "1") fail("Unsupported Cerebral spreadsheet version.");
+  try {
+    const intake = intakeForImport(baseName(fileName), "", fileName, []);
+    for (const key of Object.keys(intake) as Array<keyof GameIntake>) {
+      if (meta[`intake.${key}`] !== undefined) {
+        const value: unknown = JSON.parse(meta[`intake.${key}`]);
+        if (typeof value !== "string") fail(`Invalid intake field: ${key}.`);
+        intake[key] = value;
+      }
+    }
+    const events = new Map<string, GeneratedEvent>();
+    for (const row of records("Generated Events")) {
+      if (!row["Event ID"] || events.has(row["Event ID"])) fail("Event IDs must be present and unique.");
+      const sources: unknown = JSON.parse(row.Sources || "[]");
+      if (!Array.isArray(sources) || sources.some((source) => typeof source !== "string")) fail("Sources must be a JSON list of strings.");
+      events.set(row["Event ID"], {
+        eventName: row["Event Name"] ?? "", category: row.Category ?? "", featurePack: row["Feature Pack"] ?? "",
+        trigger: row.Trigger ?? "", argumentName: row.Argument ?? "", argumentDescription: row["Argument Description"] ?? "",
+        argumentExamples: row["Argument Examples"] ?? "", status: row.Status ?? "", generationReason: row["Generation Reason"] ?? "",
+        sourceReferences: sources as string[], payloadFields: [],
+      });
+    }
+    for (const row of records("Payload Fields")) {
+      const event = events.get(row["Event ID"]);
+      if (!event) fail("A payload references an unknown Event ID.");
+      event.payloadFields.push({ fieldName: row["Payload Name"] ?? "", canonicalFieldName: row["Canonical Payload Name"] ?? "",
+        type: row.Type ?? "", requiredness: row.Requiredness ?? "", description: row.Description ?? "", example: row.Example ?? "", notes: row.Notes ?? "" });
+    }
+    const icon = Object.keys(meta).filter((key) => key.startsWith("icon.")).sort((a, b) => Number(a.slice(5)) - Number(b.slice(5))).map((key) => meta[key]).join("");
+    return {
+      id: `import-${randomUUID()}`, generatedAt: new Date().toISOString(), intake,
+      ...(icon ? { appIconDataUrl: icon } : {}),
+      generatedEvents: [...events.values()],
+      selectedFeaturePacks: records("Feature Packs Used").map((row) => row["Feature Pack"]),
+      assumptions: records("Assumptions").map((row) => row.Assumption),
+      platformAdPayloads: records("Platform Ad Payloads").map((row) => ({
+        platformEventName: row["Platform Event"] ?? "", adFamily: row["Ad Family"] ?? "", payloadName: row["Payload Name"] ?? "",
+        canonicalPayloadName: row["Canonical Payload Name"] ?? "", description: row.Description ?? "", example: row.Example ?? "", requiredness: row.Requiredness ?? "",
+      })),
+    };
+  } catch (error) {
+    if (error instanceof ImportSpecError) throw error;
+    fail("Invalid Cerebral spreadsheet metadata. Export the spec again and retry.");
+  }
+}
+
 export function isImportSpecError(error: unknown): error is ImportSpecError {
   return error instanceof ImportSpecError;
 }
@@ -387,6 +447,12 @@ export function parseAnalyticsSpecFile({ fileName, buffer, gameTitle: gameTitleO
   if (extension !== ".xlsx" && extension !== ".csv") fail("Only .xlsx and .csv analytics spec files are supported.");
 
   const sheets = extension === ".xlsx" ? parseXlsxSheets(buffer) : parseCsvSheets(fileName, buffer);
+  const cerebral = extension === ".xlsx" ? parseCerebralWorkbook(sheets, fileName) : null;
+  if (cerebral) {
+    if (gameTitleOverride?.trim()) cerebral.intake.gameTitle = gameTitleOverride.trim();
+    if (genreOverride?.trim()) cerebral.intake.genre = genreOverride.trim();
+    return cerebral;
+  }
   const generatedEvents: GeneratedEvent[] = [];
   const platformAdPayloads: GeneratedSpec["platformAdPayloads"] = [];
 

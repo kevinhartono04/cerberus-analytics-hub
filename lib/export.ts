@@ -32,7 +32,7 @@ function worksheetXml(rows: Row[]) {
       const cells = row
         .map((value, colIndex) => {
           const ref = `${columnName(colIndex + 1)}${rowIndex + 1}`;
-          return `<c r="${ref}" t="inlineStr"><is><t>${escapeXml(value)}</t></is></c>`;
+          return `<c r="${ref}" t="inlineStr"><is><t xml:space="preserve">${escapeXml(value)}</t></is></c>`;
         })
         .join("");
       return `<row r="${rowIndex + 1}">${cells}</row>`;
@@ -46,7 +46,8 @@ function worksheetXml(rows: Row[]) {
 }
 
 function rowsFromEvents(spec: GeneratedSpec): Row[] {
-  return spec.generatedEvents.map((event) => ({
+  return spec.generatedEvents.map((event, index) => ({
+    "Event ID": String(index + 1),
     "Event Name": event.eventName,
     Category: event.category,
     "Feature Pack": event.featurePack,
@@ -56,14 +57,15 @@ function rowsFromEvents(spec: GeneratedSpec): Row[] {
     "Argument Examples": event.argumentExamples,
     Status: event.status,
     "Generation Reason": event.generationReason,
-    Sources: event.sourceReferences.join(", "),
+    Sources: JSON.stringify(event.sourceReferences),
   }));
 }
 
 function rowsFromPayloads(spec: GeneratedSpec): Row[] {
-  return spec.generatedEvents.flatMap((event) =>
+  return spec.generatedEvents.flatMap((event, index) =>
     event.payloadFields.map((payload) => ({
       "Event Name": event.eventName,
+      "Event ID": String(index + 1),
       "Payload Name": payload.fieldName,
       "Canonical Payload Name": payload.canonicalFieldName,
       Type: payload.type,
@@ -111,6 +113,11 @@ function workbookRels(sheetCount: number) {
 
 export function specToWorkbookBuffer(spec: GeneratedSpec) {
   const sheets: Array<{ name: string; rows: Row[] }> = [
+    { name: "Spec Metadata", rows: [
+      { Key: "Format Version", Value: "1" },
+      ...Object.entries(spec.intake).map(([key, value]) => ({ Key: `intake.${key}`, Value: JSON.stringify(value) })),
+      ...(spec.appIconDataUrl?.match(/.{1,30000}/g) ?? []).map((chunk, index) => ({ Key: `icon.${index}`, Value: chunk })),
+    ] },
     { name: "Generated Events", rows: rowsFromEvents(spec) },
     { name: "Payload Fields", rows: rowsFromPayloads(spec) },
     { name: "Feature Packs Used", rows: spec.selectedFeaturePacks.map((pack) => ({ "Feature Pack": pack })) },
