@@ -1,0 +1,14 @@
+REFUND_REVIEW_MODE=demo
+SLACK_REFUND_SIGNING_SECRET=
+SLACK_REFUND_BOT_TOKEN=
+SLACK_REFUND_TEAM_ID=
+# Comma-separated channel IDs, not channel names; initially use a test channel.
+SLACK_REFUND_CHANNEL_IDS=
+# Existing app settings: CRON_SECRET and production DATABASE_URL.
+# Optional local/test database override:
+# REFUND_REVIEW_SQLITE_PATH=/absolute/path/to/refund-demo.sqlite
+
+# Opt in only after validating the live SQL and Slack channel:
+# REFUND_REVIEW_MODE=live
+# Reuse the app's COUNT_API_KEY, COUNT_CONNECTION_KEY and COUNT_PROJECT_KEY
+# (or COUNT_CONTEXT_KEY / COUNT_CONTEXT_TYPE). Never commit credentials.

@@ -1,0 +1,47 @@
+{
+  "text": "Refund review: Assessment ready for CS review",
+  "blocks": [
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "*Refund review*"
+      }
+    },
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "*Recommend not eligible* (inferred)\n*Scope:* Interstitial-ad complaint only\n*Purchase:* VIP Pass (ID 905) · $14.99 · 2026-08-19T14:32:38.680Z\n*Transaction:* sample-transaction-905\n*Finding:* The purchase includes temporary no-ads. Interstitials stopped during observed play and later resumed, consistent with the season benefit ending. Exact expiry is not recorded.\n*Evidence:*\n• Catalog benefits: Season Pass + Limited Time No Ads.\n• Last interstitial before purchase: 2026-08-19T14:06:10.086Z.\n• First interstitial at/after purchase: 2026-09-02T20:36:45.940Z.\n• Before interstitials returned: 7884 activity events across 15 active calendar days; 1182 rewarded ads. No interstitials recorded in that interval.\n• Last observed activity in that interval: 2026-09-02T20:36:41.871Z.\n• The gap is observed behavior, not a fixed season duration or a confirmed entitlement interval.\n*CS next step:* Explain that VIP no-ads is temporary. Confirm the season dates before a final denial if the customer disputes the expiry; this recommendation does not assess missing items."
+      }
+    },
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "*Needs review* (observed)\n*Scope:* Item/coin delivery\n*Purchase:* Starter Bundle (ID 910) · $1.99 · 2026-09-04T17:20:12.949Z\n*Transaction:* sample-transaction-910\n*Finding:* Purchase-related credits were observed nearby, but transaction linkage and/or exact package contents are not confirmed. Spending is shown separately and does not prove full delivery.\n*Evidence:*\n• Catalog benefits: Coin + Items Bundle.\n• Received 1000 coins (2026-09-04T17:20:12.872Z–2026-09-04T17:20:12.872Z), source=purchase; within ±2 minutes in the same session. Temporal association only.\n• Received 1 powerup_rocket (2026-09-04T17:20:12.888Z–2026-09-04T17:20:12.888Z), source=purchase; within ±2 minutes in the same session. Temporal association only.\n• Received 1 powerup_triple_shot (2026-09-04T17:20:12.894Z–2026-09-04T17:20:12.894Z), source=purchase; within ±2 minutes in the same session. Temporal association only.\n• Received 1 powerup_big_ball (2026-09-04T17:20:12.900Z–2026-09-04T17:20:12.900Z), source=purchase; within ±2 minutes in the same session. Temporal association only.\n• Received 1 powerup_machine_gun (2026-09-04T17:20:12.906Z–2026-09-04T17:20:12.906Z), source=purchase; within ±2 minutes in the same session. Temporal association only.\n*CS next step:* Confirm the disputed purchase and inspect the missing evidence."
+      }
+    },
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "*Coverage:* 2026-06-10T23:59:59.999Z–2026-09-08T23:59:59.999Z\n*Last observed activity:* 2026-09-08T21:33:34.642Z\nEvents after the review cutoff are excluded. All timestamps are UTC.\n*Limitations:* No explicit entitlement expiry or telemetry-ingestion watermark is supplied. Last observed activity is not a freshness guarantee.; Purchases before the query window and full bundle quantities are not available.\n_Recommendation for CS review. Only the inspected window and purchase issue are assessed._"
+      }
+    },
+    {
+      "type": "actions",
+      "elements": [
+        {
+          "type": "button",
+          "text": {
+            "type": "plain_text",
+            "text": "View evidence"
+          },
+          "action_id": "refund_evidence",
+          "value": "{\"id\":\"sample\",\"page\":0}"
+        }
+      ]
+    }
+  ]
+}

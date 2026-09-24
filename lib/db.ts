@@ -1547,3 +1547,52 @@ export async function markAdMetricAlertSlackDelivered(alertKeys: string[], deliv
   const sql = await ensureGameplayAlertTables();
   for (const key of alertKeys) await sql`UPDATE ad_metric_alert_states SET slack_open_delivered_at = ${deliveredAt} WHERE alert_key = ${key}`;
 }
+
+// Refund-review jobs use a lease token so an expired worker cannot overwrite its successor.
+export type RefundJobRow = { id: string; payload: string; lease_token: string | null };
+function refundSqlite<T>(statement: string): T[] {
+  const file = process.env.REFUND_REVIEW_SQLITE_PATH || localSqlitePath;
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const output = execFileSync("sqlite3", ["-json", file], { input: `.timeout 1500\n${statement}`, encoding: "utf8", maxBuffer: 8 * 1024 * 1024 });
+  return output.trim() ? JSON.parse(output) as T[] : [];
+}
+export async function ensureRefundJobs() {
+  const ddl = `CREATE TABLE IF NOT EXISTS refund_review_jobs (id TEXT PRIMARY KEY, payload TEXT NOT NULL, due_at BIGINT NOT NULL, expires_at BIGINT NOT NULL, lease_until BIGINT NOT NULL DEFAULT 0, lease_token TEXT, done INTEGER NOT NULL DEFAULT 0)`;
+  if (getDatabaseUrl()) { await getSql().unsafe(ddl); await getSql().unsafe("CREATE INDEX IF NOT EXISTS refund_review_due ON refund_review_jobs (done, due_at)"); }
+  else refundSqlite(`${ddl}; CREATE INDEX IF NOT EXISTS refund_review_due ON refund_review_jobs (done, due_at);`);
+}
+export async function insertRefundJob(id: string, payload: string, now: number) {
+  await ensureRefundJobs();
+  const expires = now + 30 * 86400000;
+  if (getDatabaseUrl()) { const rows = await getSql()`INSERT INTO refund_review_jobs (id,payload,due_at,expires_at) VALUES (${id},${payload},${now},${expires}) ON CONFLICT DO NOTHING RETURNING id`; return rows.length > 0; }
+  return refundSqlite(`INSERT INTO refund_review_jobs (id,payload,due_at,expires_at) VALUES (${sqliteLiteral(id)},${sqliteLiteral(payload)},${now},${expires}) ON CONFLICT DO NOTHING RETURNING id;`).length > 0;
+}
+export async function getRefundJob(id: string) {
+  await ensureRefundJobs();
+  const now = Date.now();
+  const rows = getDatabaseUrl() ? await getSql()<RefundJobRow[]>`SELECT id,payload,lease_token FROM refund_review_jobs WHERE id=${id} AND expires_at>${now}` : refundSqlite<RefundJobRow>(`SELECT id,payload,lease_token FROM refund_review_jobs WHERE id=${sqliteLiteral(id)} AND expires_at>${now};`);
+  return rows[0];
+}
+export async function claimRefundJob(now: number, token: string): Promise<RefundJobRow | undefined> {
+  await ensureRefundJobs();
+  if (getDatabaseUrl()) {
+    const sql = getSql();
+    await sql`DELETE FROM refund_review_jobs WHERE expires_at<=${now}`;
+    const rows = await sql<RefundJobRow[]>`UPDATE refund_review_jobs SET lease_token=${token}, lease_until=${now + 90000} WHERE id=(SELECT id FROM refund_review_jobs WHERE done=0 AND due_at<=${now} AND lease_until<=${now} ORDER BY due_at FOR UPDATE SKIP LOCKED LIMIT 1) RETURNING id,payload,lease_token`;
+    return rows[0];
+  }
+  return refundSqlite<RefundJobRow>(`DELETE FROM refund_review_jobs WHERE expires_at<=${now}; UPDATE refund_review_jobs SET lease_token=${sqliteLiteral(token)},lease_until=${now + 90000} WHERE id=(SELECT id FROM refund_review_jobs WHERE done=0 AND due_at<=${now} AND lease_until<=${now} ORDER BY due_at LIMIT 1) RETURNING id,payload,lease_token;`)[0];
+}
+export async function saveRefundJob(id: string, token: string, payload: string, due: number, done: boolean, release = true) {
+  if (getDatabaseUrl()) {
+    const rows = await getSql()`UPDATE refund_review_jobs SET payload=${payload},due_at=${due},done=${done ? 1 : 0},lease_until=CASE WHEN ${release} THEN 0 ELSE lease_until END,lease_token=CASE WHEN ${release} THEN NULL ELSE lease_token END WHERE id=${id} AND lease_token=${token} RETURNING id`;
+    return rows.length > 0;
+  }
+  return refundSqlite(`UPDATE refund_review_jobs SET payload=${sqliteLiteral(payload)},due_at=${due},done=${done ? 1 : 0}${release ? ",lease_until=0,lease_token=NULL" : ""} WHERE id=${sqliteLiteral(id)} AND lease_token=${sqliteLiteral(token)} RETURNING id;`).length > 0;
+}
+export async function refundQueueStatus() {
+  await ensureRefundJobs();
+  const statement = `SELECT COUNT(CASE WHEN done=0 THEN 1 END) AS pending, COUNT(CASE WHEN done=1 AND payload LIKE '%"deliveryFailed":true%' THEN 1 END) AS delivery_failed FROM refund_review_jobs`;
+  const rows = getDatabaseUrl() ? await getSql().unsafe(statement) : refundSqlite<{ pending: number; delivery_failed: number }>(statement);
+  return { pending: Number(rows[0].pending), deliveryFailed: Number(rows[0].delivery_failed) };
+}

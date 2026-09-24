@@ -31,6 +31,7 @@ export type CountRunSqlOptions = {
 };
 
 export type CountSubmitSqlOptions = {
+  signal?: AbortSignal;
   cacheStrategy?: CountCacheStrategy;
 };
 
@@ -96,9 +97,10 @@ async function countRequest<T>(path: string, init?: RequestInit): Promise<T> {
   return envelope.result as T;
 }
 
-async function runCountQuery(sql: string, cacheStrategy: CountCacheStrategy = "force") {
+async function runCountQuery(sql: string, cacheStrategy: CountCacheStrategy = "force", signal?: AbortSignal) {
   return countRequest<CountQuery>("/v1/queries", {
     method: "POST",
+    signal,
     body: JSON.stringify({
       context: countContext(),
       source: {
@@ -114,15 +116,15 @@ async function runCountQuery(sql: string, cacheStrategy: CountCacheStrategy = "f
 export async function submitCountSql(sql: string, options: CountSubmitSqlOptions = {}): Promise<CountRunSqlResult> {
   return {
     ok: true,
-    query: await runCountQuery(sql, options.cacheStrategy ?? "default"),
+    query: await runCountQuery(sql, options.cacheStrategy ?? "default", options.signal),
   };
 }
 
-export async function getCountQuery(jobKey: string, previewRows = 1000): Promise<CountRunSqlResult> {
+export async function getCountQuery(jobKey: string, previewRows = 1000, signal?: AbortSignal): Promise<CountRunSqlResult> {
   const numRows = Math.max(1, Math.min(1000, Math.floor(previewRows)));
   return {
     ok: true,
-    query: await countRequest<CountQuery>(`/v1/queries/${encodeURIComponent(jobKey)}?num_rows=${numRows}`),
+    query: await countRequest<CountQuery>(`/v1/queries/${encodeURIComponent(jobKey)}?num_rows=${numRows}`, { signal }),
   };
 }
 
