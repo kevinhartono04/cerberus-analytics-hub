@@ -105,6 +105,6 @@ describe("critical gameplay alerts", () => {
 
     const message = formatGameplayAlertSlackMessage(result.transitions, new Date("2026-08-13T04:00:00.000Z"));
     expect(message).toContain("*Critical Gameplay Alert*");
-    expect(message).toContain("Level 10 (ID level-10) · layout hash: 46c0e6a...dd9baca · hard");
+    expect(message).toContain("Level 10 (ID level-10 · Hash 46c0e6a...dd9baca) · hard");
   });
 });

@@ -908,7 +908,10 @@ export function formatGameplayAlertSlackMessage(transitions: GameplayAlertTransi
       if (!section) return [];
       const levels = section.states
         .sort((a, b) => a.level - b.level || a.difficultyTier.localeCompare(b.difficultyTier))
-        .map((state) => `• Level ${state.level}${state.levelId ? ` (ID ${state.levelId})` : ""}${state.layoutHash ? ` · layout hash: ${compactLayoutHash(state.layoutHash)}` : ""} · ${state.difficultyTier} · ${(state.lastFailRate * 100).toFixed(1)}% · ${compactPlayerCount(state.lastReachedPlayers)} players`);
+        .map((state) => {
+          const identifiers = [state.levelId ? `ID ${state.levelId}` : "", state.layoutHash ? `Hash ${compactLayoutHash(state.layoutHash)}` : ""].filter(Boolean);
+          return `• Level ${state.level}${identifiers.length ? ` (${identifiers.join(" · ")})` : ""} · ${state.difficultyTier} · ${(state.lastFailRate * 100).toFixed(1)}% · ${compactPlayerCount(state.lastReachedPlayers)} players`;
+        });
       return [`*${critical ? "Critical levels (>70% fail rate, 50+ players)" : section.heading} (${levels.length})*`, ...levels];
     });
     return [`*Game:* ${group.state.appName}`, `*Platform:* ${platform}`, `*Version:* ${appVersion}`, `*Checked:* ${checkedAtLabel(checkedAt)}`, "", ...sections].join("\n");

@@ -84,7 +84,7 @@ describe("layout-hash gameplay alerts", () => {
   it("keeps Slack delivery compact", () => {
     const message = formatGameplayAlertSlackMessage([{ type: "daily-open", state: { alertKey: "level-556", alertKind: "daily", appName: "stacksmash", platform: allPlatformsAlertScope, appVersion: allAppVersionsAlertScope, level: 556, levelId: "ns-044", layoutBankId: "4860", layoutHash: "46c0e6a123456789dd9baca", difficultyTier: "normal", status: "open", firstSeenAt: "2026-08-01T00:00:00.000Z", lastSeenAt: "2026-08-04T04:30:00.000Z", lastFailRate: 0.507, lastReachedPlayers: 11_999, threshold: 0.4 } }], new Date("2026-08-04T04:30:00.000Z"));
     expect(message).toContain("*Game:* stacksmash");
-    expect(message).toContain("• Level 556 (ID ns-044) · layout hash: 46c0e6a...dd9baca · normal · 50.7% · 12K players");
+    expect(message).toContain("• Level 556 (ID ns-044 · Hash 46c0e6a...dd9baca) · normal · 50.7% · 12K players");
     expect(message).not.toContain("46c0e6a123456789dd9baca");
   });
 
