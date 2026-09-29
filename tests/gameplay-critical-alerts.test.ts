@@ -101,10 +101,10 @@ describe("critical gameplay alerts", () => {
   });
 
   it("labels immediate Slack deliveries as critical", async () => {
-    const result = await reconcileCriticalGameplayAlertsFromQuery(filters, completedPreview(0.71, 50, "hash-a", "hard"));
+    const result = await reconcileCriticalGameplayAlertsFromQuery(filters, completedPreview(0.71, 50, "46c0e6a123456789dd9baca", "hard"));
 
     const message = formatGameplayAlertSlackMessage(result.transitions, new Date("2026-08-13T04:00:00.000Z"));
     expect(message).toContain("*Critical Gameplay Alert*");
-    expect(message).toContain("Level 10 (ID level-10) · hard");
+    expect(message).toContain("Level 10 (ID level-10) · layout hash: 46c0e6a...dd9baca · hard");
   });
 });

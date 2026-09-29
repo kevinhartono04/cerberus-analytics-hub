@@ -862,6 +862,10 @@ function compactPlayerCount(value: number) {
   return `${Number(scaled.toFixed(digits))}${suffix}`;
 }
 
+function compactLayoutHash(value: string) {
+  return value.length > 14 ? `${value.slice(0, 7)}...${value.slice(-7)}` : value;
+}
+
 function checkedAtLabel(value: Date) {
   return new Intl.DateTimeFormat("en-GB", {
     timeZone: "Asia/Jakarta",
@@ -904,7 +908,7 @@ export function formatGameplayAlertSlackMessage(transitions: GameplayAlertTransi
       if (!section) return [];
       const levels = section.states
         .sort((a, b) => a.level - b.level || a.difficultyTier.localeCompare(b.difficultyTier))
-        .map((state) => `• Level ${state.level}${state.levelId ? ` (ID ${state.levelId})` : ""} · ${state.difficultyTier} · ${(state.lastFailRate * 100).toFixed(1)}% · ${compactPlayerCount(state.lastReachedPlayers)} players`);
+        .map((state) => `• Level ${state.level}${state.levelId ? ` (ID ${state.levelId})` : ""}${state.layoutHash ? ` · layout hash: ${compactLayoutHash(state.layoutHash)}` : ""} · ${state.difficultyTier} · ${(state.lastFailRate * 100).toFixed(1)}% · ${compactPlayerCount(state.lastReachedPlayers)} players`);
       return [`*${critical ? "Critical levels (>70% fail rate, 50+ players)" : section.heading} (${levels.length})*`, ...levels];
     });
     return [`*Game:* ${group.state.appName}`, `*Platform:* ${platform}`, `*Version:* ${appVersion}`, `*Checked:* ${checkedAtLabel(checkedAt)}`, "", ...sections].join("\n");
