@@ -10,6 +10,7 @@ import {
   LogIn,
   LogOut,
   Moon,
+  Radar,
   Settings,
   Shield,
   Sun,
@@ -19,7 +20,7 @@ import {
 import Image from "next/image";
 import React, { CSSProperties, ReactNode, useEffect, useState } from "react";
 
-export type HubProductId = "spec-generator" | "tech-launch" | "spec-check" | "cs-assistance" | "admin";
+export type HubProductId = "spec-generator" | "tech-launch" | "spec-check" | "cs-assistance" | "ludios-sense" | "admin";
 type Theme = "dark" | "light";
 
 function readStoredTheme(): Theme {
@@ -47,6 +48,7 @@ const products: ProductItem[] = [
   { id: "tech-launch", label: "Launch Signal", href: "/tech-launch", icon: Gauge, accent: "#28c7b7" },
   { id: "spec-check", label: "Signal QA", href: "/spec-check", icon: ClipboardCheck, accent: "#f59b56" },
   { id: "cs-assistance", label: "CS Assistance", href: "/cs-assistance", icon: Headphones, accent: "#28c7b7" },
+  { id: "ludios-sense", label: "Ludios Sense", href: "/ludios-sense", icon: Radar, accent: "#7c6cff" },
   { id: "admin", label: "Admin", href: "/admin", icon: Settings, accent: "#f59b56" },
 ];
 

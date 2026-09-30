@@ -1257,6 +1257,35 @@ export async function saveTechLaunchReadinessCache(record: TechLaunchReadinessCa
   `;
 }
 
+/** Atomic expiring lease for resumable Sense steps, using existing private server storage. */
+export async function claimSenseLease(key: string, token: string, expiresAt: string) {
+  const now = new Date().toISOString();
+  if (shouldUseLocalSqlite()) {
+    ensureSqliteTechLaunchCacheTable();
+    const rows = sqliteJsonRows<{ cache_key: string }>(`INSERT INTO tech_launch_readiness_cache (cache_key,payload,created_at,expires_at)
+      VALUES (${sqliteLiteral(key)},${sqliteLiteral(token)},${sqliteLiteral(now)},${sqliteLiteral(expiresAt)})
+      ON CONFLICT(cache_key) DO UPDATE SET payload=excluded.payload,created_at=excluded.created_at,expires_at=excluded.expires_at
+      WHERE tech_launch_readiness_cache.expires_at <= ${sqliteLiteral(now)} RETURNING cache_key`);
+    return rows.length > 0;
+  }
+  const sql = await ensureTechLaunchCacheTable();
+  const rows = await sql`INSERT INTO tech_launch_readiness_cache (cache_key,payload,created_at,expires_at)
+    VALUES (${key},${token},${now},${expiresAt}) ON CONFLICT(cache_key) DO UPDATE
+    SET payload=excluded.payload,created_at=excluded.created_at,expires_at=excluded.expires_at
+    WHERE tech_launch_readiness_cache.expires_at <= ${now} RETURNING cache_key`;
+  return rows.length > 0;
+}
+
+export async function releaseSenseLease(key: string, token: string, cooldownMs = 0) {
+  const expiry = new Date(Date.now() + cooldownMs).toISOString();
+  if (shouldUseLocalSqlite()) {
+    sqliteExec(`UPDATE tech_launch_readiness_cache SET expires_at=${sqliteLiteral(expiry)} WHERE cache_key=${sqliteLiteral(key)} AND payload=${sqliteLiteral(token)}`);
+    return;
+  }
+  const sql = await ensureTechLaunchCacheTable();
+  await sql`UPDATE tech_launch_readiness_cache SET expires_at=${expiry} WHERE cache_key=${key} AND payload=${token}`;
+}
+
 export type GameplayAlertSettingsRecord = GameplayAlertSettings & { updatedAt: string; updatedBy: string };
 
 export type IncentConfigValidatorSettingsRecord = {
