@@ -33,10 +33,13 @@ export async function getSenseStatus(key: string): Promise<SenseRunResponse> {
   return { ...(summary ?? response(job!)), paused: Boolean(await load<boolean>(key + ":paused")) };
 }
 
-export async function getSenseGame(key: string, appId: string, store: SenseStore): Promise<SenseGame> {
-  await getSenseStatus(key);
-  const job = await load<Job>(key);
-  const game = job?.result?.games.find(g => g.appId === appId && g.store === store);
+export async function getSenseGame(key: string, appId: string, store: SenseStore, generatedAt?: string): Promise<SenseGame> {
+  if (!/^sense:v1:[a-f0-9]{64}$/.test(key)) throw new Response("Invalid scan ID", { status: 400 });
+  const snapshot = generatedAt ? await load<{ result: SenseResult }>("sense:result:" + key + ":" + generatedAt) : null;
+  const job = snapshot ? null : await load<Job>(key);
+  const result = snapshot?.result ?? job?.result;
+  if (generatedAt && result?.generatedAt !== generatedAt) throw new Response("This saved report is unavailable. Run check to refresh it.", { status: 409 });
+  const game = result?.games.find(g => g.appId === appId && g.store === store);
   if (!game) throw new Response("Game report not found", { status: 404 });
   return { ...game, historyLoaded: true };
 }
@@ -255,6 +258,7 @@ async function finish(job: Job) {
   const ranks = { confirmed_momentum: 0, early_warning: 1, launch_traction: 2, none: 3, insufficient_data: 4 };
   games.sort((a,b) => ranks[a.evaluation.signal] - ranks[b.evaluation.signal] || (b.evaluation.added ?? 0) - (a.evaluation.added ?? 0) || (b.evaluation.growth ?? 0) - (a.evaluation.growth ?? 0) || a.appId.localeCompare(b.appId));
   job.result = { filters: job.filters, generatedAt: now(), watermarks: Object.fromEntries(stores.map(s => [s, job.stores[s].watermark])), games, requests: job.requests, errors: [], coverageComplete: true, ruleVersion: senseRuleVersion };
+  await save("sense:result:" + job.jobKey + ":" + job.result.generatedAt, { result: job.result, receipts: job.receipts });
   job.status = "completed"; job.progress = "Check complete. Downloads are combined across the selected countries, separately for each store.";
   // Historical runs never overwrite a newer warm cache.
   const previous = await load<Record<SenseStore, StoreState>>(historyKey(job.filters));

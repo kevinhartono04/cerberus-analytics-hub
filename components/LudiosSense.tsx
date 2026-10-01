@@ -63,13 +63,13 @@ export default function LudiosSense() {
     (group === "all" || group === "included" && active(game) && game.classification === "included" || group === "review" && active(game) && game.classification === "review" || group === "traction" && game.evaluation.signal === "launch_traction") &&
     `${game.name} ${game.publisher} ${game.appId}`.toLowerCase().includes(search.toLowerCase())), [games, group, store, search]);
   const selected = visible.find(g => `${g.store}:${g.appId}` === selection) ?? visible[0];
-  const detailKey = selected && scan ? `${scan.jobKey}:${selected.store}:${selected.appId}` : "";
+  const detailKey = selected && scan ? `${scan.jobKey}:${result?.generatedAt}:${selected.store}:${selected.appId}` : "";
   const selectedDetail = details[detailKey];
   useEffect(() => {
     if (!selected || !scan || selectedDetail) return;
     const abort = new AbortController();
     setDetailError("");
-    void fetch("/api/ludios-sense/game", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobKey: scan.jobKey, appId: selected.appId, store: selected.store }), signal: abort.signal })
+    void fetch("/api/ludios-sense/game", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobKey: scan.jobKey, appId: selected.appId, store: selected.store, generatedAt: result?.generatedAt }), signal: abort.signal })
       .then(async r => { if (!r.ok) throw new Error("Could not load this game's download chart. Select another game and try again."); return await r.json() as SenseGame; })
       .then(game => { if (!abort.signal.aborted) setDetails(v => ({ ...v, [detailKey]: game })); })
       .catch(e => { if (!abort.signal.aborted) setDetailError(e instanceof Error ? e.message : "Chart unavailable"); });

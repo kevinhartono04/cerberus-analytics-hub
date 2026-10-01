@@ -61,7 +61,7 @@ describe("resumable Sense scan",()=>{
     expect(run.result?.games.map(g=>g.evaluation.signal)).toEqual(["confirmed_momentum","confirmed_momentum"]);
     expect(run.result?.games[0].evaluation.latest).toBe(1200);
     expect(run.result?.games[0].history).toEqual([]);
-    const detail = await getSenseGame(run.jobKey,"123","ios");
+    const detail = await getSenseGame(run.jobKey,"123","ios",run.result?.generatedAt);
     expect(detail.history).toHaveLength(28);
     expect(detail.history.at(-1)?.downloads).toBe(1200);
     expect(run.requests).toBe(calls.length);
