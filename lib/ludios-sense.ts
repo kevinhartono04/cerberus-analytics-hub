@@ -1,3 +1,4 @@
+import { historyWindows, mergeCountryHistory, mergeHistoryWindows, requiredHistoryWeeks, type StoredSenseHistory } from "@/lib/ludios-sense-history";
 import { safeSenseIconUrl } from "@/lib/ludios-sense-icons";
 import { createHash, randomUUID } from "node:crypto";
 import { getSenseUsage, reserveSenseRequest, recordSenseOrganizationUsage } from "@/lib/ludios-sense-usage";
@@ -6,13 +7,13 @@ import { claimSenseLease, getTechLaunchReadinessCache, listPendingSenseJobs, rel
 import { aggregateSenseHistory, classifySense, evaluateSense, senseRuleVersion, shiftDate, validDownloads } from "@/lib/ludios-sense-detection";
 import type { SenseCountry, SenseFilters, SenseGame, SenseResult, SenseRunResponse, SenseStore } from "@/lib/ludios-sense-types";
 
-type App = { appId: string; name: string; publisher: string; iconUrl?: string | null; unifiedAppId?: string | null; categories: string[]; releaseDate: string | null; metadataAt?: string; discoveredDate: string; histories: Partial<Record<SenseCountry, Record<string, number | null>>>; countryHistory?: Partial<Record<SenseCountry, { start: string; end: string; at: string }>>; backfilled?: boolean; historyStart?: string; historyEnd?: string; historyAt?: string };
-type StoreState = { apps: Record<string, App>; ids: string[]; historyIds: string[]; watermark?: string; rankingDate: string; datesFound: number; daysChecked: number; offset: number; lastDownloads: number; metadataIndex: number; historyIndex: number; week: number; historyBatchSize?: number; phase: "discovery" | "metadata" | "history" | "done" };
+type App = StoredSenseHistory & { appId: string; name: string; publisher: string; iconUrl?: string | null; unifiedAppId?: string | null; categories: string[]; releaseDate: string | null; metadataAt?: string; discoveredDate: string; histories: Partial<Record<SenseCountry, Record<string, number | null>>>; countryHistory?: Partial<Record<SenseCountry, { start: string; end: string; at: string }>>; backfilled?: boolean; historyStart?: string; historyEnd?: string; historyAt?: string };
+type StoreState = { apps: Record<string, App>; ids: string[]; historyIds: string[]; watermark?: string; rankingDate: string; datesFound: number; daysChecked: number; offset: number; lastDownloads: number; metadataIndex: number; historyIndex: number; week: number; historyBatchSize?: number; historyWeeks?: number[]; candidateIds?: string[]; phase: "discovery" | "metadata" | "history" | "done" };
 type Job = { jobKey: string; filters: SenseFilters; status: SenseRunResponse["status"]; createdAt: string; updatedAt: string; requests: number; progress: string; stores: Record<SenseStore, StoreState>; store: SenseStore; result?: SenseResult; error?: string; retry: number; retryAt?: string; receipts: Array<{ endpoint: string; parameters: Record<string, string | number>; retrievedAt: string }> };
 const stores: SenseStore[] = ["android", "ios"];
 const now = () => new Date().toISOString();
 const trace = (event: string, fields: Record<string, string | number | boolean>) => console.info("[ludios-sense]", JSON.stringify({ event, ...fields }));
-const cacheKey = (filters: SenseFilters) => "sense:v1:" + createHash("sha256").update(JSON.stringify(filters)).digest("hex");
+const cacheKey = (filters: SenseFilters) => "sense:v1:" + createHash("sha256").update(JSON.stringify({date:filters.date,countries:[...new Set(filters.countries)].sort()})).digest("hex");
 const sharedHistoryKey = "sense:history:shared:v2";
 const historyKey = (filters: SenseFilters) => "sense:history:" + filters.countries.join(",");
 const aliveUntil = () => new Date(Date.now() + 86400000 * 31).toISOString();
@@ -44,15 +45,13 @@ function mergeHistories(first: Record<SenseStore, StoreState> | null, second: Re
       const current = apps[id];
       if (!current) { apps[id] = incoming; continue; }
       const metadata = (incoming.metadataAt ?? "") > (current.metadataAt ?? "") ? incoming : current;
-      const histories = { ...current.histories }, coverage = { ...current.countryHistory };
-      for (const country of Object.keys(incoming.histories) as SenseCountry[]) {
-        const old = coverage[country], next = incoming.countryHistory[country];
-        if (!old || next && (next.end > old.end || next.end === old.end && next.at > old.at)) {
-          histories[country] = incoming.histories[country];
-          if (next) coverage[country] = next;
-        }
+      const histories = { ...current.histories }, windows = { ...current.historyWindows };
+      for (const country of new Set([...Object.keys(current.histories),...Object.keys(incoming.histories)]) as Set<SenseCountry>) {
+        const merged = mergeCountryHistory(current,incoming,country);
+        histories[country] = merged.histories; windows[country] = merged.windows;
       }
-      apps[id] = { ...metadata, discoveredDate: current.discoveredDate > incoming.discoveredDate ? current.discoveredDate : incoming.discoveredDate, histories, countryHistory: coverage };
+      apps[id] = { ...metadata, discoveredDate: current.discoveredDate > incoming.discoveredDate ? current.discoveredDate : incoming.discoveredDate, histories, historyWindows:windows };
+
     }
     combined[store] = { ...template, apps };
   }
@@ -74,9 +73,14 @@ export async function estimateSense(filters: SenseFilters) {
     const apps = Object.values(previous?.[store]?.apps ?? {}).filter(app => app.discoveredDate <= t && app.discoveredDate >= shiftDate(t,-30));
     metadataCalls += Math.ceil(apps.filter(a => !a.metadataAt || Date.now() - Date.parse(a.metadataAt) >= 30 * 86400000).length / 100);
     const games = apps.filter(a => classifySense(a.appId,store,a.categories).classification !== "excluded");
-    const cold = games.filter(a => needsBackfill(a,filters.countries,t)).length;
     knownGames += games.length;
-    historyCalls += Math.ceil(cold / 100) * 4 + Math.ceil((games.length - cold) / 100);
+    const plans = new Map<string,{weeks:number;count:number}>();
+    for(const game of games) {
+      const weeks=requiredHistoryWeeks(game,filters.countries,t,t>=shiftDate(today,-7));
+      const key=weeks.join(","),plan=plans.get(key) ?? {weeks:weeks.length,count:0};
+      plan.count++; plans.set(key,plan);
+    }
+    historyCalls += [...plans.values()].reduce((sum,plan)=>sum+Math.ceil(plan.count/100)*plan.weeks,0);
   }
   return { usage, knownGames, knownHistoryCalls: historyCalls, knownMetadataCalls: metadataCalls, note: "Estimate covers saved candidates. Discovery pages, new games and retries add calls. A first scan has no reliable estimate yet." };
 }
@@ -151,7 +155,7 @@ export async function startSense(filters: SenseFilters): Promise<SenseRunRespons
   }
   try {
     const existing = await load<Job>(key);
-    if (existing?.status === "running" || existing?.status === "completed" && Date.now() - Date.parse(existing.updatedAt) < 15 * 60000) return response(existing, existing.status === "completed");
+    if (existing?.status === "running" || existing?.status === "completed" && existing.result?.ruleVersion === senseRuleVersion) return response(existing, existing.status === "completed");
     const previous = await warmHistory(filters);
     const today = now().slice(0,10);
     const latest = filters.date < today ? filters.date : shiftDate(today, -1);
@@ -159,14 +163,25 @@ export async function startSense(filters: SenseFilters): Promise<SenseRunRespons
       const apps: Record<string, App> = {};
       for (const [id, app] of Object.entries(previous?.[store]?.apps ?? {})) {
         // Do not reuse future observations when the user selects an older t.
-        if (app.discoveredDate <= latest && app.discoveredDate >= shiftDate(latest, -30)) apps[id] = structuredClone(app);
+        apps[id] = structuredClone(app); // Cache only; candidateIds below controls which games are evaluated.
       }
-      return [store, { apps, ids: [], historyIds: [], rankingDate: latest, datesFound: 0, daysChecked: 0, offset: 0, lastDownloads: Number.MAX_VALUE, metadataIndex: 0, historyIndex: 0, week: 0, phase: "discovery" }];
+      return [store, { apps, candidateIds: Object.keys(apps).filter(id => apps[id].discoveredDate <= latest && apps[id].discoveredDate >= shiftDate(latest,-30)), ids: [], historyIds: [], rankingDate: latest, datesFound: 0, daysChecked: 0, offset: 0, lastDownloads: Number.MAX_VALUE, metadataIndex: 0, historyIndex: 0, week: 0, phase: "discovery" }];
     })) as unknown as Record<SenseStore, StoreState>;
     const job: Job = { jobKey: key, filters, status: "running", createdAt: now(), updatedAt: now(), requests: 0, progress: "Discovering Android games across the selected countries…", stores: states, store: "android", retry: 0, receipts: [] };
     await saveJob(job);
     return response(job);
   } finally { await releaseSenseLease(key + ":lease", token); }
+}
+
+/** Read-only: opening a page never starts a Sensor Tower scan. */
+export async function getCachedSense(filters: SenseFilters): Promise<SenseRunResponse | null> {
+  const summary=await load<SenseRunResponse>(cacheKey(filters)+":summary");
+  return summary ? {...await getSenseStatus(summary.jobKey),cached:summary.status==="completed"} : null;
+}
+export async function startDailySense() {
+  const filters:SenseFilters={date:now().slice(0,10),countries:["AU","CA","DE","GB","JP","RU","US"]};
+  const existing=await getCachedSense(filters);
+  return existing && existing.status!=="error" ? existing : startSense(filters);
 }
 
 /** One upstream request per step. State and leases survive serverless restarts. */
@@ -245,6 +260,7 @@ async function step(job: Job) {
       seen.add(id); s.lastDownloads = row.est_mobile_downloads;
       if (row.est_mobile_downloads < 1000) continue;
       s.apps[id] ??= { appId: id, name: p.entities?.app_id?.[id]?.name ?? id, publisher: "", categories: [], releaseDate: null, discoveredDate: s.rankingDate, histories: {} };
+      if (s.candidateIds && !s.candidateIds.includes(id)) s.candidateIds.push(id);
       if (s.rankingDate > s.apps[id].discoveredDate) s.apps[id].discoveredDate = s.rankingDate;
     }
     if (p.data.length && !s.watermark) s.watermark = s.rankingDate;
@@ -256,7 +272,7 @@ async function step(job: Job) {
       s.rankingDate = shiftDate(s.rankingDate, -1);
       if (s.datesFound >= 3 || s.daysChecked >= 7) {
         if (!s.watermark || s.datesFound < 3) throw new Error(`Discovery incomplete for ${store}: three reporting days are not available`);
-        s.ids = Object.keys(s.apps).sort(); s.phase = "metadata";
+        s.ids = (s.candidateIds ?? Object.keys(s.apps)).sort(); s.phase = "metadata";
       }
     }
     job.progress = `${store === "ios" ? "iOS" : "Android"}: discovered ${Object.keys(s.apps).length.toLocaleString()} apps above the combined floor; ${s.datesFound}/3 reporting dates checked.`;
@@ -280,27 +296,33 @@ async function step(job: Job) {
       job.progress = `${store === "ios" ? "iOS" : "Android"}: loading app details (${s.ids.length - remaining.length + batch.length}/${s.ids.length}).`;
     } else {
       s.historyIds = s.ids.filter(id => classifySense(id, store, s.apps[id].categories).classification !== "excluded");
-      // Warm and cold apps must not share a batch: one new app would force 99 warm apps to backfill.
-      s.historyIds.sort((a,b) => Number(needsBackfill(s.apps[a], job.filters.countries, s.watermark!)) - Number(needsBackfill(s.apps[b], job.filters.countries, s.watermark!)) || a.localeCompare(b));
+      // Group identical interval plans so one missing week never forces a full batch to backfill.
+      const plans=new Map(s.historyIds.map(id=>[id,requiredHistoryWeeks(s.apps[id],job.filters.countries,s.watermark!,s.watermark!>=shiftDate(now().slice(0,10),-7))]));
+      s.historyIds.sort((a,b)=>plans.get(a)!.length-plans.get(b)!.length || plans.get(a)!.join(",").localeCompare(plans.get(b)!.join(",")) || a.localeCompare(b));
       s.phase = "history";
     }
   } else if (s.phase === "history") {
-    // Keep an in-flight legacy 25-app batch intact across deployment; enlarge the next batch.
+    const refreshRecent = s.watermark! >= shiftDate(now().slice(0,10),-7);
     if (s.week === 0) {
       const remaining = s.historyIds.slice(s.historyIndex);
-      const cold = remaining.length ? needsBackfill(s.apps[remaining[0]], job.filters.countries, s.watermark!) : false;
-      const boundary = remaining.findIndex(id => needsBackfill(s.apps[id], job.filters.countries, s.watermark!) !== cold);
-      s.historyBatchSize = Math.min(100, boundary < 0 ? remaining.length : boundary);
+      const plan = remaining.length ? requiredHistoryWeeks(s.apps[remaining[0]],job.filters.countries,s.watermark!,refreshRecent) : [];
+      const signature=plan.join(",");
+      const boundary=remaining.findIndex(id=>requiredHistoryWeeks(s.apps[id],job.filters.countries,s.watermark!,refreshRecent).join(",")!==signature);
+      s.historyBatchSize=Math.min(100,boundary<0?remaining.length:boundary);
+      s.historyWeeks=plan;
     }
-    const batch = s.historyIds.slice(s.historyIndex, s.historyIndex + (s.historyBatchSize ?? 25));
+    const batch = s.historyIds.slice(s.historyIndex,s.historyIndex+(s.historyBatchSize ?? 25));
     if (!batch.length) {
       s.phase = "done";
       if (store === "android") { job.store = "ios"; job.progress = "Discovering iOS games across the selected countries…"; }
       else await finish(job);
       return;
     }
-    const length = batch.every(id => !needsBackfill(s.apps[id], job.filters.countries, s.watermark!)) ? 7 : 28;
-    const end = shiftDate(s.watermark!, -s.week * 7), start = shiftDate(end, -6);
+    // Finish already-running legacy batches before adopting the interval plan.
+    const weeks=s.historyWeeks ?? (batch.every(id=>!needsBackfill(s.apps[id],job.filters.countries,s.watermark!))?[0]:[0,1,2,3]);
+    if (!weeks.length) { s.historyIndex+=batch.length; s.week=0; job.progress=`${store}: reused saved download history (${s.historyIndex}/${s.historyIds.length} games).`; return; }
+    const length=weeks.length*7;
+    const end=shiftDate(s.watermark!,-weeks[s.week]*7),start=shiftDate(end,-6);
     const p = await sensor(job, `/v1/${store}/sales_report_estimates`, { app_ids: batch.join(","), countries: countryList, date_granularity: "daily", start_date: start, end_date: end });
     if (!Array.isArray(p)) throw new Error("Unexpected Sensor Tower history response");
     const normalized = new Map<string, number | null>();
@@ -322,7 +344,8 @@ async function step(job: Job) {
           if (validDownloads(value)) app.histories[country]![d] = value;
           else delete app.histories[country]![d]; // Omitted observations remain missing, including revisions.
         }
-        Object.keys(app.histories[country]!).filter(d => d < shiftDate(s.watermark!, -27) || d > s.watermark!).forEach(d => { delete app.histories[country]![d]; });
+        app.historyWindows ??= {};
+        app.historyWindows[country] = mergeHistoryWindows([...historyWindows(app,country),{start,end,at:now()}]);
       }
       app.historyAt = now();
     }

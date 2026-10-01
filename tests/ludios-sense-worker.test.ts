@@ -8,7 +8,7 @@ vi.mock("@/lib/db", () => ({
   releaseSenseLease: vi.fn(async(key:string,token:string)=>{if(leases.get(key)===token)leases.delete(key);}),
 }));
 vi.mock("@/lib/sensortower-api",()=>({sensorTowerRequest:async(url:URL)=>{const response=await fetch(url);return {status:response.status,body:await response.text()};}}));
-import { advanceSense, startSense, getSenseStatus, setSensePaused, runSenseWorker, getSenseGame, estimateSense } from "@/lib/ludios-sense";
+import { advanceSense, startSense, getSenseStatus, setSensePaused, runSenseWorker, getSenseGame, estimateSense, getCachedSense, startDailySense } from "@/lib/ludios-sense";
 import { shiftDate } from "@/lib/ludios-sense-detection";
 const t="2026-09-28";
 beforeEach(()=>{records.clear();leases.clear();process.env.SENSOR_TOWER_TOKEN="test-private-token";delete process.env.SENSE_MONTHLY_REQUEST_LIMIT;vi.unstubAllGlobals();});
@@ -106,8 +106,8 @@ describe("resumable Sense scan",()=>{
     run=await startSense(filters);
     for(let i=0;i<40&&run.status==="running";i++) run=await advanceSense(run.jobKey);
     expect(run.status).toBe("completed");
-    expect(calls.filter(c=>c.pathname.endsWith("sales_report_estimates"))).toHaveLength(2);
-    expect(calls.filter(c=>c.pathname.endsWith("/apps"))).toHaveLength(0);
+    expect(calls).toHaveLength(0);
+    expect(run.cached).toBe(true);
   });
   it("reuses two old discovery dates and country-level history when the date or country selection changes",async()=>{
     const calls:URL[]=[];
@@ -182,6 +182,37 @@ describe("resumable Sense scan",()=>{
     const run=await startSense({date:today,countries:["US"]});
     const next=await advanceSense(run.jobKey);
     expect(next.status).toBe("error");expect(next.error).toContain("access");expect(JSON.stringify(next)).not.toContain("test-private-token");
+  });
+  it("reconstructs older discovery but retrieves only the uncovered week and preserves newer history",async()=>{
+    const calls:URL[]=[];
+    vi.stubGlobal("fetch",vi.fn(async(input:URL)=>{
+      const url=new URL(input);calls.push(url);
+      if(url.pathname.endsWith("metrics"))return Response.json({data:[{app_id:"123",est_mobile_downloads:2000}],meta:{total_count:1}});
+      if(url.pathname.endsWith("/apps"))return Response.json({apps:[{app_id:"123",categories:url.pathname.includes("ios")?["7012"]:["GAME_PUZZLE"]}]});
+      const rows=[];for(let d=url.searchParams.get("start_date")!;d<=url.searchParams.get("end_date")!;d=shiftDate(d,1))rows.push(url.pathname.includes("ios")?{aid:"123",cc:"US",d,iu:2000,au:0}:{aid:"123",c:"US",d,u:2000});
+      return Response.json(rows);
+    }));
+    async function scan(date:string){let run=await startSense({date,countries:["US"]});for(let i=0;i<40&&run.status==="running";i++)run=await advanceSense(run.jobKey);expect(run.status).toBe("completed");return run;}
+    await scan(t);calls.length=0;
+    const older=await scan(shiftDate(t,-7));
+    const histories=calls.filter(c=>c.pathname.endsWith("sales_report_estimates"));
+    expect(histories).toHaveLength(2);expect(histories.every(c=>c.searchParams.get("start_date")==="2026-08-25" && c.searchParams.get("end_date")==="2026-08-31")).toBe(true);
+    expect(calls.filter(c=>c.pathname.endsWith("/apps"))).toHaveLength(0);
+    const detail=await getSenseGame(older.jobKey,"123","ios",older.result?.generatedAt);
+    expect(detail.history).toHaveLength(28);expect(detail.history.at(-1)?.date).toBe("2026-09-21");
+    const shared=JSON.parse(records.get("sense:history:shared:v2")!);
+    expect(shared.ios.apps["123"].histories.US[t]).toBe(2000);expect(shared.ios.apps["123"].histories.US["2026-08-25"]).toBe(2000);
+    calls.length=0;expect((await scan(t)).cached).toBe(true);expect(calls).toHaveLength(0);
+  });
+  it("shares the daily job and reads cached results without starting work",async()=>{
+    const today=new Date().toISOString().slice(0,10),fetch=vi.fn();vi.stubGlobal("fetch",fetch);
+    expect(await getCachedSense({date:today,countries:["US"]})).toBeNull();expect(fetch).not.toHaveBeenCalled();
+    const first=await startDailySense();expect((await startDailySense()).jobKey).toBe(first.jobKey);
+    const job=JSON.parse(records.get(first.jobKey)!);job.status="completed";job.updatedAt="2020-01-01T00:00:00Z";job.result={games:[],filters:job.filters,ruleVersion:"1.4-aggregate"};
+    records.set(first.jobKey,JSON.stringify(job));records.set(first.jobKey+":summary",JSON.stringify({...first,status:"completed",result:job.result}));
+    expect((await startDailySense()).cached).toBe(true);
+    expect((await startSense({date:today,countries:["US","JP","CA","RU","DE","AU","GB"]})).cached).toBe(true);
+    expect(fetch).not.toHaveBeenCalled();
   });
   it("does not call Sensor Tower when another worker owns the upstream lease",async()=>{
     const fetch=vi.fn();vi.stubGlobal("fetch",fetch);

@@ -132,6 +132,17 @@ export default function LudiosSense() {
     return () => controller.current?.abort();
   }, []);
   useEffect(() => {
+    if (!date || !countries.length) return;
+    const abort=new AbortController();
+    const timer=setTimeout(()=> {
+      void fetch("/api/ludios-sense/cache",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({date,countries}),signal:abort.signal})
+        .then(async r=>r.ok?await r.json():null)
+        .then(value=> { if(!abort.signal.aborted && value?.scan) {setScan(value.scan);setPaused(Boolean(value.scan.paused));setSelection(null);} })
+        .catch(()=>{/* The user can still run a check if cache lookup is unavailable. */});
+    },250);
+    return ()=>{clearTimeout(timer);abort.abort();};
+  },[date,countries]);
+  useEffect(() => {
     if (scan?.status !== "running" || paused) return;
     const abort = new AbortController(); controller.current = abort;
     let stopped = false;
@@ -179,7 +190,7 @@ export default function LudiosSense() {
     <section className="rounded-xl border border-line bg-surface-panel p-5" aria-label="Check filters">
       <div className="flex flex-wrap items-end gap-4"><label className="flex flex-col gap-2 text-xs font-semibold text-slate-500">Date (t)<input aria-label="Date (t)" type="date" value={date} max={new Date().toISOString().slice(0,10)} disabled={Boolean(busy)} onChange={e => setDate(e.target.value)} className={inputClass} /></label><button onClick={run} disabled={Boolean(busy) || !countries.length || !date} className="focus-ring inline-flex h-10 items-center gap-2 rounded-lg bg-cobalt px-5 text-sm font-bold text-white disabled:opacity-50">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />} {busy ? "Checking…" : "Run check"}</button>{scan?.status === "running" ? <button className={`${inputClass} text-cobalt`} onClick={togglePaused}>{paused ? "Resume check" : "Pause check"}</button> : null}</div>
       <fieldset disabled={Boolean(busy)} className="mt-5"><legend className="mb-3 text-xs font-semibold text-slate-500">Countries · downloads combined across your selection</legend><div className="flex flex-wrap gap-2">{senseCountryCodes.map(c => <label key={c} className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm ${countries.includes(c) ? "border-cobalt/40 bg-cobalt/10 text-ink" : "border-line text-slate-500"}`}><input type="checkbox" checked={countries.includes(c)} onChange={e => setCountries(v => e.target.checked ? [...v,c] : v.filter(x => x!==c))} className="accent-cobalt" />{senseCountries[c]}</label>)}</div></fieldset>
-      <p className="mt-4 text-xs leading-5 text-slate-500">Today is selected by default. If estimates for t are unavailable, the report uses the latest completed reporting date and shows it explicitly. The minimum is 1,000 combined downloads/day per store.</p>
+      <p className="mt-4 text-xs leading-5 text-slate-500">Today is selected by default. If estimates for t are unavailable, the report uses the latest completed reporting date and shows it explicitly. The minimum is 1,000 combined downloads/day per store. Shared daily reports for all seven markets run at 08:00 WIB; completed reports are reused across users.</p>
     </section>
     <details aria-label="API call allowance" className="mt-2 text-xs leading-5 text-slate-500">
       <summary className="ml-auto w-fit cursor-pointer text-[11px] text-slate-400 hover:text-slate-500">API usage</summary>
@@ -193,7 +204,7 @@ export default function LudiosSense() {
       </div>
     </details>
     {error ? <div role="alert" className="mt-4 rounded-lg border border-rose-400/40 bg-rose-400/10 p-4 text-sm text-ink">{error}</div> : null}
-    {scan ? <div role="status" className="mt-5 flex items-center gap-3 rounded-lg border border-line bg-surface-panel p-4 text-sm text-ink">{scan.status === "completed" ? <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-500" /> : busy ? <Loader2 className="h-5 w-5 shrink-0 animate-spin text-cobalt" /> : <Activity className="h-5 w-5 shrink-0 text-cobalt" />}<div>{paused ? "Check paused. Resume to continue from the saved step." : scan.progress}<p className="mt-1 text-xs text-slate-500">{scan.requests} API requests{scan.cached ? " · Recently saved result reused" : ""}. One request at a time, with countries batched together. The scan continues on the server when this tab is inactive.</p></div></div> : null}
+    {scan ? <div role="status" className="mt-5 flex items-center gap-3 rounded-lg border border-line bg-surface-panel p-4 text-sm text-ink">{scan.status === "completed" ? <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-500" /> : busy ? <Loader2 className="h-5 w-5 shrink-0 animate-spin text-cobalt" /> : <Activity className="h-5 w-5 shrink-0 text-cobalt" />}<div>{paused ? "Check paused. Resume to continue from the saved step." : scan.progress}<p className="mt-1 text-xs text-slate-500">{scan.cached ? `Shared saved report · ${scan.requests} API requests in the original scan · No new scan started.` : `${scan.requests} API requests.`} One request at a time, with countries batched together. The scan continues on the server when this tab is inactive.</p></div></div> : null}
     {!scan ? <div className="my-16 text-center"><Radar className="mx-auto mb-4 h-10 w-10 text-cobalt/60" /><h2 className="text-lg font-bold text-ink">Find the next game to investigate</h2><p className="mt-2 text-sm text-slate-500">Choose a date and markets, then run a check. Both stores are included.</p></div> : null}
     {result ? <>
       {!result.coverageComplete ? <div role="alert" className="mt-4 rounded-lg border border-amber-400/40 p-4 text-sm text-ink">Partial coverage: {result.errors.join(" ")} Results include only games whose history finished loading. Other games may have been missed.</div> : null}
