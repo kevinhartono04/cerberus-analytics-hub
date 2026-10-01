@@ -9,6 +9,7 @@ type StoreState = { apps: Record<string, App>; ids: string[]; historyIds: string
 type Job = { jobKey: string; filters: SenseFilters; status: SenseRunResponse["status"]; createdAt: string; updatedAt: string; requests: number; progress: string; stores: Record<SenseStore, StoreState>; store: SenseStore; result?: SenseResult; error?: string; retry: number; retryAt?: string; receipts: Array<{ endpoint: string; parameters: Record<string, string | number>; retrievedAt: string }> };
 const stores: SenseStore[] = ["android", "ios"];
 const now = () => new Date().toISOString();
+const trace = (event: string, fields: Record<string, string | number | boolean>) => console.info("[ludios-sense]", JSON.stringify({ event, ...fields }));
 const cacheKey = (filters: SenseFilters) => "sense:v1:" + createHash("sha256").update(JSON.stringify(filters)).digest("hex");
 const historyKey = (filters: SenseFilters) => "sense:history:" + filters.countries.join(",");
 const aliveUntil = () => new Date(Date.now() + 86400000 * 31).toISOString();
@@ -53,7 +54,8 @@ export async function setSensePaused(key: string, paused: boolean): Promise<Sens
 /** Server work is bounded per invocation; durable jobs resume via the worker cron. */
 export async function runSenseWorker(key: string, budgetMs = 240000) {
   const token = randomUUID(), workerKey = "sense:worker:" + key;
-  if (!await claimSenseLease(workerKey, token, new Date(Date.now() + budgetMs + 60000).toISOString())) return;
+  if (!await claimSenseLease(workerKey, token, new Date(Date.now() + budgetMs + 60000).toISOString())) { trace("worker_busy", { scan: key.slice(-8) }); return; }
+  trace("worker_started", { scan: key.slice(-8), budgetMs });
   const deadline = Date.now() + budgetMs;
   try {
     while (Date.now() < deadline - 45000) {
@@ -61,7 +63,7 @@ export async function runSenseWorker(key: string, budgetMs = 240000) {
       if (next.status !== "running" || next.paused) return;
       await new Promise(resolve => setTimeout(resolve, 1100));
     }
-  } finally { await releaseSenseLease(workerKey, token); }
+  } finally { await releaseSenseLease(workerKey, token); trace("worker_stopped", { scan: key.slice(-8) }); }
 }
 
 export async function continuePendingSenseJobs() {
@@ -104,16 +106,19 @@ export async function startSense(filters: SenseFilters): Promise<SenseRunRespons
 /** One upstream request per step. State and leases survive serverless restarts. */
 export async function advanceSense(key: string): Promise<SenseRunResponse> {
   if (!/^sense:v1:[a-f0-9]{64}$/.test(key)) throw new Response("Invalid scan ID", { status: 400 });
-  const initial = await load<Job>(key);
-  if (!initial) throw new Response("Scan not found", { status: 404 });
-  if (await load<boolean>(key + ":paused")) return { ...response(initial), paused: true };
-  if (initial.status !== "running" || initial.retryAt && initial.retryAt > now()) return response(initial);
+  const initial = await getSenseStatus(key);
+  if (initial.paused || initial.status !== "running") return initial;
   const lease = randomUUID();
-  if (!await claimSenseLease(key + ":lease", lease, new Date(Date.now() + 60000).toISOString())) return response(initial);
+  if (!await claimSenseLease(key + ":lease", lease, new Date(Date.now() + 60000).toISOString())) return initial;
   let requestLease = false;
   try {
     const job = await load<Job>(key);
-    if (!job || job.status !== "running") return response(job ?? initial);
+    if (!job) return initial;
+    if (job.status !== "running") return response(job);
+    // The compact summary journals attempted requests without rewriting all histories.
+    job.requests = Math.max(job.requests, initial.requests);
+    if (job.retryAt && job.retryAt > now()) return response(job);
+    const started = Date.now();
     requestLease = await claimSenseLease("sense:upstream:lease", lease, new Date(Date.now() + 60000).toISOString());
     if (!requestLease) return response(job);
     try {
@@ -127,8 +132,9 @@ export async function advanceSense(key: string): Promise<SenseRunResponse> {
     }
     job.updatedAt = now();
     const owner = await getTechLaunchReadinessCache(key + ":lease");
-    if (owner?.payload !== lease) return response(await load<Job>(key) ?? initial);
+    if (owner?.payload !== lease) return getSenseStatus(key);
     await saveJob(job);
+    trace("step_completed", { scan: key.slice(-8), store: job.store, phase: job.stores[job.store].phase, requests: job.requests, elapsedMs: Date.now() - started, historyCompleted: job.stores[job.store].historyIndex });
     return response(job);
   } finally {
     if (requestLease) await releaseSenseLease("sense:upstream:lease", lease, 1000);
@@ -139,13 +145,15 @@ export async function advanceSense(key: string): Promise<SenseRunResponse> {
 async function sensor(job: Job, endpoint: string, parameters: Record<string, string | number>) {
   if (job.requests >= 1000) throw new Error("Sensor Tower request budget reached; discovery is incomplete. Choose fewer countries or retry later.");
   job.requests++;
-  await saveJob(job); // Count attempts even if the host shuts down during a request.
+  await save(job.jobKey + ":summary", response(job)); // Durable attempt count; full history is checkpointed once after the response.
   const token = process.env.SENSOR_TOWER_TOKEN?.trim();
   if (!token) throw new Error("Sensor Tower is not configured on this server");
   const url = new URL(endpoint, "https://api.sensortower.com");
   Object.entries(parameters).forEach(([key, value]) => url.searchParams.set(key, String(value)));
   url.searchParams.set("auth_token", token);
+  const started = Date.now();
   const res = await sensorTowerRequest(url);
+  trace("sensor_response", { scan: job.jobKey.slice(-8), endpoint, status: res.status, elapsedMs: Date.now() - started, apps: String(parameters.app_ids ?? "").split(",").filter(Boolean).length });
   if (res.status < 200 || res.status >= 300) throw new Error(res.status === 401 || res.status === 403 ? "Sensor Tower token or product access is unavailable" : `Sensor Tower returned HTTP ${res.status}`);
   let payload: unknown;
   try { payload = JSON.parse(res.body.replaceAll(token, "[REDACTED]")); } catch { throw new Error("Unexpected Sensor Tower JSON response"); }
@@ -237,7 +245,7 @@ async function step(job: Job) {
     }
     s.week++;
     if (s.week * 7 >= length) { batch.forEach(id => { s.apps[id].backfilled = true; s.apps[id].historyStart = shiftDate(s.watermark!, -27); s.apps[id].historyEnd = s.watermark; }); s.historyIndex += batch.length; s.week = 0; }
-    job.progress = `${store === "ios" ? "iOS" : "Android"}: loading ${length}-day download history (${Math.min(s.historyIndex + batch.length, s.historyIds.length)}/${s.historyIds.length} games), all selected countries together.`;
+    job.progress = `${store === "ios" ? "iOS" : "Android"}: loading ${length}-day download history (${s.historyIndex}/${s.historyIds.length} games complete${s.week ? `; current batch week ${s.week}/${length / 7}` : ""}), all selected countries together.`;
   }
 }
 

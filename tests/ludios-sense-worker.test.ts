@@ -35,7 +35,20 @@ describe("resumable Sense scan",()=>{
     await advanceSense(run.jobKey);
     const saved=JSON.parse(records.get(run.jobKey)!);
     expect(saved.stores.android.apps).toEqual({});
-    expect(saved.requests).toBe(1);
+    expect(saved.requests).toBe(0);
+    expect((await getSenseStatus(run.jobKey)).requests).toBe(1);
+  });
+  it("recovers the journaled request count after an interrupted checkpoint without rewriting history before the API call",async()=>{
+    const run=await startSense({date:t,countries:["US"]});
+    const summary=JSON.parse(records.get(run.jobKey+":summary")!); summary.requests=7;
+    records.set(run.jobKey+":summary",JSON.stringify(summary));
+    vi.stubGlobal("fetch",vi.fn(async()=>{
+      expect(JSON.parse(records.get(run.jobKey)!).requests).toBe(0);
+      expect(JSON.parse(records.get(run.jobKey+":summary")!).requests).toBe(8);
+      return Response.json({data:[{app_id:"a",est_mobile_downloads:2000}],meta:{total_count:1}});
+    }));
+    expect((await advanceSense(run.jobKey)).requests).toBe(8);
+    expect(JSON.parse(records.get(run.jobKey)!).requests).toBe(8);
   });
   it("uses combined rankings, normalizes both stores, deduplicates concurrent scans, caches completed scans and refreshes seven days",async()=>{
     const calls:URL[]=[];
