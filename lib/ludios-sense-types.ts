@@ -16,7 +16,7 @@ export type SenseEvaluation = {
   growth: number | null; added: number | null; flags: string[]; activityDate: string | null; releaseAge: number | null;
 };
 export type SenseGame = {
-  appId: string; store: SenseStore; name: string; publisher: string; genre: string;
+  appId: string; store: SenseStore; name: string; publisher: string; genre: string; iconUrl?: string | null;
   classification: "included" | "review" | "excluded"; releaseDate: string | null; url: string;
   history: SensePoint[]; historyLoaded?: boolean;
   availableCountries: SenseCountry[]; unavailableCountries: SenseCountry[];

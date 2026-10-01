@@ -3,6 +3,8 @@ const { user, start, advance } = vi.hoisted(()=>({user:{value:{id:"local-admin",
 vi.mock("@/lib/auth",()=>({requireCurrentAppUser:vi.fn(async()=>{if(!user.value)throw Response.json({error:"Sign in required"},{status:401});return user.value;}),assertInternalAppUser:vi.fn((u:{email:string})=>{if(!u.email.endsWith("@tripledotstudios.com"))throw Response.json({error:"Internal accounts only"},{status:403});}),jsonError:(e:unknown)=>e instanceof Response?e:Response.json({error:"Unexpected error"},{status:500})}));
 vi.mock("next/server", async importOriginal => ({...await importOriginal<typeof import("next/server")>(),after:vi.fn()}));
 vi.mock("@/lib/ludios-sense",()=>({startSense:start,getSenseStatus:advance,getSenseGame:advance,setSensePaused:advance,runSenseWorker:vi.fn(),continuePendingSenseJobs:vi.fn(async()=>0),estimateSense:advance}));
+vi.mock("@/lib/ludios-sense-icons",()=>({getSenseIcons:vi.fn(async()=>({icons:{},requests:0}))}));
+import {POST as icons} from "@/app/api/ludios-sense/icons/route";
 import {POST as usage} from "@/app/api/ludios-sense/usage/route";
 import {POST as begin} from "@/app/api/ludios-sense/route";
 import {POST as game} from "@/app/api/ludios-sense/game/route";
@@ -11,14 +13,18 @@ const request=(body:unknown)=>new Request("http://localhost/api/ludios-sense",{m
 beforeEach(()=>{vi.clearAllMocks();user.value={id:"local-admin",email:"admin@tripledotstudios.com"};start.mockResolvedValue({status:"running"});});
 describe("Sense authorization and validation",()=>{
  it("requires sign-in and internal access on both endpoints",async()=>{
-  user.value=null;expect((await usage(request({}))).status).toBe(401);expect((await game(request({}))).status).toBe(401);expect((await begin(request({}))).status).toBe(401);expect((await status(request({}))).status).toBe(401);
-  user.value={id:"external",email:"user@partner.com"};expect((await usage(request({}))).status).toBe(403);expect((await game(request({}))).status).toBe(403);expect((await begin(request({}))).status).toBe(403);expect((await status(request({}))).status).toBe(403);
+  user.value=null;expect((await icons(request({}))).status).toBe(401);expect((await usage(request({}))).status).toBe(401);expect((await game(request({}))).status).toBe(401);expect((await begin(request({}))).status).toBe(401);expect((await status(request({}))).status).toBe(401);
+  user.value={id:"external",email:"user@partner.com"};expect((await icons(request({}))).status).toBe(403);expect((await usage(request({}))).status).toBe(403);expect((await game(request({}))).status).toBe(403);expect((await begin(request({}))).status).toBe(403);expect((await status(request({}))).status).toBe(403);
   expect(start).not.toHaveBeenCalled();expect(advance).not.toHaveBeenCalled();
  });
  it("rejects empty markets and invalid scan IDs before invoking the worker",async()=>{
   expect((await begin(request({date:"2026-09-28",countries:[]}))).status).toBe(400);
   expect((await status(request({jobKey:"../../other"}))).status).toBe(400);
   expect(start).not.toHaveBeenCalled();expect(advance).not.toHaveBeenCalled();
+ });
+ it("restricts icon retrieval to games in the saved report",async()=>{
+  advance.mockResolvedValueOnce({result:{games:[{appId:"1",store:"ios"}],filters:{countries:["US"]}}});
+  expect((await icons(request({jobKey:"sense:v1:"+"a".repeat(64),store:"ios",appIds:["2"]}))).status).toBe(400);
  });
  it("normalizes selected countries",async()=>{
   expect((await begin(request({date:"2026-09-28",countries:["US","JP","US"]}))).status).toBe(200);

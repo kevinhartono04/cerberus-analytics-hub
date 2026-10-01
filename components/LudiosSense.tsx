@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, ArrowUpRight, CheckCircle2, Loader2, Play, Radar, Search } from "lucide-react";
+import { Activity, ArrowUpRight, CheckCircle2, Gamepad2, Loader2, Play, Radar, Search } from "lucide-react";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { SenseUsage } from "@/lib/ludios-sense-usage";
 import CerberusShell from "@/components/CerberusShell";
@@ -17,6 +17,13 @@ async function call(path: string, body: unknown, signal?: AbortSignal): Promise<
   const value = await res.json();
   if (!res.ok) throw new Error(value.error ?? "The check could not be completed");
   return value;
+}
+
+function GameIcon({ url }: { url?: string | null }) {
+  const [failed, setFailed] = useState(false);
+  return <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-line/60 bg-surface-table" aria-hidden="true">
+    {url && !failed ? <img src={url} alt="" width={40} height={40} loading="lazy" referrerPolicy="no-referrer" className="h-full w-full object-cover" onError={() => setFailed(true)} /> : <Gamepad2 className="h-5 w-5 text-slate-400" />}
+  </span>;
 }
 
 function DownloadChart({ game }: { game: SenseGame }) {
@@ -58,6 +65,8 @@ export default function LudiosSense() {
   const [collapsed, setCollapsed] = useState(false);
   const [details, setDetails] = useState<Record<string, SenseGame>>({});
   const [detailError, setDetailError] = useState("");
+  const [icons, setIcons] = useState<Record<string, string | null>>({});
+  const [iconRequests, setIconRequests] = useState(0);
   const controller = useRef<AbortController | null>(null);
   const busy = submitting || scan?.status === "running" && !paused;
   const result = scan?.result;
@@ -65,6 +74,33 @@ export default function LudiosSense() {
   const visible = useMemo(() => games.filter(game => (store === "all" || game.store === store) &&
     (group === "all" || group === "included" && active(game) && game.classification === "included" || group === "review" && active(game) && game.classification === "review" || group === "traction" && game.evaluation.signal === "launch_traction") &&
     `${game.name} ${game.publisher} ${game.appId}`.toLowerCase().includes(search.toLowerCase())), [games, group, store, search]);
+  const iconSelection = JSON.stringify(visible.slice(0,limit).filter(g => g.iconUrl === undefined).map(g => ({ appId:g.appId, store:g.store })));
+  useEffect(() => {
+    if (!scan?.jobKey) return;
+    const abort = new AbortController();
+    const selection = JSON.parse(iconSelection) as Array<{appId:string;store:"ios"|"android"}>;
+    void (async () => {
+      for (const store of ["ios","android"] as const) {
+        const ids = selection.filter(g => g.store === store && icons[`${store}:${g.appId}`] === undefined).map(g => g.appId);
+        for (let i=0; i<ids.length && !abort.signal.aborted; i+=100) {
+          const batch = ids.slice(i,i+100);
+          try {
+            let response: Response | undefined;
+            for (let attempt=0; attempt<6 && !abort.signal.aborted; attempt++) {
+              response = await fetch("/api/ludios-sense/icons", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({jobKey:scan.jobKey,store,appIds:batch}),signal:abort.signal});
+              if (response.status !== 503) break;
+              await new Promise<void>(resolve => { const timer = setTimeout(resolve,2000); abort.signal.addEventListener("abort",()=>{clearTimeout(timer);resolve();},{once:true}); });
+            }
+            if (!response?.ok || abort.signal.aborted) continue;
+            const value = await response.json() as {icons:Record<string,string|null>;requests:number};
+            if (!abort.signal.aborted && value.requests) setIconRequests(count => count + value.requests);
+            if (!abort.signal.aborted) setIcons(old => ({...old,...Object.fromEntries(Object.entries(value.icons).map(([id,url])=>[`${store}:${id}`,url]))}));
+          } catch { /* Icons are optional; a placeholder keeps the report usable. */ }
+        }
+      }
+    })();
+    return () => abort.abort();
+  }, [scan?.jobKey, iconSelection]);
   const selected = visible.find(g => `${g.store}:${g.appId}` === selection) ?? visible[0];
   const detailKey = selected && scan ? `${scan.jobKey}:${result?.generatedAt}:${selected.store}:${selected.appId}` : "";
   const selectedDetail = details[detailKey];
@@ -114,7 +150,7 @@ export default function LudiosSense() {
         .catch(() => { if (!abort.signal.aborted) setUsageError("API allowance could not be loaded. The server still enforces the limit."); });
     },350);
     return () => { clearTimeout(timer); abort.abort(); };
-  },[date,countries,Math.floor((scan?.requests ?? 0)/10),scan?.status]);
+  },[date,countries,Math.floor((scan?.requests ?? 0)/10),scan?.status,iconRequests]);
   async function run() {
     setSubmitting(true); setError(""); setPaused(false); setSelection(null);
     try {
@@ -160,7 +196,7 @@ export default function LudiosSense() {
       {changed ? <p className="mb-4 rounded-lg border border-amber-400/40 p-3 text-sm text-ink">Filters changed. Run check to update the report; the results below use the selection shown above.</p> : null}
       <section className="overflow-hidden rounded-xl border border-line bg-surface-panel">
         <div className="flex flex-wrap items-center gap-3 border-b border-line p-4"><h2 className="mr-auto text-base font-bold text-ink">Research shortlist</h2><select aria-label="Signal group" className={inputClass} value={group} onChange={e => { setGroup(e.target.value); setLimit(30); }}><option value="included">In-scope growth</option><option value="review">Needs genre review</option><option value="traction">Traction, unconfirmed</option><option value="all">All evaluated games</option></select><select aria-label="Store" className={inputClass} value={store} onChange={e => { setStore(e.target.value); setLimit(30); }}><option value="all">Both stores</option><option value="ios">iOS</option><option value="android">Android</option></select><label className="relative"><Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-500" /><input aria-label="Search games" placeholder="Game or publisher" value={search} onChange={e => { setSearch(e.target.value); setLimit(30); }} className={`${inputClass} pl-9`} /></label></div>
-        <div className="overflow-x-auto"><table className="w-full min-w-[640px] text-left text-sm"><thead className="bg-surface-table text-xs text-slate-500"><tr>{["Game / store", "Signal", "Latest day", "Growth", "Added / day"].map(h => <th key={h} className="px-4 py-3 font-semibold">{h}</th>)}</tr></thead><tbody>{visible.slice(0,limit).map(g => <tr key={`${g.store}:${g.appId}`} className={`border-t border-line/60 ${selected===g ? "bg-cobalt/5" : ""}`}><td className="px-4 py-4"><button aria-label={`Inspect ${g.name}, ${g.store}`} onClick={() => setSelection(`${g.store}:${g.appId}`)} className="focus-ring text-left font-bold text-cobalt">{g.name}</button><p className="mt-1 text-xs text-slate-500">{g.publisher || "Publisher unavailable"} · {g.store === "ios" ? "iOS" : "Android"}</p></td><td className="px-4 py-4 text-ink">{labels[g.evaluation.signal]}</td><td className="px-4 py-4 font-mono text-ink">{number(g.evaluation.latest)}</td><td className="px-4 py-4 font-mono text-ink">{growth(g)}</td><td className="px-4 py-4 font-mono text-ink">{g.evaluation.added === null ? "—" : `+${number(g.evaluation.added)}`}</td></tr>)}</tbody></table></div>
+        <div className="overflow-x-auto"><table className="w-full min-w-[640px] text-left text-sm"><thead className="bg-surface-table text-xs text-slate-500"><tr>{["Game / store", "Signal", "Latest day", "Growth", "Added / day"].map(h => <th key={h} className="px-4 py-3 font-semibold">{h}</th>)}</tr></thead><tbody>{visible.slice(0,limit).map(g => <tr key={`${g.store}:${g.appId}`} className={`border-t border-line/60 ${selected===g ? "bg-cobalt/5" : ""}`}><td className="px-4 py-4"><div className="flex items-center gap-3"><GameIcon key={g.iconUrl ?? icons[`${g.store}:${g.appId}`] ?? "missing"} url={g.iconUrl ?? icons[`${g.store}:${g.appId}`]} /><div><button aria-label={`Inspect ${g.name}, ${g.store}`} onClick={() => setSelection(`${g.store}:${g.appId}`)} className="focus-ring text-left font-bold text-cobalt">{g.name}</button><p className="mt-1 text-xs text-slate-500">{g.publisher || "Publisher unavailable"} · {g.store === "ios" ? "iOS" : "Android"}</p></div></div></td><td className="px-4 py-4 text-ink">{labels[g.evaluation.signal]}</td><td className="px-4 py-4 font-mono text-ink">{number(g.evaluation.latest)}</td><td className="px-4 py-4 font-mono text-ink">{growth(g)}</td><td className="px-4 py-4 font-mono text-ink">{g.evaluation.added === null ? "—" : `+${number(g.evaluation.added)}`}</td></tr>)}</tbody></table></div>
         {!visible.length ? <p className="p-8 text-center text-sm text-slate-500">No games match this group. Try “Needs genre review” or “All evaluated games”.</p> : null}
         {visible.length > limit ? <button className="focus-ring m-4 text-sm font-semibold text-cobalt" onClick={() => setLimit(v => v + 30)}>Show 30 more</button> : null}
       </section>

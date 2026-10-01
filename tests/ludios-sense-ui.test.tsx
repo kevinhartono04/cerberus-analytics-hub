@@ -24,6 +24,17 @@ describe("Sense page",()=>{
   expect(screen.getByText(/includes other teams/)).toBeInTheDocument();
   expect(fetch.mock.calls.every((call:any)=>call[0]==="/api/ludios-sense/usage")).toBe(true);
  });
+ it("loads cached-report icons beside game names and handles broken images",async()=>{
+  const game={appId:"1",store:"ios",name:"Test game",publisher:"Studio",genre:"Puzzle",classification:"included",url:"https://example.com",history:[],availableCountries:["US"],unavailableCountries:[],evaluation:{signal:"early_warning",flags:[],latest:2000,baseline:1000,growth:2,added:1000,recentAverage:2000},retrievedAt:new Date().toISOString()};
+  const fetch=vi.fn(async(url:string)=>url.endsWith("/icons")?Response.json({icons:{"1":"https://example.com/icon.png"},requests:1}):url.endsWith("/game")?Response.json(game):Response.json({jobKey:"sense:v1:"+"a".repeat(64),status:"completed",requests:0,progress:"Complete",result:{filters:{date:new Date().toISOString().slice(0,10),countries:["US"]},games:[game],generatedAt:new Date().toISOString(),watermarks:{ios:"2026-09-28"},coverageComplete:true}}));
+  vi.stubGlobal("fetch",fetch);const view=render(<LudiosSense/>);
+  fireEvent.click(screen.getByRole("button",{name:"Run check"}));
+  await waitFor(()=>expect(view.container.querySelector('td img')).toHaveAttribute("src","https://example.com/icon.png"));
+  expect(screen.getByRole("button",{name:"Inspect Test game, ios"})).toBeInTheDocument();
+  fireEvent.error(view.container.querySelector('td img')!);
+  expect(view.container.querySelector('td img')).toBeNull();
+  expect(fetch.mock.calls.filter(([url])=>url.endsWith("/icons"))).toHaveLength(1);
+ });
  it("disables checks when every country is unchecked",()=>{
   render(<LudiosSense/>);screen.getAllByRole("checkbox").forEach(c=>fireEvent.click(c));
   expect(screen.getByRole("button",{name:"Run check"})).toBeDisabled();
