@@ -139,14 +139,17 @@ export default function LudiosSense() {
       <fieldset disabled={Boolean(busy)} className="mt-5"><legend className="mb-3 text-xs font-semibold text-slate-500">Countries · downloads combined across your selection</legend><div className="flex flex-wrap gap-2">{senseCountryCodes.map(c => <label key={c} className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm ${countries.includes(c) ? "border-cobalt/40 bg-cobalt/10 text-ink" : "border-line text-slate-500"}`}><input type="checkbox" checked={countries.includes(c)} onChange={e => setCountries(v => e.target.checked ? [...v,c] : v.filter(x => x!==c))} className="accent-cobalt" />{senseCountries[c]}</label>)}</div></fieldset>
       <p className="mt-4 text-xs leading-5 text-slate-500">Today is selected by default. If estimates for t are unavailable, the report uses the latest completed reporting date and shows it explicitly. The minimum is 1,000 combined downloads/day per store.</p>
     </section>
-    <section aria-label="API call allowance" className="mt-4 rounded-xl border border-line bg-surface-panel p-4 text-xs leading-6 text-slate-500">
+    <details aria-label="API call allowance" className="mt-2 text-xs leading-5 text-slate-500">
+      <summary className="ml-auto w-fit cursor-pointer text-[11px] text-slate-400 hover:text-slate-500">API usage</summary>
+      <div className="mt-2 rounded-lg bg-surface-table p-3">
       {usagePlan ? <>
-        <p className="font-semibold text-ink">Ludios Sense · {usagePlan.usage.month}: {number(usagePlan.usage.used)} / {number(usagePlan.usage.limit)} calls · {number(usagePlan.usage.remaining)} remaining</p>
+        <p>Ludios Sense · {usagePlan.usage.month}: {number(usagePlan.usage.used)} / {number(usagePlan.usage.limit)} calls · {number(usagePlan.usage.remaining)} remaining</p>
         <p>{usagePlan.knownGames ? `Saved candidates: about ${usagePlan.knownHistoryCalls + usagePlan.knownMetadataCalls} calls for history and app details, plus discovery, new games and retries.` : "First scan: call estimate unavailable until candidates are discovered."}</p>
         <p>Tracking since {new Date(usagePlan.usage.trackingStartedAt).toLocaleString()}; earlier calls are excluded. At the allowance, the scan stops with incomplete coverage.</p>
         {usagePlan.usage.organizationUsed !== undefined ? <p>Sensor Tower organization usage: {number(usagePlan.usage.organizationUsed)} / {number(usagePlan.usage.organizationLimit ?? null)} · includes other teams · last observed {new Date(usagePlan.usage.organizationObservedAt!).toLocaleString()}.</p> : <p>Shared organization usage appears after Sensor Tower returns its usage headers.</p>}
       </> : <p>{usageError || "Loading API call allowance…"}</p>}
-    </section>
+      </div>
+    </details>
     {error ? <div role="alert" className="mt-4 rounded-lg border border-rose-400/40 bg-rose-400/10 p-4 text-sm text-ink">{error}</div> : null}
     {scan ? <div role="status" className="mt-5 flex items-center gap-3 rounded-lg border border-line bg-surface-panel p-4 text-sm text-ink">{scan.status === "completed" ? <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-500" /> : busy ? <Loader2 className="h-5 w-5 shrink-0 animate-spin text-cobalt" /> : <Activity className="h-5 w-5 shrink-0 text-cobalt" />}<div>{paused ? "Check paused. Resume to continue from the saved step." : scan.progress}<p className="mt-1 text-xs text-slate-500">{scan.requests} API requests{scan.cached ? " · Recently saved result reused" : ""}. One request at a time, with countries batched together. The scan continues on the server when this tab is inactive.</p></div></div> : null}
     {!scan ? <div className="my-16 text-center"><Radar className="mx-auto mb-4 h-10 w-10 text-cobalt/60" /><h2 className="text-lg font-bold text-ink">Find the next game to investigate</h2><p className="mt-2 text-sm text-slate-500">Choose a date and markets, then run a check. Both stores are included.</p></div> : null}

@@ -2,7 +2,7 @@ import { getTechLaunchReadinessCache, saveTechLaunchReadinessCache } from "@/lib
 export type SenseUsage = { month: string; used: number; limit: number; remaining: number; trackingStartedAt: string; organizationUsed?: number; organizationLimit?: number; organizationObservedAt?: string };
 const month = () => new Date().toISOString().slice(0,7);
 const key = () => "sense:usage:" + month();
-const allowance = () => { const v = Number(process.env.SENSE_MONTHLY_REQUEST_LIMIT ?? 1000); return Number.isSafeInteger(v) && v > 0 ? v : 1000; };
+const allowance = () => { const v = Number(process.env.SENSE_MONTHLY_REQUEST_LIMIT ?? 10000); return Number.isSafeInteger(v) && v > 0 ? v : 10000; };
 export async function getSenseUsage(): Promise<SenseUsage> {
   const stored = await getTechLaunchReadinessCache(key());
   const raw = stored ? JSON.parse(stored.payload) : {};
