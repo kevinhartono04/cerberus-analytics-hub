@@ -19,7 +19,7 @@ async function save(key: string, value: unknown) { await saveTechLaunchReadiness
 async function load<T>(key: string): Promise<T | null> { const record = await getTechLaunchReadinessCache(key); return record && (!record.expiresAt || record.expiresAt > now()) ? JSON.parse(record.payload) as T : null; }
 function needsBackfill(app: App, countries: SenseCountry[], t: string) {
   return countries.some(country => {
-    const coverage = app.countryHistory?.[country] ?? (app.backfilled && app.histories[country] !== undefined && app.historyStart && app.historyEnd ? { start: app.historyStart, end: app.historyEnd } : null);
+    const coverage = app.countryHistory?.[country] ?? (app.countryHistory === undefined && app.backfilled && app.histories[country] !== undefined && app.historyStart && app.historyEnd ? { start: app.historyStart, end: app.historyEnd } : null);
     return !coverage || coverage.start > shiftDate(t,-27) || coverage.end < shiftDate(t,-7);
   });
 }
@@ -35,8 +35,9 @@ function mergeHistories(first: Record<SenseStore, StoreState> | null, second: Re
     const apps: Record<string, App> = {};
     for (const source of [left, right]) for (const [id, original] of Object.entries(source?.apps ?? {})) {
       const incoming = structuredClone(original);
+      const legacy = incoming.countryHistory === undefined;
       incoming.countryHistory ??= {};
-      if (incoming.backfilled && incoming.historyStart && incoming.historyEnd) for (const country of countries) {
+      if (legacy && incoming.backfilled && incoming.historyStart && incoming.historyEnd) for (const country of countries) {
         if (incoming.histories[country] !== undefined && !incoming.countryHistory[country]) incoming.countryHistory[country] = { start: incoming.historyStart, end: incoming.historyEnd, at: incoming.historyAt ?? "" };
       }
       const current = apps[id];
@@ -57,9 +58,15 @@ function mergeHistories(first: Record<SenseStore, StoreState> | null, second: Re
   return combined;
 }
 
+async function warmHistory(filters: SenseFilters) {
+  const basket = await load<Record<SenseStore, StoreState>>(historyKey(filters));
+  const shared = await load<Record<SenseStore, StoreState>>(sharedHistoryKey) ?? (filters.countries.length === 7 ? basket : await load<Record<SenseStore, StoreState>>("sense:history:AU,CA,DE,GB,JP,RU,US"));
+  return mergeHistories(shared, basket, filters.countries);
+}
+
 export async function estimateSense(filters: SenseFilters) {
   const usage = await getSenseUsage();
-  const previous = mergeHistories(await load<Record<SenseStore, StoreState>>(sharedHistoryKey), await load<Record<SenseStore, StoreState>>(historyKey(filters)), filters.countries);
+  const previous = await warmHistory(filters);
   const today = now().slice(0,10), t = filters.date < today ? filters.date : shiftDate(today,-1);
   let historyCalls = 0, metadataCalls = 0, knownGames = 0;
   for (const store of stores) {
@@ -144,9 +151,7 @@ export async function startSense(filters: SenseFilters): Promise<SenseRunRespons
   try {
     const existing = await load<Job>(key);
     if (existing?.status === "running" || existing?.status === "completed" && Date.now() - Date.parse(existing.updatedAt) < 15 * 60000) return response(existing, existing.status === "completed");
-    const basket = await load<Record<SenseStore, StoreState>>(historyKey(filters));
-    const shared = await load<Record<SenseStore, StoreState>>(sharedHistoryKey);
-    const previous = mergeHistories(shared, basket, filters.countries);
+    const previous = await warmHistory(filters);
     const today = now().slice(0,10);
     const latest = filters.date < today ? filters.date : shiftDate(today, -1);
     const states = Object.fromEntries(stores.map(store => {

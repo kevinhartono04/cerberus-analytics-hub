@@ -145,6 +145,23 @@ describe("resumable Sense scan",()=>{
     expect(batches).toEqual([100,1,1,1,1]);
     expect(JSON.parse(records.get(run.jobKey)!).stores.android.historyIndex).toBe(101);
   });
+  it("migrates an existing seven-country cache for a narrower selection without new upstream calls",async()=>{
+    const countries=["AU","CA","DE","GB","JP","RU","US"] as any;
+    const run=await startSense({date:t,countries}),job=JSON.parse(records.get(run.jobKey)!);
+    for(const store of ["android","ios"])job.stores[store].apps={"123":{appId:"123",name:"Game",publisher:"Studio",categories:store==="ios"?["7012"]:["GAME_PUZZLE"],releaseDate:null,metadataAt:new Date().toISOString(),discoveredDate:t,histories:Object.fromEntries(countries.map((c:string)=>[c,{}])),backfilled:true,historyStart:shiftDate(t,-27),historyEnd:t}};
+    records.set("sense:history:AU,CA,DE,GB,JP,RU,US",JSON.stringify(job.stores));
+    const plan=await estimateSense({date:t,countries:["US"]});
+    expect(plan.knownGames).toBe(2);expect(plan.knownHistoryCalls).toBe(2);expect(plan.knownMetadataCalls).toBe(0);
+  });
+  it("does not mistake a partially retrieved newly selected country for complete coverage",async()=>{
+    const run=await startSense({date:t,countries:["JP","US"]}),job=JSON.parse(records.get(run.jobKey)!);
+    Object.assign(job.stores.android,{phase:"history",watermark:t,historyIds:["123"],historyIndex:0,week:0});
+    job.stores.android.apps={"123":{appId:"123",name:"Game",publisher:"Studio",categories:["GAME_PUZZLE"],releaseDate:null,discoveredDate:t,histories:{US:{},JP:{[t]:3}},countryHistory:{US:{start:shiftDate(t,-27),end:t,at:new Date().toISOString()}},backfilled:true,historyStart:shiftDate(t,-27),historyEnd:t}};
+    records.set(run.jobKey,JSON.stringify(job));
+    const fetch=vi.fn(async()=>Response.json([]));vi.stubGlobal("fetch",fetch);
+    for(let i=0;i<4;i++)await advanceSense(run.jobKey);
+    expect(fetch).toHaveBeenCalledTimes(4);expect(JSON.parse(records.get(run.jobKey)!).stores.android.historyIndex).toBe(1);
+  });
   it("stops at the monthly allowance without another API call and clearly marks partial coverage",async()=>{
     process.env.SENSE_MONTHLY_REQUEST_LIMIT="2";
     const fetch=vi.fn(async()=>Response.json({data:[{app_id:"123",est_mobile_downloads:2000}],meta:{total_count:1}}));vi.stubGlobal("fetch",fetch);
