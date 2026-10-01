@@ -25,15 +25,34 @@ describe("Sense page",()=>{
   expect(fetch.mock.calls.every((call:any)=>call[0]==="/api/ludios-sense/usage")).toBe(true);
  });
  it("loads cached-report icons beside game names and handles broken images",async()=>{
-  const game={appId:"1",store:"ios",name:"Test game",publisher:"Studio",genre:"Puzzle",classification:"included",url:"https://example.com",history:[],availableCountries:["US"],unavailableCountries:[],evaluation:{signal:"early_warning",flags:[],latest:2000,baseline:1000,growth:2,added:1000,recentAverage:2000},retrievedAt:new Date().toISOString()};
+  const game={appId:"1",store:"ios",name:"Test game",publisher:"Studio",genre:"Games, Entertainment, Games/Puzzle",classification:"included",url:"https://example.com",history:[],availableCountries:["US"],unavailableCountries:[],evaluation:{signal:"early_warning",flags:[],latest:2000,baseline:1000,growth:2,added:1000,recentAverage:2000},retrievedAt:new Date().toISOString()};
   const fetch=vi.fn(async(url:string)=>url.endsWith("/icons")?Response.json({icons:{"1":"https://example.com/icon.png"},requests:1}):url.endsWith("/game")?Response.json(game):Response.json({jobKey:"sense:v1:"+"a".repeat(64),status:"completed",requests:0,progress:"Complete",result:{filters:{date:new Date().toISOString().slice(0,10),countries:["US"]},games:[game],generatedAt:new Date().toISOString(),watermarks:{ios:"2026-09-28"},coverageComplete:true}}));
   vi.stubGlobal("fetch",fetch);const view=render(<LudiosSense/>);
   fireEvent.click(screen.getByRole("button",{name:"Run check"}));
   await waitFor(()=>expect(view.container.querySelector('td img')).toHaveAttribute("src","https://example.com/icon.png"));
   expect(screen.getByRole("button",{name:"Inspect Test game, ios"})).toBeInTheDocument();
+  expect(view.container.querySelector("td")).toHaveTextContent("Puzzle");
+  expect(view.container.querySelector("td")).not.toHaveTextContent("Entertainment");
+  expect(view.container.querySelector("td")).not.toHaveTextContent("Games/");
   fireEvent.error(view.container.querySelector('td img')!);
   expect(view.container.querySelector('td img')).toBeNull();
   expect(fetch.mock.calls.filter(([url])=>url.endsWith("/icons"))).toHaveLength(1);
+ });
+ it("shows a verified cross-store game once with separate metrics and selectable store reports",async()=>{
+  const ios={appId:"1",store:"ios",name:"Japanese iOS title",publisher:"SEGA",genre:"Games, Entertainment, Games/Puzzle",unifiedAppId:"same",iconUrl:null,classification:"included",url:"https://example.com",history:[],availableCountries:["US"],unavailableCountries:[],evaluation:{signal:"confirmed_momentum",flags:[],latest:4395,baseline:1000,growth:4.19,added:3370,recentAverage:4395},retrievedAt:new Date().toISOString()};
+  const android={...ios,appId:"pkg",store:"android",name:"Japanese Android title",genre:"Puzzle",evaluation:{...ios.evaluation,latest:2507,growth:2.43,added:1675}};
+  const fetch=vi.fn(async(url:string,init:RequestInit)=>url.endsWith("/game")?Response.json(JSON.parse(init.body as string).store==="android"?android:ios):Response.json({jobKey:"sense:v1:"+"a".repeat(64),status:"completed",requests:0,progress:"Complete",result:{filters:{date:new Date().toISOString().slice(0,10),countries:["US"]},games:[ios,android],generatedAt:new Date().toISOString(),watermarks:{ios:"2026-09-28"},coverageComplete:true}}));
+  vi.stubGlobal("fetch",fetch);const view=render(<LudiosSense/>);
+  fireEvent.click(screen.getByRole("button",{name:"Run check"}));
+  await waitFor(()=>expect(view.container.querySelector('td[rowspan="2"]')).toBeInTheDocument());
+  expect(view.container.querySelector("table")).toHaveTextContent("4,395");expect(view.container.querySelector("table")).toHaveTextContent("2,507");
+  expect(view.container.querySelectorAll("table tbody")).toHaveLength(1);
+  fireEvent.click(screen.getByRole("button",{name:"View Android report for Japanese Android title"}));
+  await waitFor(()=>expect(screen.getByRole("heading",{name:"Japanese Android title"})).toBeInTheDocument());
+  fireEvent.change(screen.getByLabelText("Store"),{target:{value:"android"}});
+  expect(view.container.querySelectorAll("table tbody tr")).toHaveLength(1);
+  expect(view.container.querySelector("table")).not.toHaveTextContent("4,395");
+  expect(fetch.mock.calls.some(([url])=>url.endsWith("/icons"))).toBe(false);
  });
  it("disables checks when every country is unchecked",()=>{
   render(<LudiosSense/>);screen.getAllByRole("checkbox").forEach(c=>fireEvent.click(c));

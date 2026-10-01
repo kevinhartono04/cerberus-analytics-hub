@@ -9,17 +9,17 @@ const games = [{appId:"1"},{appId:"2"}] as SenseGame[];
 beforeEach(()=>{vi.clearAllMocks();cache.clear();process.env.SENSOR_TOWER_TOKEN="icon-test-token";claim.mockResolvedValue(true);});
 describe("Sense icon metadata",()=>{
   it("batches visible games once, caches missing icons, and reuses them across reports",async()=>{
-    transport.mockResolvedValue({status:200,body:JSON.stringify({apps:[{app_id:"1",icon_url:"https://example.com/icon.png"}]})});
-    expect(await getSenseIcons(games,"ios","US")).toEqual({icons:{"1":"https://example.com/icon.png","2":null},requests:1});
+    transport.mockResolvedValue({status:200,body:JSON.stringify({apps:[{app_id:"1",icon_url:"https://example.com/icon.png",unified_app_id:"unified-1"}]})});
+    expect(await getSenseIcons(games,"ios","US")).toEqual({icons:{"1":"https://example.com/icon.png","2":null},unifiedIds:{"1":"unified-1","2":null},requests:1});
     const url=transport.mock.calls[0][0] as URL;
     expect(url.pathname).toBe("/v1/ios/apps");expect(url.searchParams.get("app_ids")).toBe("1,2");
-    expect(await getSenseIcons(games,"ios","JP")).toEqual({icons:{"1":"https://example.com/icon.png","2":null},requests:0});
+    expect(await getSenseIcons(games,"ios","JP")).toEqual({icons:{"1":"https://example.com/icon.png","2":null},unifiedIds:{"1":"unified-1","2":null},requests:0});
     expect(transport).toHaveBeenCalledTimes(1);expect(reserve).toHaveBeenCalledTimes(1);
     expect(JSON.stringify([...cache.values()])).not.toContain("icon-test-token");
     expect(release).toHaveBeenCalledWith("sense:upstream:lease",expect.any(String),1000);
   });
   it("uses existing metadata without calls and rejects unsafe URLs",async()=>{
-    expect(await getSenseIcons([{appId:"1",iconUrl:"https://example.com/icon.png"}] as SenseGame[],"android","US")).toEqual({icons:{"1":"https://example.com/icon.png"},requests:0});
+    expect(await getSenseIcons([{appId:"1",iconUrl:"https://example.com/icon.png",unifiedAppId:null}] as SenseGame[],"android","US")).toEqual({icons:{"1":"https://example.com/icon.png"},unifiedIds:{"1":null},requests:0});
     expect(transport).not.toHaveBeenCalled();
     for(const url of ["javascript:alert(1)","http://example.com/x","https://user:pass@example.com/x","https://example.com/x?auth_token=secret"]) expect(safeSenseIconUrl(url)).toBeNull();
   });

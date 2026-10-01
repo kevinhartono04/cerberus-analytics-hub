@@ -14,18 +14,20 @@ export function safeSenseIconUrl(value: unknown): string | null {
 /** Only callers with a validated report selection may request these metadata batches. */
 export async function getSenseIcons(games: SenseGame[], store: SenseStore, country: SenseCountry) {
   const icons: Record<string, string | null> = {};
+  const unifiedIds: Record<string, string | null> = {};
   async function missing() {
     const ids: string[] = [];
     for (const game of games) {
-      if (game.iconUrl !== undefined) { icons[game.appId] = safeSenseIconUrl(game.iconUrl); continue; }
+      if (game.iconUrl !== undefined && game.unifiedAppId !== undefined) { icons[game.appId] = safeSenseIconUrl(game.iconUrl); unifiedIds[game.appId] = game.unifiedAppId; continue; }
       const cached = await getTechLaunchReadinessCache(key(store, game.appId));
-      if (cached?.expiresAt && cached.expiresAt > new Date().toISOString()) icons[game.appId] = safeSenseIconUrl(JSON.parse(cached.payload).iconUrl);
+      const metadata = cached ? JSON.parse(cached.payload) : null;
+      if (cached?.expiresAt && cached.expiresAt > new Date().toISOString() && metadata.unifiedAppId !== undefined) { icons[game.appId] = safeSenseIconUrl(metadata.iconUrl); unifiedIds[game.appId] = metadata.unifiedAppId; }
       else ids.push(game.appId);
     }
     return ids;
   }
   let ids = await missing();
-  if (!ids.length) return { icons, requests: 0 };
+  if (!ids.length) return { icons, unifiedIds, requests: 0 };
   const token = process.env.SENSOR_TOWER_TOKEN;
   if (!token) throw new Response("Icon metadata unavailable", { status: 503 });
   const lease = randomUUID();
@@ -33,7 +35,7 @@ export async function getSenseIcons(games: SenseGame[], store: SenseStore, count
   let requested = false;
   try {
     ids = await missing(); // Another page may have filled the cache before we acquired the lease.
-    if (!ids.length) return { icons, requests: 0 };
+    if (!ids.length) return { icons, unifiedIds, requests: 0 };
     await reserveSenseRequest();
     const url = new URL(`/v1/${store}/apps`, "https://api.sensortower.com");
     url.searchParams.set("app_ids", ids.join(",")); url.searchParams.set("country", country); url.searchParams.set("auth_token", token);
@@ -43,11 +45,13 @@ export async function getSenseIcons(games: SenseGame[], store: SenseStore, count
     if (response.status !== 200) throw new Error("Icon metadata unavailable");
     const payload = JSON.parse(response.body.replaceAll(token, "[REDACTED]"));
     if (!Array.isArray(payload.apps)) throw new Error("Unexpected icon metadata response");
-    const received = new Map(payload.apps.map((app: Record<string, unknown>) => [String(app.app_id), safeSenseIconUrl(app.icon_url)]));
+    const received = new Map(payload.apps.map((app: Record<string, unknown>) => [String(app.app_id), { iconUrl: safeSenseIconUrl(app.icon_url), unifiedAppId: typeof app.unified_app_id === "string" && app.unified_app_id.trim() ? app.unified_app_id.trim() : null }]));
     for (const id of ids) {
-      icons[id] = received.get(id) as string | null ?? null;
-      await saveTechLaunchReadinessCache({ cacheKey: key(store,id), payload: JSON.stringify({ iconUrl: icons[id] }), createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + ttl).toISOString() });
+      const metadata = received.get(id) as {iconUrl:string|null;unifiedAppId:string|null} | undefined;
+      icons[id] = metadata?.iconUrl ?? null;
+      unifiedIds[id] = metadata?.unifiedAppId ?? null;
+      await saveTechLaunchReadinessCache({ cacheKey: key(store,id), payload: JSON.stringify({ iconUrl: icons[id], unifiedAppId: unifiedIds[id] }), createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + ttl).toISOString() });
     }
-    return { icons, requests: 1 };
+    return { icons, unifiedIds, requests: 1 };
   } finally { await releaseSenseLease("sense:upstream:lease", lease, requested ? 1000 : 0); }
 }

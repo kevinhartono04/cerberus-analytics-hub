@@ -3,6 +3,7 @@
 import { Activity, ArrowUpRight, CheckCircle2, Gamepad2, Loader2, Play, Radar, Search } from "lucide-react";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { SenseUsage } from "@/lib/ludios-sense-usage";
+import { groupSenseGames, senseTableGenres } from "@/lib/ludios-sense-presentation";
 import CerberusShell from "@/components/CerberusShell";
 import { senseCountries, senseCountryCodes, type SenseCountry, type SenseGame, type SenseRunResponse } from "@/lib/ludios-sense-types";
 
@@ -67,6 +68,7 @@ export default function LudiosSense() {
   const [detailError, setDetailError] = useState("");
   const [icons, setIcons] = useState<Record<string, string | null>>({});
   const [iconRequests, setIconRequests] = useState(0);
+  const [unifiedIds, setUnifiedIds] = useState<Record<string,string|null>>({});
   const controller = useRef<AbortController | null>(null);
   const busy = submitting || scan?.status === "running" && !paused;
   const result = scan?.result;
@@ -74,14 +76,15 @@ export default function LudiosSense() {
   const visible = useMemo(() => games.filter(game => (store === "all" || game.store === store) &&
     (group === "all" || group === "included" && active(game) && game.classification === "included" || group === "review" && active(game) && game.classification === "review" || group === "traction" && game.evaluation.signal === "launch_traction") &&
     `${game.name} ${game.publisher} ${game.appId}`.toLowerCase().includes(search.toLowerCase())), [games, group, store, search]);
-  const iconSelection = JSON.stringify(visible.slice(0,limit).filter(g => g.iconUrl === undefined).map(g => ({ appId:g.appId, store:g.store })));
+  const grouped = useMemo(() => groupSenseGames(visible,unifiedIds),[visible,unifiedIds]);
+  const iconSelection = JSON.stringify(grouped.slice(0,limit).flatMap(group=>group.members).filter(g => g.iconUrl === undefined || g.unifiedAppId === undefined).map(g => ({ appId:g.appId, store:g.store })));
   useEffect(() => {
     if (!scan?.jobKey) return;
     const abort = new AbortController();
     const selection = JSON.parse(iconSelection) as Array<{appId:string;store:"ios"|"android"}>;
     void (async () => {
       for (const store of ["ios","android"] as const) {
-        const ids = selection.filter(g => g.store === store && icons[`${store}:${g.appId}`] === undefined).map(g => g.appId);
+        const ids = selection.filter(g => g.store === store && (icons[`${store}:${g.appId}`] === undefined || unifiedIds[`${store}:${g.appId}`] === undefined)).map(g => g.appId);
         for (let i=0; i<ids.length && !abort.signal.aborted; i+=100) {
           const batch = ids.slice(i,i+100);
           try {
@@ -92,9 +95,12 @@ export default function LudiosSense() {
               await new Promise<void>(resolve => { const timer = setTimeout(resolve,2000); abort.signal.addEventListener("abort",()=>{clearTimeout(timer);resolve();},{once:true}); });
             }
             if (!response?.ok || abort.signal.aborted) continue;
-            const value = await response.json() as {icons:Record<string,string|null>;requests:number};
+            const value = await response.json() as {icons:Record<string,string|null>;unifiedIds?:Record<string,string|null>;requests:number};
             if (!abort.signal.aborted && value.requests) setIconRequests(count => count + value.requests);
-            if (!abort.signal.aborted) setIcons(old => ({...old,...Object.fromEntries(Object.entries(value.icons).map(([id,url])=>[`${store}:${id}`,url]))}));
+            if (!abort.signal.aborted) {
+              setIcons(old => ({...old,...Object.fromEntries(Object.entries(value.icons).map(([id,url])=>[`${store}:${id}`,url]))}));
+              setUnifiedIds(old => ({...old,...Object.fromEntries(Object.entries(value.unifiedIds ?? {}).map(([id,unified])=>[`${store}:${id}`,unified]))}));
+            }
           } catch { /* Icons are optional; a placeholder keeps the report usable. */ }
         }
       }
@@ -191,14 +197,25 @@ export default function LudiosSense() {
     {!scan ? <div className="my-16 text-center"><Radar className="mx-auto mb-4 h-10 w-10 text-cobalt/60" /><h2 className="text-lg font-bold text-ink">Find the next game to investigate</h2><p className="mt-2 text-sm text-slate-500">Choose a date and markets, then run a check. Both stores are included.</p></div> : null}
     {result ? <>
       {!result.coverageComplete ? <div role="alert" className="mt-4 rounded-lg border border-amber-400/40 p-4 text-sm text-ink">Partial coverage: {result.errors.join(" ")} Results include only games whose history finished loading. Other games may have been missed.</div> : null}
-      <div className="my-6 grid gap-3 sm:grid-cols-3">{[["Growth signals",games.filter(g => active(g) && g.classification === "included").length],["Awaiting genre review",games.filter(g => active(g) && g.classification === "review").length],["Games / stores evaluated",games.length]].map(([label,value]) => <div key={label} className="rounded-xl border border-line bg-surface-panel p-5"><p className="text-xs font-semibold text-slate-500">{label}</p><p className="mt-2 text-3xl font-bold text-ink">{value}</p></div>)}</div>
+      <div className="my-6 grid gap-3 sm:grid-cols-3">{[["Growth games",groupSenseGames(games.filter(g => active(g) && g.classification === "included"),unifiedIds).length],["Awaiting genre review",groupSenseGames(games.filter(g => active(g) && g.classification === "review"),unifiedIds).length],["Games / stores evaluated",games.length]].map(([label,value]) => <div key={label} className="rounded-xl border border-line bg-surface-panel p-5"><p className="text-xs font-semibold text-slate-500">{label}</p><p className="mt-2 text-3xl font-bold text-ink">{value}</p></div>)}</div>
       <p className="mb-4 text-xs leading-5 text-slate-500">Requested t: {result.filters.date} · Evaluated: Android {result.watermarks.android ?? "unavailable"}, iOS {result.watermarks.ios ?? "unavailable"} · Retrieved {new Date(result.generatedAt).toLocaleString()} · Countries: {result.filters.countries.map(c => senseCountries[c]).join(", ")}. {result.coverageComplete ? "Discovery and history requests completed." : "Incomplete coverage."} Latest Android estimates are provisional.</p>
       {changed ? <p className="mb-4 rounded-lg border border-amber-400/40 p-3 text-sm text-ink">Filters changed. Run check to update the report; the results below use the selection shown above.</p> : null}
       <section className="overflow-hidden rounded-xl border border-line bg-surface-panel">
         <div className="flex flex-wrap items-center gap-3 border-b border-line p-4"><h2 className="mr-auto text-base font-bold text-ink">Research shortlist</h2><select aria-label="Signal group" className={inputClass} value={group} onChange={e => { setGroup(e.target.value); setLimit(30); }}><option value="included">In-scope growth</option><option value="review">Needs genre review</option><option value="traction">Traction, unconfirmed</option><option value="all">All evaluated games</option></select><select aria-label="Store" className={inputClass} value={store} onChange={e => { setStore(e.target.value); setLimit(30); }}><option value="all">Both stores</option><option value="ios">iOS</option><option value="android">Android</option></select><label className="relative"><Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-500" /><input aria-label="Search games" placeholder="Game or publisher" value={search} onChange={e => { setSearch(e.target.value); setLimit(30); }} className={`${inputClass} pl-9`} /></label></div>
-        <div className="overflow-x-auto"><table className="w-full min-w-[640px] text-left text-sm"><thead className="bg-surface-table text-xs text-slate-500"><tr>{["Game / store", "Signal", "Latest day", "Growth", "Added / day"].map(h => <th key={h} className="px-4 py-3 font-semibold">{h}</th>)}</tr></thead><tbody>{visible.slice(0,limit).map(g => <tr key={`${g.store}:${g.appId}`} className={`border-t border-line/60 ${selected===g ? "bg-cobalt/5" : ""}`}><td className="px-4 py-4"><div className="flex items-center gap-3"><GameIcon key={g.iconUrl ?? icons[`${g.store}:${g.appId}`] ?? "missing"} url={g.iconUrl ?? icons[`${g.store}:${g.appId}`]} /><div><button aria-label={`Inspect ${g.name}, ${g.store}`} onClick={() => setSelection(`${g.store}:${g.appId}`)} className="focus-ring text-left font-bold text-cobalt">{g.name}</button><p className="mt-1 text-xs text-slate-500">{g.publisher || "Publisher unavailable"} · {g.store === "ios" ? "iOS" : "Android"}</p></div></div></td><td className="px-4 py-4 text-ink">{labels[g.evaluation.signal]}</td><td className="px-4 py-4 font-mono text-ink">{number(g.evaluation.latest)}</td><td className="px-4 py-4 font-mono text-ink">{growth(g)}</td><td className="px-4 py-4 font-mono text-ink">{g.evaluation.added === null ? "—" : `+${number(g.evaluation.added)}`}</td></tr>)}</tbody></table></div>
+        <div className="overflow-x-auto"><table className="w-full min-w-[640px] text-left text-sm"><thead className="bg-surface-table text-xs text-slate-500"><tr>{["Game / store", "Signal", "Latest day", "Growth", "Added / day"].map(h => <th key={h} className="px-4 py-3 font-semibold">{h}</th>)}</tr></thead>
+          {grouped.slice(0,limit).map(({key,members}) => <tbody key={key} className="border-t border-line/60">{members.map((g,index) => <tr key={`${g.store}:${g.appId}`} className={selected===g ? "bg-cobalt/5" : ""}>
+            {index===0 ? <td rowSpan={members.length} className="px-4 py-4 align-middle"><div className="flex items-center gap-3"><GameIcon key={g.iconUrl ?? icons[`${g.store}:${g.appId}`] ?? "missing"} url={g.iconUrl ?? icons[`${g.store}:${g.appId}`]} /><div>
+              <button aria-label={`Inspect ${g.name}, ${g.store}`} onClick={() => setSelection(`${g.store}:${g.appId}`)} className="focus-ring text-left font-bold text-cobalt">{g.name}</button>
+              <p className="mt-1 text-xs text-slate-500">{g.publisher || "Publisher unavailable"}{members.length===1 ? ` · ${g.store === "ios" ? "iOS" : "Android"}` : ""}</p>
+              {senseTableGenres(members) ? <p className="mt-1 text-xs text-slate-500">{senseTableGenres(members)}</p> : null}
+              {members.length>1 ? <div className="mt-2 flex gap-2">{members.map(member=><button key={`${member.store}:${member.appId}`} aria-label={`View ${member.store === "ios" ? "iOS" : "Android"} report for ${member.name}`} onClick={()=>setSelection(`${member.store}:${member.appId}`)} className="focus-ring rounded border border-line px-2 py-0.5 text-[11px] text-cobalt">{member.store === "ios" ? "iOS" : "Android"}</button>)}</div> : null}
+            </div></div></td> : null}
+            <td className="px-4 py-4 text-ink">{members.length>1 ? <p className="mb-1 text-xs text-slate-500">{g.store === "ios" ? "iOS" : "Android"}</p> : null}{labels[g.evaluation.signal]}</td>
+            <td className="px-4 py-4 font-mono text-ink">{number(g.evaluation.latest)}</td><td className="px-4 py-4 font-mono text-ink">{growth(g)}</td><td className="px-4 py-4 font-mono text-ink">{g.evaluation.added === null ? "—" : `+${number(g.evaluation.added)}`}</td>
+          </tr>)}</tbody>)}
+        </table></div>
         {!visible.length ? <p className="p-8 text-center text-sm text-slate-500">No games match this group. Try “Needs genre review” or “All evaluated games”.</p> : null}
-        {visible.length > limit ? <button className="focus-ring m-4 text-sm font-semibold text-cobalt" onClick={() => setLimit(v => v + 30)}>Show 30 more</button> : null}
+        {grouped.length > limit ? <button className="focus-ring m-4 text-sm font-semibold text-cobalt" onClick={() => setLimit(v => v + 30)}>Show 30 more</button> : null}
       </section>
       {selected ? <section className="mt-6 rounded-xl border border-line bg-surface-panel p-5" aria-label="Selected game detail"><div className="mb-5 flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-xl font-bold text-ink">{selected.name}</h2><p className="mt-1 text-xs text-slate-500">{selected.publisher} · {selected.store === "ios" ? "iOS" : "Android"} · {selected.genre}</p></div><a href={selected.url} target="_blank" rel="noreferrer" className="focus-ring inline-flex items-center gap-1 text-sm font-semibold text-cobalt">Open store listing <ArrowUpRight className="h-4 w-4" /></a></div>
         <div className="mb-5 grid gap-3 sm:grid-cols-3">{[["Latest 3-day average",number(selected.evaluation.recentAverage)],["Rule baseline",number(selected.evaluation.baseline)],["Trigger",selected.evaluation.variant?.replaceAll("_"," ") ?? labels[selected.evaluation.signal]]].map(([label,value]) => <div key={label} className="rounded-lg bg-surface-table p-3"><p className="text-xs text-slate-500">{label}</p><p className="mt-1 text-sm font-bold text-ink">{value}</p></div>)}</div>

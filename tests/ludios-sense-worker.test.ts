@@ -72,7 +72,7 @@ describe("resumable Sense scan",()=>{
     vi.stubGlobal("fetch",vi.fn(async(input:URL)=>{
       const url=new URL(input);calls.push(url);let data:unknown;
       if(url.pathname==="/v1/facets/metrics") data={data:[{app_id:"123",est_mobile_downloads:2000}],meta:{total_count:1},entities:{app_id:{"123":{name:"Test game"}}}};
-      else if(url.pathname.endsWith("/apps")) data={apps:[{app_id:"123",name:"Test game",publisher_name:"Studio",icon_url:"https://example.com/game.png",categories:url.pathname.includes("ios")?["7012"]:["GAME_PUZZLE"],release_date:"2026-07-31"}]};
+      else if(url.pathname.endsWith("/apps")) data={apps:[{app_id:"123",name:"Test game",publisher_name:"Studio",icon_url:"https://example.com/game.png",unified_app_id:"unified-test",categories:url.pathname.includes("ios")?["7012"]:["GAME_PUZZLE"],release_date:"2026-07-31"}]};
       else {
         const start=url.searchParams.get("start_date")!,end=url.searchParams.get("end_date")!;
         const rows=[];
@@ -88,7 +88,7 @@ describe("resumable Sense scan",()=>{
     for(let i=0;i<40&&run.status==="running";i++) run=await advanceSense(run.jobKey);
     expect(run.status).toBe("completed");
     expect(run.result?.games).toHaveLength(2);
-    expect(run.result?.games.every(g=>g.iconUrl==="https://example.com/game.png")).toBe(true);
+    expect(run.result?.games.every(g=>g.iconUrl==="https://example.com/game.png" && g.unifiedAppId==="unified-test")).toBe(true);
     expect(run.result?.games.map(g=>g.evaluation.signal)).toEqual(["confirmed_momentum","confirmed_momentum"]);
     expect(run.result?.games[0].evaluation.latest).toBe(1200);
     expect(run.result?.games[0].history).toEqual([]);

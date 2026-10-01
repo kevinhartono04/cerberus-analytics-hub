@@ -6,7 +6,7 @@ import { claimSenseLease, getTechLaunchReadinessCache, listPendingSenseJobs, rel
 import { aggregateSenseHistory, classifySense, evaluateSense, senseRuleVersion, shiftDate, validDownloads } from "@/lib/ludios-sense-detection";
 import type { SenseCountry, SenseFilters, SenseGame, SenseResult, SenseRunResponse, SenseStore } from "@/lib/ludios-sense-types";
 
-type App = { appId: string; name: string; publisher: string; iconUrl?: string | null; categories: string[]; releaseDate: string | null; metadataAt?: string; discoveredDate: string; histories: Partial<Record<SenseCountry, Record<string, number | null>>>; countryHistory?: Partial<Record<SenseCountry, { start: string; end: string; at: string }>>; backfilled?: boolean; historyStart?: string; historyEnd?: string; historyAt?: string };
+type App = { appId: string; name: string; publisher: string; iconUrl?: string | null; unifiedAppId?: string | null; categories: string[]; releaseDate: string | null; metadataAt?: string; discoveredDate: string; histories: Partial<Record<SenseCountry, Record<string, number | null>>>; countryHistory?: Partial<Record<SenseCountry, { start: string; end: string; at: string }>>; backfilled?: boolean; historyStart?: string; historyEnd?: string; historyAt?: string };
 type StoreState = { apps: Record<string, App>; ids: string[]; historyIds: string[]; watermark?: string; rankingDate: string; datesFound: number; daysChecked: number; offset: number; lastDownloads: number; metadataIndex: number; historyIndex: number; week: number; historyBatchSize?: number; phase: "discovery" | "metadata" | "history" | "done" };
 type Job = { jobKey: string; filters: SenseFilters; status: SenseRunResponse["status"]; createdAt: string; updatedAt: string; requests: number; progress: string; stores: Record<SenseStore, StoreState>; store: SenseStore; result?: SenseResult; error?: string; retry: number; retryAt?: string; receipts: Array<{ endpoint: string; parameters: Record<string, string | number>; retrievedAt: string }> };
 const stores: SenseStore[] = ["android", "ios"];
@@ -271,6 +271,7 @@ async function step(job: Job) {
         if (!app || !batch.includes(app.appId)) throw new Error("Unexpected app in metadata response");
         app.name = String(raw.name ?? app.name); app.publisher = String(raw.publisher_name ?? "");
         app.iconUrl = safeSenseIconUrl(raw.icon_url);
+        app.unifiedAppId = typeof raw.unified_app_id === "string" && raw.unified_app_id.trim() ? raw.unified_app_id.trim() : null;
         app.categories = Array.isArray(raw.categories) ? raw.categories.map(String) : [];
         app.releaseDate = typeof raw.release_date === "string" ? raw.release_date.slice(0,10) : null;
       }
@@ -342,7 +343,7 @@ async function finish(job: Job, complete = true) {
       const evaluation = evaluateSense(aggregate.history, t, app.releaseDate);
       if (store === "android") evaluation.flags.push("latest_android_provisional");
       if (aggregate.unavailableCountries.length) evaluation.flags.push("some_countries_unavailable");
-      games.push({ appId: id, store, name: app.name, publisher: app.publisher, iconUrl: app.iconUrl, releaseDate: app.releaseDate, ...classifySense(id, store, app.categories), ...aggregate, evaluation, retrievedAt: app.historyAt ?? now(), url: store === "ios" ? `https://apps.apple.com/${listingCountry.toLowerCase()}/app/id${id}` : `https://play.google.com/store/apps/details?id=${encodeURIComponent(id)}&gl=${listingCountry}` });
+      games.push({ appId: id, store, name: app.name, publisher: app.publisher, iconUrl: app.iconUrl, unifiedAppId: app.unifiedAppId, releaseDate: app.releaseDate, ...classifySense(id, store, app.categories), ...aggregate, evaluation, retrievedAt: app.historyAt ?? now(), url: store === "ios" ? `https://apps.apple.com/${listingCountry.toLowerCase()}/app/id${id}` : `https://play.google.com/store/apps/details?id=${encodeURIComponent(id)}&gl=${listingCountry}` });
     }
   }
   const ranks = { confirmed_momentum: 0, early_warning: 1, launch_traction: 2, none: 3, insufficient_data: 4 };
