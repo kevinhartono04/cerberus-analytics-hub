@@ -9,6 +9,7 @@ vi.mock("@/lib/db", () => ({
 }));
 vi.mock("@/lib/sensortower-api",()=>({sensorTowerRequest:async(url:URL)=>{const response=await fetch(url);return {status:response.status,body:await response.text()};}}));
 import { advanceSense, startSense, getSenseStatus, setSensePaused, runSenseWorker, getSenseGame, estimateSense, getCachedSense, startDailySense } from "@/lib/ludios-sense";
+import { senseToday } from "@/lib/ludios-sense-types";
 import { shiftDate } from "@/lib/ludios-sense-detection";
 const t="2026-09-28";
 beforeEach(()=>{records.clear();leases.clear();process.env.SENSOR_TOWER_TOKEN="test-private-token";delete process.env.SENSE_MONTHLY_REQUEST_LIMIT;vi.unstubAllGlobals();});
@@ -205,7 +206,7 @@ describe("resumable Sense scan",()=>{
     calls.length=0;expect((await scan(t)).cached).toBe(true);expect(calls).toHaveLength(0);
   });
   it("shares the daily job and reads cached results without starting work",async()=>{
-    const today=new Date().toISOString().slice(0,10),fetch=vi.fn();vi.stubGlobal("fetch",fetch);
+    const today=senseToday(),fetch=vi.fn();vi.stubGlobal("fetch",fetch);
     expect(await getCachedSense({date:today,countries:["US"]})).toBeNull();expect(fetch).not.toHaveBeenCalled();
     const first=await startDailySense();expect((await startDailySense()).jobKey).toBe(first.jobKey);
     const job=JSON.parse(records.get(first.jobKey)!);job.status="completed";job.updatedAt="2020-01-01T00:00:00Z";job.result={games:[],filters:job.filters,ruleVersion:"1.4-aggregate"};

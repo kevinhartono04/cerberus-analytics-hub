@@ -18,7 +18,7 @@
     },
     {
       "path": "/api/cron/ludios-sense-daily",
-      "schedule": "0 1 * * *"
+      "schedule": "0 21 * * *"
     }
   ]
 }

@@ -1,6 +1,7 @@
 import React from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { senseToday } from "@/lib/ludios-sense-types";
 import LudiosSense from "@/components/LudiosSense";
 vi.mock("@/components/CerberusShell",()=>({default:({children}:{children:React.ReactNode})=><main>{children}</main>}));
 beforeEach(()=>{sessionStorage.clear();vi.unstubAllGlobals();});
@@ -8,7 +9,7 @@ describe("Sense page",()=>{
  it("defaults to today and seven selected markets, sends unchecked selection, and renders the completed report",async()=>{
   const fetch=vi.fn(async(_url:string,init:RequestInit)=>{if(_url.endsWith("/cache"))return Response.json({scan:null});const filters=JSON.parse(init.body as string);return Response.json({jobKey:"sense:v1:"+"a".repeat(64),status:"completed",requests:12,progress:"Check complete",result:{filters:{...filters,countries:[...filters.countries].sort()},games:[],generatedAt:new Date().toISOString(),watermarks:{ios:"2026-09-28",android:"2026-09-28"},coverageComplete:true,errors:[],ruleVersion:"1.4-aggregate",requests:12}});});
   vi.stubGlobal("fetch",fetch);render(<LudiosSense/>);
-  expect(screen.getByLabelText("Date (t)")).toHaveValue(new Date().toISOString().slice(0,10));
+  expect(screen.getByLabelText("Date (t)")).toHaveValue(senseToday());
   expect(screen.getAllByRole("checkbox")).toHaveLength(7);screen.getAllByRole("checkbox").forEach(c=>expect(c).toBeChecked());
   fireEvent.click(screen.getByRole("checkbox",{name:"Japan"}));fireEvent.click(screen.getByRole("button",{name:"Run check"}));
   await waitFor(()=>expect(screen.getByText("Research shortlist")).toBeInTheDocument());
@@ -26,7 +27,7 @@ describe("Sense page",()=>{
  });
  it("loads cached-report icons beside game names and handles broken images",async()=>{
   const game={appId:"1",store:"ios",name:"Test game",publisher:"Studio",genre:"Games, Entertainment, Games/Puzzle",classification:"included",url:"https://example.com",history:[],availableCountries:["US"],unavailableCountries:[],evaluation:{signal:"early_warning",flags:[],latest:2000,baseline:1000,growth:2,added:1000,recentAverage:2000},retrievedAt:new Date().toISOString()};
-  const fetch=vi.fn(async(url:string)=>url.endsWith("/cache")?Response.json({scan:null}):url.endsWith("/icons")?Response.json({icons:{"1":"https://example.com/icon.png"},requests:1}):url.endsWith("/game")?Response.json(game):Response.json({jobKey:"sense:v1:"+"a".repeat(64),status:"completed",requests:0,progress:"Complete",result:{filters:{date:new Date().toISOString().slice(0,10),countries:["US"]},games:[game],generatedAt:new Date().toISOString(),watermarks:{ios:"2026-09-28"},coverageComplete:true}}));
+  const fetch=vi.fn(async(url:string)=>url.endsWith("/cache")?Response.json({scan:null}):url.endsWith("/icons")?Response.json({icons:{"1":"https://example.com/icon.png"},requests:1}):url.endsWith("/game")?Response.json(game):Response.json({jobKey:"sense:v1:"+"a".repeat(64),status:"completed",requests:0,progress:"Complete",result:{filters:{date:senseToday(),countries:["US"]},games:[game],generatedAt:new Date().toISOString(),watermarks:{ios:"2026-09-28"},coverageComplete:true}}));
   vi.stubGlobal("fetch",fetch);const view=render(<LudiosSense/>);
   fireEvent.click(screen.getByRole("button",{name:"Run check"}));
   await waitFor(()=>expect(view.container.querySelector('td img')).toHaveAttribute("src","https://example.com/icon.png"));
@@ -41,7 +42,7 @@ describe("Sense page",()=>{
  it("shows a verified cross-store game once with separate metrics and selectable store reports",async()=>{
   const ios={appId:"1",store:"ios",name:"Japanese iOS title",publisher:"SEGA",genre:"Games, Entertainment, Games/Puzzle",unifiedAppId:"same",iconUrl:null,classification:"included",url:"https://example.com",history:[],availableCountries:["US"],unavailableCountries:[],evaluation:{signal:"confirmed_momentum",flags:[],latest:4395,baseline:1000,growth:4.19,added:3370,recentAverage:4395},retrievedAt:new Date().toISOString()};
   const android={...ios,appId:"pkg",store:"android",name:"Japanese Android title",genre:"Puzzle",evaluation:{...ios.evaluation,latest:2507,growth:2.43,added:1675}};
-  const fetch=vi.fn(async(url:string,init:RequestInit)=>url.endsWith("/cache")?Response.json({scan:null}):url.endsWith("/game")?Response.json(JSON.parse(init.body as string).store==="android"?android:ios):Response.json({jobKey:"sense:v1:"+"a".repeat(64),status:"completed",requests:0,progress:"Complete",result:{filters:{date:new Date().toISOString().slice(0,10),countries:["US"]},games:[ios,android],generatedAt:new Date().toISOString(),watermarks:{ios:"2026-09-28"},coverageComplete:true}}));
+  const fetch=vi.fn(async(url:string,init:RequestInit)=>url.endsWith("/cache")?Response.json({scan:null}):url.endsWith("/game")?Response.json(JSON.parse(init.body as string).store==="android"?android:ios):Response.json({jobKey:"sense:v1:"+"a".repeat(64),status:"completed",requests:0,progress:"Complete",result:{filters:{date:senseToday(),countries:["US"]},games:[ios,android],generatedAt:new Date().toISOString(),watermarks:{ios:"2026-09-28"},coverageComplete:true}}));
   vi.stubGlobal("fetch",fetch);const view=render(<LudiosSense/>);
   fireEvent.click(screen.getByRole("button",{name:"Run check"}));
   await waitFor(()=>expect(view.container.querySelector('td[rowspan="2"]')).toBeInTheDocument());
@@ -55,7 +56,7 @@ describe("Sense page",()=>{
   expect(fetch.mock.calls.some(([url])=>url.endsWith("/icons"))).toBe(false);
  });
  it("loads another user's shared report on page open without starting a scan",async()=>{
-  const scan={jobKey:"sense:v1:"+"a".repeat(64),status:"completed",cached:true,requests:92,progress:"Check complete",result:{filters:{date:new Date().toISOString().slice(0,10),countries:["AU","CA","DE","GB","JP","RU","US"]},games:[],generatedAt:new Date().toISOString(),watermarks:{ios:"2026-09-28"},coverageComplete:true}};
+  const scan={jobKey:"sense:v1:"+"a".repeat(64),status:"completed",cached:true,requests:92,progress:"Check complete",result:{filters:{date:senseToday(),countries:["AU","CA","DE","GB","JP","RU","US"]},games:[],generatedAt:new Date().toISOString(),watermarks:{ios:"2026-09-28"},coverageComplete:true}};
   const fetch=vi.fn(async(url:string)=>Response.json(url.endsWith("/cache")?{scan}:{usage:{month:"2026-10",used:92,limit:10000,remaining:9908},knownHistoryCalls:0,knownMetadataCalls:0}));
   vi.stubGlobal("fetch",fetch);render(<LudiosSense/>);
   await waitFor(()=>expect(screen.getByText("Research shortlist")).toBeInTheDocument());

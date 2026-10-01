@@ -5,6 +5,7 @@ import { getSenseUsage, reserveSenseRequest, recordSenseOrganizationUsage } from
 import { sensorTowerRequest } from "@/lib/sensortower-api";
 import { claimSenseLease, getTechLaunchReadinessCache, listPendingSenseJobs, releaseSenseLease, saveTechLaunchReadinessCache } from "@/lib/db";
 import { aggregateSenseHistory, classifySense, evaluateSense, senseRuleVersion, shiftDate, validDownloads } from "@/lib/ludios-sense-detection";
+import { senseToday } from "@/lib/ludios-sense-types";
 import type { SenseCountry, SenseFilters, SenseGame, SenseResult, SenseRunResponse, SenseStore } from "@/lib/ludios-sense-types";
 
 type App = StoredSenseHistory & { appId: string; name: string; publisher: string; iconUrl?: string | null; unifiedAppId?: string | null; categories: string[]; releaseDate: string | null; metadataAt?: string; discoveredDate: string; histories: Partial<Record<SenseCountry, Record<string, number | null>>>; countryHistory?: Partial<Record<SenseCountry, { start: string; end: string; at: string }>>; backfilled?: boolean; historyStart?: string; historyEnd?: string; historyAt?: string };
@@ -179,7 +180,7 @@ export async function getCachedSense(filters: SenseFilters): Promise<SenseRunRes
   return summary ? {...await getSenseStatus(summary.jobKey),cached:summary.status==="completed"} : null;
 }
 export async function startDailySense() {
-  const filters:SenseFilters={date:now().slice(0,10),countries:["AU","CA","DE","GB","JP","RU","US"]};
+  const filters:SenseFilters={date:senseToday(),countries:["AU","CA","DE","GB","JP","RU","US"]};
   const existing=await getCachedSense(filters);
   return existing && existing.status!=="error" ? existing : startSense(filters);
 }

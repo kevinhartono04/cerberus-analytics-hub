@@ -1,11 +1,13 @@
 import { z } from "zod";
 
+export const senseToday = (date = new Date()) => new Date(date.getTime() + 7 * 3600000).toISOString().slice(0,10);
+
 export const senseCountries = { US: "United States", JP: "Japan", CA: "Canada", RU: "Russia", DE: "Germany", AU: "Australia", GB: "United Kingdom" } as const;
 export type SenseCountry = keyof typeof senseCountries;
 export type SenseStore = "ios" | "android";
 export const senseCountryCodes = Object.keys(senseCountries) as SenseCountry[];
 export const senseRequestSchema = z.object({
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(v => !Number.isNaN(Date.parse(v)) && new Date(v).toISOString().slice(0, 10) === v, "Choose a valid date").refine(v => v <= new Date().toISOString().slice(0,10), "Choose today or an earlier date"),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(v => !Number.isNaN(Date.parse(v)) && new Date(v).toISOString().slice(0, 10) === v, "Choose a valid date").refine(v => v <= senseToday(), "Choose today or an earlier date"),
   countries: z.array(z.enum(["US", "JP", "CA", "RU", "DE", "AU", "GB"])).min(1, "Select at least one country").max(7).transform(v => [...new Set(v)].sort()),
 });
 export type SenseFilters = z.infer<typeof senseRequestSchema>;

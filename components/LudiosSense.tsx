@@ -5,7 +5,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { SenseUsage } from "@/lib/ludios-sense-usage";
 import { groupSenseGames, senseTableGenres } from "@/lib/ludios-sense-presentation";
 import CerberusShell from "@/components/CerberusShell";
-import { senseCountries, senseCountryCodes, type SenseCountry, type SenseGame, type SenseRunResponse } from "@/lib/ludios-sense-types";
+import { senseCountries, senseCountryCodes, senseToday, type SenseCountry, type SenseGame, type SenseRunResponse } from "@/lib/ludios-sense-types";
 
 const labels = { confirmed_momentum: "Confirmed momentum", early_warning: "Early warning", launch_traction: "Traction — growth unconfirmed", insufficient_data: "Insufficient data", none: "No signal" };
 const number = (v: number | null) => v === null ? "—" : new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(v);
@@ -55,7 +55,7 @@ function DownloadChart({ game }: { game: SenseGame }) {
 }
 
 export default function LudiosSense() {
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0,10));
+  const [date, setDate] = useState(() => senseToday());
   const [countries, setCountries] = useState<SenseCountry[]>(senseCountryCodes);
   const [scan, setScan] = useState<SenseRunResponse | null>(null);
   const [error, setError] = useState("");
@@ -197,9 +197,9 @@ export default function LudiosSense() {
     </header>
     <section className="sense-panel rounded-2xl border border-line/70 surface-card-gradient p-5" aria-label="Check filters">
       <div className="mb-5 flex items-center justify-between"><h2 className="flex items-center gap-2 text-sm font-bold text-ink"><SlidersHorizontal aria-hidden="true" className="h-4 w-4 text-cobalt" />Analysis filters</h2><span className="rounded-full border border-cobalt/15 bg-cobalt/5 px-2.5 py-1 text-[10px] font-semibold text-cobalt">{countries.length} markets selected</span></div>
-      <div className="flex flex-wrap items-end gap-4"><label className="flex flex-col gap-2 text-xs font-semibold text-slate-500">Date (t)<input aria-label="Date (t)" type="date" value={date} max={new Date().toISOString().slice(0,10)} disabled={Boolean(busy)} onChange={e => setDate(e.target.value)} className={inputClass} /></label><button onClick={run} disabled={Boolean(busy) || !countries.length || !date} className="focus-ring inline-flex h-[42px] items-center gap-2 rounded-lg bg-cobalt px-5 text-sm font-bold text-white shadow-lg shadow-cobalt/20 transition-colors hover:bg-cobalt/90 disabled:opacity-50">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />} {busy ? "Checking…" : "Run check"}</button>{scan?.status === "running" ? <button className={`${inputClass} text-cobalt`} onClick={togglePaused}>{paused ? "Resume check" : "Pause check"}</button> : null}</div>
+      <div className="flex flex-wrap items-end gap-4"><label className="flex flex-col gap-2 text-xs font-semibold text-slate-500">Date (t)<input aria-label="Date (t)" type="date" value={date} max={senseToday()} disabled={Boolean(busy)} onChange={e => setDate(e.target.value)} className={inputClass} /></label><button onClick={run} disabled={Boolean(busy) || !countries.length || !date} className="focus-ring inline-flex h-[42px] items-center gap-2 rounded-lg bg-cobalt px-5 text-sm font-bold text-white shadow-lg shadow-cobalt/20 transition-colors hover:bg-cobalt/90 disabled:opacity-50">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />} {busy ? "Checking…" : "Run check"}</button>{scan?.status === "running" ? <button className={`${inputClass} text-cobalt`} onClick={togglePaused}>{paused ? "Resume check" : "Pause check"}</button> : null}</div>
       <fieldset disabled={Boolean(busy)} className="mt-5"><legend className="mb-3 text-xs font-semibold text-slate-500">Countries · downloads combined across your selection</legend><div className="flex flex-wrap gap-2">{senseCountryCodes.map(c => <label key={c} className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-xs font-medium transition-colors ${countries.includes(c) ? "border-cobalt/40 bg-cobalt/10 text-ink" : "border-line text-slate-500"}`}><input type="checkbox" checked={countries.includes(c)} onChange={e => setCountries(v => e.target.checked ? [...v,c] : v.filter(x => x!==c))} className="accent-cobalt" />{senseCountries[c]}</label>)}</div></fieldset>
-      <p className="mt-4 text-xs leading-5 text-slate-500">Today is selected by default. If estimates for t are unavailable, the report uses the latest completed reporting date and shows it explicitly. The minimum is 1,000 combined downloads/day per store. Shared daily reports for all seven markets run at 08:00 WIB; completed reports are reused across users.</p>
+      <p className="mt-4 text-xs leading-5 text-slate-500">Today is selected by default. If estimates for t are unavailable, the report uses the latest completed reporting date and shows it explicitly. The minimum is 1,000 combined downloads/day per store. Shared daily reports for all seven markets run at 04:00 WIB; completed reports are reused across users.</p>
     </section>
     <details aria-label="API call allowance" className="mt-2 text-xs leading-5 text-slate-500">
       <summary className="ml-auto w-fit cursor-pointer text-[11px] text-slate-400 hover:text-slate-500">API usage</summary>
