@@ -384,3 +384,15 @@ html[data-theme="dark"] :where(.text-red-700) {
 html[data-theme="dark"] :where(.bg-cobalt:hover, .hover\:bg-cobalt\/90:hover) {
   background-color: #0054d6;
 }
+
+/* Ludios Sense uses the same theme surfaces as the readiness dashboards. */
+.sense-panel {
+  box-shadow: 0 4px 6px -4px rgb(29 40 73 / 0.04), 0 12px 30px -18px rgb(56 44 115 / 0.2);
+}
+.sense-hero {
+  background: linear-gradient(115deg, rgb(109 94 247 / 0.09), rgb(var(--color-surface-card)) 60%, rgb(var(--color-cyan) / 0.05));
+  box-shadow: 0 8px 28px -18px rgb(109 94 247 / 0.25);
+}
+html[data-theme="dark"] .sense-panel {
+  box-shadow: 0 8px 24px -18px rgb(0 0 0 / 0.6);
+}
