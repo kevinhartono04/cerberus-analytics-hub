@@ -15,6 +15,14 @@ describe("Sense page",()=>{
   expect(JSON.parse(fetch.mock.calls[0][1].body as string).countries).not.toContain("JP");
   expect(screen.getByText(/Requested t:/)).toHaveTextContent("2026-09-28");
  });
+ it("shows the monthly allowance and saved-candidate estimate without running a scan",async()=>{
+  const fetch=vi.fn(async()=>Response.json({usage:{month:"2026-10",used:20,limit:1000,remaining:980,trackingStartedAt:"2026-10-01T03:00:00Z",organizationUsed:200,organizationLimit:10000,organizationObservedAt:"2026-10-01T03:00:00Z"},knownGames:200,knownHistoryCalls:2,knownMetadataCalls:0,note:"Discovery and new games add calls"}));vi.stubGlobal("fetch",fetch);
+  render(<LudiosSense/>);
+  await waitFor(()=>expect(screen.getByText(/980 remaining/)).toBeInTheDocument());
+  expect(screen.getByText(/Saved candidates: about 2 calls/)).toBeInTheDocument();
+  expect(screen.getByText(/includes other teams/)).toBeInTheDocument();
+  expect(fetch.mock.calls.every((call:any)=>call[0]==="/api/ludios-sense/usage")).toBe(true);
+ });
  it("disables checks when every country is unchecked",()=>{
   render(<LudiosSense/>);screen.getAllByRole("checkbox").forEach(c=>fireEvent.click(c));
   expect(screen.getByRole("button",{name:"Run check"})).toBeDisabled();

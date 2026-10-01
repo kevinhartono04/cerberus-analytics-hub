@@ -1,20 +1,78 @@
 import { createHash, randomUUID } from "node:crypto";
+import { getSenseUsage, reserveSenseRequest, recordSenseOrganizationUsage } from "@/lib/ludios-sense-usage";
 import { sensorTowerRequest } from "@/lib/sensortower-api";
 import { claimSenseLease, getTechLaunchReadinessCache, listPendingSenseJobs, releaseSenseLease, saveTechLaunchReadinessCache } from "@/lib/db";
 import { aggregateSenseHistory, classifySense, evaluateSense, senseRuleVersion, shiftDate, validDownloads } from "@/lib/ludios-sense-detection";
 import type { SenseCountry, SenseFilters, SenseGame, SenseResult, SenseRunResponse, SenseStore } from "@/lib/ludios-sense-types";
 
-type App = { appId: string; name: string; publisher: string; categories: string[]; releaseDate: string | null; metadataAt?: string; discoveredDate: string; histories: Partial<Record<SenseCountry, Record<string, number | null>>>; backfilled?: boolean; historyStart?: string; historyEnd?: string; historyAt?: string };
+type App = { appId: string; name: string; publisher: string; categories: string[]; releaseDate: string | null; metadataAt?: string; discoveredDate: string; histories: Partial<Record<SenseCountry, Record<string, number | null>>>; countryHistory?: Partial<Record<SenseCountry, { start: string; end: string; at: string }>>; backfilled?: boolean; historyStart?: string; historyEnd?: string; historyAt?: string };
 type StoreState = { apps: Record<string, App>; ids: string[]; historyIds: string[]; watermark?: string; rankingDate: string; datesFound: number; daysChecked: number; offset: number; lastDownloads: number; metadataIndex: number; historyIndex: number; week: number; historyBatchSize?: number; phase: "discovery" | "metadata" | "history" | "done" };
 type Job = { jobKey: string; filters: SenseFilters; status: SenseRunResponse["status"]; createdAt: string; updatedAt: string; requests: number; progress: string; stores: Record<SenseStore, StoreState>; store: SenseStore; result?: SenseResult; error?: string; retry: number; retryAt?: string; receipts: Array<{ endpoint: string; parameters: Record<string, string | number>; retrievedAt: string }> };
 const stores: SenseStore[] = ["android", "ios"];
 const now = () => new Date().toISOString();
 const trace = (event: string, fields: Record<string, string | number | boolean>) => console.info("[ludios-sense]", JSON.stringify({ event, ...fields }));
 const cacheKey = (filters: SenseFilters) => "sense:v1:" + createHash("sha256").update(JSON.stringify(filters)).digest("hex");
+const sharedHistoryKey = "sense:history:shared:v2";
 const historyKey = (filters: SenseFilters) => "sense:history:" + filters.countries.join(",");
 const aliveUntil = () => new Date(Date.now() + 86400000 * 31).toISOString();
 async function save(key: string, value: unknown) { await saveTechLaunchReadinessCache({ cacheKey: key, payload: JSON.stringify(value), createdAt: now(), expiresAt: aliveUntil() }); }
 async function load<T>(key: string): Promise<T | null> { const record = await getTechLaunchReadinessCache(key); return record && (!record.expiresAt || record.expiresAt > now()) ? JSON.parse(record.payload) as T : null; }
+function needsBackfill(app: App, countries: SenseCountry[], t: string) {
+  return countries.some(country => {
+    const coverage = app.countryHistory?.[country] ?? (app.backfilled && app.histories[country] !== undefined && app.historyStart && app.historyEnd ? { start: app.historyStart, end: app.historyEnd } : null);
+    return !coverage || coverage.start > shiftDate(t,-27) || coverage.end < shiftDate(t,-7);
+  });
+}
+
+/** Merge per-country cache coverage; an older or narrower scan never removes another country's history. */
+function mergeHistories(first: Record<SenseStore, StoreState> | null, second: Record<SenseStore, StoreState> | null, countries: SenseCountry[]): Record<SenseStore, StoreState> | null {
+  if (!first && !second) return null;
+  const combined = {} as Record<SenseStore, StoreState>;
+  for (const store of stores) {
+    const left = first?.[store], right = second?.[store];
+    if (!left && !right) continue;
+    const template = (right?.watermark ?? "") >= (left?.watermark ?? "") ? right ?? left! : left!;
+    const apps: Record<string, App> = {};
+    for (const source of [left, right]) for (const [id, original] of Object.entries(source?.apps ?? {})) {
+      const incoming = structuredClone(original);
+      incoming.countryHistory ??= {};
+      if (incoming.backfilled && incoming.historyStart && incoming.historyEnd) for (const country of countries) {
+        if (incoming.histories[country] !== undefined && !incoming.countryHistory[country]) incoming.countryHistory[country] = { start: incoming.historyStart, end: incoming.historyEnd, at: incoming.historyAt ?? "" };
+      }
+      const current = apps[id];
+      if (!current) { apps[id] = incoming; continue; }
+      const metadata = (incoming.metadataAt ?? "") > (current.metadataAt ?? "") ? incoming : current;
+      const histories = { ...current.histories }, coverage = { ...current.countryHistory };
+      for (const country of Object.keys(incoming.histories) as SenseCountry[]) {
+        const old = coverage[country], next = incoming.countryHistory[country];
+        if (!old || next && (next.end > old.end || next.end === old.end && next.at > old.at)) {
+          histories[country] = incoming.histories[country];
+          if (next) coverage[country] = next;
+        }
+      }
+      apps[id] = { ...metadata, discoveredDate: current.discoveredDate > incoming.discoveredDate ? current.discoveredDate : incoming.discoveredDate, histories, countryHistory: coverage };
+    }
+    combined[store] = { ...template, apps };
+  }
+  return combined;
+}
+
+export async function estimateSense(filters: SenseFilters) {
+  const usage = await getSenseUsage();
+  const previous = mergeHistories(await load<Record<SenseStore, StoreState>>(sharedHistoryKey), await load<Record<SenseStore, StoreState>>(historyKey(filters)), filters.countries);
+  const today = now().slice(0,10), t = filters.date < today ? filters.date : shiftDate(today,-1);
+  let historyCalls = 0, metadataCalls = 0, knownGames = 0;
+  for (const store of stores) {
+    const apps = Object.values(previous?.[store]?.apps ?? {}).filter(app => app.discoveredDate <= t && app.discoveredDate >= shiftDate(t,-30));
+    metadataCalls += Math.ceil(apps.filter(a => !a.metadataAt || Date.now() - Date.parse(a.metadataAt) >= 30 * 86400000).length / 100);
+    const games = apps.filter(a => classifySense(a.appId,store,a.categories).classification !== "excluded");
+    const cold = games.filter(a => needsBackfill(a,filters.countries,t)).length;
+    knownGames += games.length;
+    historyCalls += Math.ceil(cold / 100) * 4 + Math.ceil((games.length - cold) / 100);
+  }
+  return { usage, knownGames, knownHistoryCalls: historyCalls, knownMetadataCalls: metadataCalls, note: "Estimate covers saved candidates. Discovery pages, new games and retries add calls. A first scan has no reliable estimate yet." };
+}
+
 function response(job: Job, cached = false): SenseRunResponse {
   // Keep large scans below the hosting response limit; charts load on selection.
   const result = job.result ? { ...job.result, games: job.result.games.map(g => ({ ...g, history: [], historyLoaded: false })) } : undefined;
@@ -86,7 +144,9 @@ export async function startSense(filters: SenseFilters): Promise<SenseRunRespons
   try {
     const existing = await load<Job>(key);
     if (existing?.status === "running" || existing?.status === "completed" && Date.now() - Date.parse(existing.updatedAt) < 15 * 60000) return response(existing, existing.status === "completed");
-    const previous = await load<Record<SenseStore, StoreState>>(historyKey(filters));
+    const basket = await load<Record<SenseStore, StoreState>>(historyKey(filters));
+    const shared = await load<Record<SenseStore, StoreState>>(sharedHistoryKey);
+    const previous = mergeHistories(shared, basket, filters.countries);
     const today = now().slice(0,10);
     const latest = filters.date < today ? filters.date : shiftDate(today, -1);
     const states = Object.fromEntries(stores.map(store => {
@@ -127,7 +187,8 @@ export async function advanceSense(key: string): Promise<SenseRunResponse> {
     } catch (error) {
       const message = error instanceof Error ? error.message : "Sensor Tower request failed";
       job.retry++;
-      if (job.retry >= 3 || message.includes("budget") || message.includes("access") || message.includes("configured") || message.includes("Unexpected") || message.includes("duplicate")) { job.status = "error"; job.error = message; }
+      if (message.includes("allowance") || message.includes("budget")) { job.error = message; await finish(job, false); }
+      else if (job.retry >= 3 || message.includes("budget") || message.includes("access") || message.includes("configured") || message.includes("Unexpected") || message.includes("duplicate")) { job.status = "error"; job.error = message; }
       else { job.retryAt = new Date(Date.now() + Math.min(60000, 10000 * 2 ** job.retry)).toISOString(); job.progress = `${message}. Retrying shortly (${job.retry}/3)…`; }
     }
     job.updatedAt = now();
@@ -143,7 +204,10 @@ export async function advanceSense(key: string): Promise<SenseRunResponse> {
 }
 
 async function sensor(job: Job, endpoint: string, parameters: Record<string, string | number>) {
+  const rankingKey = endpoint === "/v1/facets/metrics" ? "sense:ranking:" + createHash("sha256").update(JSON.stringify(parameters)).digest("hex") : null;
+  if (rankingKey) { const cached = await load<{ retrievedAt: string; payload: unknown }>(rankingKey); if (cached && Date.now() - Date.parse(cached.retrievedAt) < 7 * 86400000) return cached.payload; }
   if (job.requests >= 1000) throw new Error("Sensor Tower request budget reached; discovery is incomplete. Choose fewer countries or retry later.");
+  await reserveSenseRequest();
   job.requests++;
   await save(job.jobKey + ":summary", response(job)); // Durable attempt count; full history is checkpointed once after the response.
   const token = process.env.SENSOR_TOWER_TOKEN?.trim();
@@ -153,11 +217,13 @@ async function sensor(job: Job, endpoint: string, parameters: Record<string, str
   url.searchParams.set("auth_token", token);
   const started = Date.now();
   const res = await sensorTowerRequest(url);
+  await recordSenseOrganizationUsage(res.usageHeaders);
   trace("sensor_response", { scan: job.jobKey.slice(-8), endpoint, status: res.status, elapsedMs: Date.now() - started, apps: String(parameters.app_ids ?? "").split(",").filter(Boolean).length });
   if (res.status < 200 || res.status >= 300) throw new Error(res.status === 401 || res.status === 403 ? "Sensor Tower token or product access is unavailable" : `Sensor Tower returned HTTP ${res.status}`);
   let payload: unknown;
   try { payload = JSON.parse(res.body.replaceAll(token, "[REDACTED]")); } catch { throw new Error("Unexpected Sensor Tower JSON response"); }
   job.receipts.push({ endpoint, parameters, retrievedAt: now() });
+  if (rankingKey && Array.isArray((payload as { data?: unknown[] })?.data) && (payload as { data: unknown[] }).data.length) await save(rankingKey, { retrievedAt: now(), payload });
   return payload;
 }
 
@@ -189,7 +255,7 @@ async function step(job: Job) {
     }
     job.progress = `${store === "ios" ? "iOS" : "Android"}: discovered ${Object.keys(s.apps).length.toLocaleString()} apps above the combined floor; ${s.datesFound}/3 reporting dates checked.`;
   } else if (s.phase === "metadata") {
-    const remaining = s.ids.filter(id => !s.apps[id].metadataAt || Date.now() - Date.parse(s.apps[id].metadataAt!) >= 7 * 86400000);
+    const remaining = s.ids.filter(id => !s.apps[id].metadataAt || Date.now() - Date.parse(s.apps[id].metadataAt!) >= 30 * 86400000);
     const batch = remaining.slice(0,100);
     if (batch.length) {
       const p = await sensor(job, `/v1/${store}/apps`, { app_ids: batch.join(","), country: job.filters.countries.includes("US") ? "US" : job.filters.countries[0] }) as { apps: Array<Record<string, unknown>> };
@@ -206,11 +272,18 @@ async function step(job: Job) {
       job.progress = `${store === "ios" ? "iOS" : "Android"}: loading app details (${s.ids.length - remaining.length + batch.length}/${s.ids.length}).`;
     } else {
       s.historyIds = s.ids.filter(id => classifySense(id, store, s.apps[id].categories).classification !== "excluded");
+      // Warm and cold apps must not share a batch: one new app would force 99 warm apps to backfill.
+      s.historyIds.sort((a,b) => Number(needsBackfill(s.apps[a], job.filters.countries, s.watermark!)) - Number(needsBackfill(s.apps[b], job.filters.countries, s.watermark!)) || a.localeCompare(b));
       s.phase = "history";
     }
   } else if (s.phase === "history") {
     // Keep an in-flight legacy 25-app batch intact across deployment; enlarge the next batch.
-    if (s.week === 0) s.historyBatchSize = 100;
+    if (s.week === 0) {
+      const remaining = s.historyIds.slice(s.historyIndex);
+      const cold = remaining.length ? needsBackfill(s.apps[remaining[0]], job.filters.countries, s.watermark!) : false;
+      const boundary = remaining.findIndex(id => needsBackfill(s.apps[id], job.filters.countries, s.watermark!) !== cold);
+      s.historyBatchSize = Math.min(100, boundary < 0 ? remaining.length : boundary);
+    }
     const batch = s.historyIds.slice(s.historyIndex, s.historyIndex + (s.historyBatchSize ?? 25));
     if (!batch.length) {
       s.phase = "done";
@@ -218,7 +291,7 @@ async function step(job: Job) {
       else await finish(job);
       return;
     }
-    const length = batch.every(id => { const app = s.apps[id]; return app.backfilled && app.historyStart && app.historyStart <= shiftDate(s.watermark!, -27) && app.historyEnd && app.historyEnd >= shiftDate(s.watermark!, -7); }) ? 7 : 28;
+    const length = batch.every(id => !needsBackfill(s.apps[id], job.filters.countries, s.watermark!)) ? 7 : 28;
     const end = shiftDate(s.watermark!, -s.week * 7), start = shiftDate(end, -6);
     const p = await sensor(job, `/v1/${store}/sales_report_estimates`, { app_ids: batch.join(","), countries: countryList, date_granularity: "daily", start_date: start, end_date: end });
     if (!Array.isArray(p)) throw new Error("Unexpected Sensor Tower history response");
@@ -251,12 +324,12 @@ async function step(job: Job) {
   }
 }
 
-async function finish(job: Job) {
+async function finish(job: Job, complete = true) {
   const listingCountry = job.filters.countries.includes("US") ? "US" : job.filters.countries[0];
   const games: SenseGame[] = [];
   for (const store of stores) {
     const s = job.stores[store];
-    for (const id of s.historyIds) {
+    for (const id of complete ? s.historyIds : s.historyIds.slice(0,s.historyIndex)) {
       const app = s.apps[id], t = s.watermark!;
       const aggregate = aggregateSenseHistory(app.histories, job.filters.countries, t);
       const evaluation = evaluateSense(aggregate.history, t, app.releaseDate);
@@ -267,10 +340,11 @@ async function finish(job: Job) {
   }
   const ranks = { confirmed_momentum: 0, early_warning: 1, launch_traction: 2, none: 3, insufficient_data: 4 };
   games.sort((a,b) => ranks[a.evaluation.signal] - ranks[b.evaluation.signal] || (b.evaluation.added ?? 0) - (a.evaluation.added ?? 0) || (b.evaluation.growth ?? 0) - (a.evaluation.growth ?? 0) || a.appId.localeCompare(b.appId));
-  job.result = { filters: job.filters, generatedAt: now(), watermarks: Object.fromEntries(stores.map(s => [s, job.stores[s].watermark])), games, requests: job.requests, errors: [], coverageComplete: true, ruleVersion: senseRuleVersion };
+  job.result = { filters: job.filters, generatedAt: now(), watermarks: Object.fromEntries(stores.map(s => [s, job.stores[s].watermark])), games, requests: job.requests, errors: complete ? [] : [job.error ?? "Call allowance reached; coverage is incomplete."], coverageComplete: complete, ruleVersion: senseRuleVersion };
   await save("sense:result:" + job.jobKey + ":" + job.result.generatedAt, { result: job.result, receipts: job.receipts });
-  job.status = "completed"; job.progress = "Check complete. Downloads are combined across the selected countries, separately for each store.";
+  job.status = "completed"; job.progress = complete ? "Check complete. Downloads are combined across the selected countries, separately for each store." : "Call allowance reached. Partial report saved; some games or stores were not checked.";
   // Historical runs never overwrite a newer warm cache.
   const previous = await load<Record<SenseStore, StoreState>>(historyKey(job.filters));
-  if (!previous || (previous.ios.watermark ?? "") <= (job.stores.ios.watermark ?? "")) await save(historyKey(job.filters), job.stores);
+  if (complete && (!previous || (previous.ios.watermark ?? "") <= (job.stores.ios.watermark ?? ""))) await save(historyKey(job.filters), job.stores);
+  await save(sharedHistoryKey, mergeHistories(await load<Record<SenseStore, StoreState>>(sharedHistoryKey), job.stores, job.filters.countries));
 }

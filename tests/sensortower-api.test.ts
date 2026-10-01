@@ -15,4 +15,10 @@ describe("Sensor Tower transport",()=>{
   const req=Object.assign(new EventEmitter(),{destroy:vi.fn()});get.mockImplementation((_url:URL,_options:unknown,cb:(res:EventEmitter)=>void)=>{const res=Object.assign(new EventEmitter(),{statusCode:302});queueMicrotask(()=>{cb(res);res.emit("data",Buffer.from("redirect"));res.emit("end");});return req;});
   expect(await sensorTowerRequest(new URL("https://api.sensortower.com/v1/apps"))).toEqual({status:302,body:"redirect"});expect(get).toHaveBeenCalledOnce();
  });
+ it("returns only the two usage headers, never unrelated server headers",async()=>{
+  const req=Object.assign(new EventEmitter(),{destroy:vi.fn()});
+  get.mockImplementation((_url:URL,_options:unknown,cb:(res:EventEmitter)=>void)=>{const res=Object.assign(new EventEmitter(),{statusCode:200,headers:{"x-api-usage-count":"21","x-api-usage-limit":"10000","set-cookie":"private"}});queueMicrotask(()=>{cb(res);res.emit("data",Buffer.from("[]"));res.emit("end");});return req;});
+  expect((await sensorTowerRequest(new URL("https://api.sensortower.com/v1/apps"))).usageHeaders).toEqual({"x-api-usage-count":"21","x-api-usage-limit":"10000"});
+ });
+
 });

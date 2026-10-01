@@ -8,10 +8,10 @@ vi.mock("@/lib/db", () => ({
   releaseSenseLease: vi.fn(async(key:string,token:string)=>{if(leases.get(key)===token)leases.delete(key);}),
 }));
 vi.mock("@/lib/sensortower-api",()=>({sensorTowerRequest:async(url:URL)=>{const response=await fetch(url);return {status:response.status,body:await response.text()};}}));
-import { advanceSense, startSense, getSenseStatus, setSensePaused, runSenseWorker, getSenseGame } from "@/lib/ludios-sense";
+import { advanceSense, startSense, getSenseStatus, setSensePaused, runSenseWorker, getSenseGame, estimateSense } from "@/lib/ludios-sense";
 import { shiftDate } from "@/lib/ludios-sense-detection";
 const t="2026-09-28";
-beforeEach(()=>{records.clear();leases.clear();process.env.SENSOR_TOWER_TOKEN="test-private-token";vi.unstubAllGlobals();});
+beforeEach(()=>{records.clear();leases.clear();process.env.SENSOR_TOWER_TOKEN="test-private-token";delete process.env.SENSE_MONTHLY_REQUEST_LIMIT;vi.unstubAllGlobals();});
 describe("resumable Sense scan",()=>{
   it("persists pause controls and polls compact summaries without making upstream requests",async()=>{
     const fetch=vi.fn();vi.stubGlobal("fetch",fetch);
@@ -107,6 +107,56 @@ describe("resumable Sense scan",()=>{
     expect(run.status).toBe("completed");
     expect(calls.filter(c=>c.pathname.endsWith("sales_report_estimates"))).toHaveLength(2);
     expect(calls.filter(c=>c.pathname.endsWith("/apps"))).toHaveLength(0);
+  });
+  it("reuses two old discovery dates and country-level history when the date or country selection changes",async()=>{
+    const calls:URL[]=[];
+    vi.stubGlobal("fetch",vi.fn(async(input:URL)=>{
+      const url=new URL(input);calls.push(url);
+      if(url.pathname.endsWith("metrics")) return Response.json({data:[{app_id:"123",est_mobile_downloads:2000}],meta:{total_count:1}});
+      if(url.pathname.endsWith("/apps")) return Response.json({apps:[{app_id:"123",categories:url.pathname.includes("ios")?["7012"]:["GAME_PUZZLE"]}]});
+      return Response.json([]);
+    }));
+    async function scan(date:string,countries:("JP"|"US")[]) {
+      let run=await startSense({date,countries});
+      for(let i=0;i<40&&run.status==="running";i++)run=await advanceSense(run.jobKey);
+      expect(run.status).toBe("completed");return run;
+    }
+    await scan(t,["JP","US"]);calls.length=0;
+    await scan(shiftDate(t,1),["JP","US"]);
+    expect(calls.filter(c=>c.pathname.endsWith("metrics"))).toHaveLength(2);
+    expect(calls.filter(c=>c.pathname.endsWith("/apps"))).toHaveLength(0);
+    expect(calls.filter(c=>c.pathname.endsWith("sales_report_estimates"))).toHaveLength(2);
+    calls.length=0;
+    await scan(shiftDate(t,1),["US"]);
+    expect(calls.filter(c=>c.pathname.endsWith("sales_report_estimates"))).toHaveLength(2);
+    expect(calls.filter(c=>c.pathname.endsWith("/apps"))).toHaveLength(0);
+    expect((await estimateSense({date:shiftDate(t,1),countries:["JP","US"]})).knownHistoryCalls).toBe(2);
+  });
+  it("separates 100 warm games from one cold game instead of backfilling the warm group",async()=>{
+    const run=await startSense({date:t,countries:["US"]}),job=JSON.parse(records.get(run.jobKey)!);
+    const ids=Array.from({length:101},(_,i)=>String(i).padStart(3,"0"));
+    Object.assign(job.stores.android,{phase:"metadata",watermark:t,ids});
+    job.stores.android.apps=Object.fromEntries(ids.map((id,i)=>[id,{appId:id,name:id,publisher:"",categories:["GAME_PUZZLE"],releaseDate:null,metadataAt:new Date().toISOString(),discoveredDate:t,histories:{US:{}},backfilled:i<100,historyStart:shiftDate(t,-27),historyEnd:t}]));
+    records.set(run.jobKey,JSON.stringify(job));
+    const batches:number[]=[];
+    vi.stubGlobal("fetch",vi.fn(async(input:URL)=>{batches.push(new URL(input).searchParams.get("app_ids")!.split(",").length);return Response.json([]);}));
+    await advanceSense(run.jobKey); // metadata is fresh; partition warm/cold.
+    for(let i=0;i<5;i++) await advanceSense(run.jobKey);
+    expect(batches).toEqual([100,1,1,1,1]);
+    expect(JSON.parse(records.get(run.jobKey)!).stores.android.historyIndex).toBe(101);
+  });
+  it("stops at the monthly allowance without another API call and clearly marks partial coverage",async()=>{
+    process.env.SENSE_MONTHLY_REQUEST_LIMIT="2";
+    const fetch=vi.fn(async()=>Response.json({data:[{app_id:"123",est_mobile_downloads:2000}],meta:{total_count:1}}));vi.stubGlobal("fetch",fetch);
+    const run=await startSense({date:t,countries:["US"]});
+    await advanceSense(run.jobKey);await advanceSense(run.jobKey);
+    const partial=await advanceSense(run.jobKey);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(partial.status).toBe("completed");
+    expect(partial.result?.coverageComplete).toBe(false);
+    expect(partial.result?.games).toEqual([]);
+    expect(partial.result?.errors.join()).toContain("allowance");
+    expect((await estimateSense({date:t,countries:["US"]})).usage.remaining).toBe(0);
   });
   it("uses completed dates when today is requested and handles API errors without exposing credentials",async()=>{
     const today=new Date().toISOString().slice(0,10);
