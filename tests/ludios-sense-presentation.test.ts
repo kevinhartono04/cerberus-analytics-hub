@@ -8,7 +8,7 @@ describe("Sense table presentation",()=>{
     expect(senseTableGenres([ios])).toBe("Casual · Puzzle");
     expect(ios.genre).toBe("Games, Entertainment, Games/Casual, Games/Puzzle");
     expect(senseTableGenres([game({genre:"Game, Game/Board, Game/Card"})])).toBe("Board · Card");
-    expect(senseTableGenres([game({store:"android",genre:"Entertainment, Puzzle"})])).toBe("Entertainment · Puzzle");
+    expect(senseTableGenres([game({store:"android",genre:"Entertainment, Puzzle"})])).toBe("Puzzle");
   });
   it("groups verified unified IDs while preserving independent metrics and ordering",()=>{
     const ios=game({unifiedAppId:"same",evaluation:{latest:4395,growth:4.19} as SenseGame["evaluation"]});

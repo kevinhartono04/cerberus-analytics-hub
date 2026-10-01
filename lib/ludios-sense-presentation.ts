@@ -3,7 +3,7 @@ import type { SenseGame } from "@/lib/ludios-sense-types";
 /** Display-only cleanup. Preserve the full source categories for classification and detail. */
 export function senseTableGenres(games: SenseGame[]): string {
   return [...new Set(games.flatMap(game => game.genre.split(",").map(value => value.trim())
-    .filter(value => game.store !== "ios" || !/^(games?|entertainment)$/i.test(value))
+    .filter(value => !/^(games?|entertainment)$/i.test(value))
     .map(value => game.store === "ios" ? value.replace(/^games?\s*\/\s*/i, "") : value)
     .filter(Boolean)))].join(" · ");
 }
