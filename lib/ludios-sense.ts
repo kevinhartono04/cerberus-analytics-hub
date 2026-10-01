@@ -1,10 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
 import { sensorTowerRequest } from "@/lib/sensortower-api";
-import { claimSenseLease, getTechLaunchReadinessCache, releaseSenseLease, saveTechLaunchReadinessCache } from "@/lib/db";
+import { claimSenseLease, getTechLaunchReadinessCache, listPendingSenseJobs, releaseSenseLease, saveTechLaunchReadinessCache } from "@/lib/db";
 import { aggregateSenseHistory, classifySense, evaluateSense, senseRuleVersion, shiftDate, validDownloads } from "@/lib/ludios-sense-detection";
 import type { SenseCountry, SenseFilters, SenseGame, SenseResult, SenseRunResponse, SenseStore } from "@/lib/ludios-sense-types";
 
-type App = { appId: string; name: string; publisher: string; categories: string[]; releaseDate: string | null; metadataAt?: string; discoveredDate: string; histories: Partial<Record<SenseCountry, Record<string, number | null>>>; backfilled?: boolean; historyAt?: string };
+type App = { appId: string; name: string; publisher: string; categories: string[]; releaseDate: string | null; metadataAt?: string; discoveredDate: string; histories: Partial<Record<SenseCountry, Record<string, number | null>>>; backfilled?: boolean; historyStart?: string; historyEnd?: string; historyAt?: string };
 type StoreState = { apps: Record<string, App>; ids: string[]; historyIds: string[]; watermark?: string; rankingDate: string; datesFound: number; daysChecked: number; offset: number; lastDownloads: number; metadataIndex: number; historyIndex: number; week: number; phase: "discovery" | "metadata" | "history" | "done" };
 type Job = { jobKey: string; filters: SenseFilters; status: SenseRunResponse["status"]; createdAt: string; updatedAt: string; requests: number; progress: string; stores: Record<SenseStore, StoreState>; store: SenseStore; result?: SenseResult; error?: string; retry: number; retryAt?: string; receipts: Array<{ endpoint: string; parameters: Record<string, string | number>; retrievedAt: string }> };
 const stores: SenseStore[] = ["android", "ios"];
@@ -13,12 +13,66 @@ const cacheKey = (filters: SenseFilters) => "sense:v1:" + createHash("sha256").u
 const historyKey = (filters: SenseFilters) => "sense:history:" + filters.countries.join(",");
 const aliveUntil = () => new Date(Date.now() + 86400000 * 31).toISOString();
 async function save(key: string, value: unknown) { await saveTechLaunchReadinessCache({ cacheKey: key, payload: JSON.stringify(value), createdAt: now(), expiresAt: aliveUntil() }); }
-async function load<T>(key: string): Promise<T | null> { const record = await getTechLaunchReadinessCache(key); return record ? JSON.parse(record.payload) as T : null; }
-function response(job: Job, cached = false): SenseRunResponse { return { jobKey: job.jobKey, status: job.status, requests: job.requests, progress: job.progress, result: job.result, error: job.error, cached }; }
+async function load<T>(key: string): Promise<T | null> { const record = await getTechLaunchReadinessCache(key); return record && (!record.expiresAt || record.expiresAt > now()) ? JSON.parse(record.payload) as T : null; }
+function response(job: Job, cached = false): SenseRunResponse {
+  // Keep large scans below the hosting response limit; charts load on selection.
+  const result = job.result ? { ...job.result, games: job.result.games.map(g => ({ ...g, history: [], historyLoaded: false })) } : undefined;
+  return { jobKey: job.jobKey, status: job.status, requests: job.requests, progress: job.progress, result, error: job.error, cached };
+}
+
+async function saveJob(job: Job) {
+  await save(job.jobKey, job);
+  await save(job.jobKey + ":summary", response(job));
+}
+
+export async function getSenseStatus(key: string): Promise<SenseRunResponse> {
+  if (!/^sense:v1:[a-f0-9]{64}$/.test(key)) throw new Response("Invalid scan ID", { status: 400 });
+  const summary = await load<SenseRunResponse>(key + ":summary");
+  const job = summary ? null : await load<Job>(key);
+  if (!summary && !job) throw new Response("Scan not found", { status: 404 });
+  return { ...(summary ?? response(job!)), paused: Boolean(await load<boolean>(key + ":paused")) };
+}
+
+export async function getSenseGame(key: string, appId: string, store: SenseStore): Promise<SenseGame> {
+  await getSenseStatus(key);
+  const job = await load<Job>(key);
+  const game = job?.result?.games.find(g => g.appId === appId && g.store === store);
+  if (!game) throw new Response("Game report not found", { status: 404 });
+  return { ...game, historyLoaded: true };
+}
+
+export async function setSensePaused(key: string, paused: boolean): Promise<SenseRunResponse> {
+  await getSenseStatus(key);
+  await save(key + ":paused", paused);
+  return getSenseStatus(key);
+}
+
+/** Server work is bounded per invocation; durable jobs resume via the worker cron. */
+export async function runSenseWorker(key: string, budgetMs = 240000) {
+  const token = randomUUID(), workerKey = "sense:worker:" + key;
+  if (!await claimSenseLease(workerKey, token, new Date(Date.now() + budgetMs + 60000).toISOString())) return;
+  const deadline = Date.now() + budgetMs;
+  try {
+    while (Date.now() < deadline - 45000) {
+      const next = await advanceSense(key);
+      if (next.status !== "running" || next.paused) return;
+      await new Promise(resolve => setTimeout(resolve, 1100));
+    }
+  } finally { await releaseSenseLease(workerKey, token); }
+}
+
+export async function continuePendingSenseJobs() {
+  const pending = await listPendingSenseJobs();
+  const states = await Promise.all(pending.map(key => getSenseStatus(key)));
+  const keys = states.filter(s => s.status === "running" && !s.paused).slice(0,4).map(s => s.jobKey);
+  for (const key of keys) await runSenseWorker(key, Math.floor(240000 / Math.max(1, keys.length)));
+  return keys.length;
+}
 
 export async function startSense(filters: SenseFilters): Promise<SenseRunResponse> {
   if (!process.env.SENSOR_TOWER_TOKEN?.trim()) throw new Error("Sensor Tower is not configured on this server. Set SENSOR_TOWER_TOKEN in the server environment.");
   const key = cacheKey(filters), token = randomUUID();
+  await save(key + ":paused", false);
   if (!await claimSenseLease(key + ":lease", token, new Date(Date.now() + 60000).toISOString())) {
     const pending = await load<Job>(key);
     if (pending) return response(pending);
@@ -39,7 +93,7 @@ export async function startSense(filters: SenseFilters): Promise<SenseRunRespons
       return [store, { apps, ids: [], historyIds: [], rankingDate: latest, datesFound: 0, daysChecked: 0, offset: 0, lastDownloads: Number.MAX_VALUE, metadataIndex: 0, historyIndex: 0, week: 0, phase: "discovery" }];
     })) as unknown as Record<SenseStore, StoreState>;
     const job: Job = { jobKey: key, filters, status: "running", createdAt: now(), updatedAt: now(), requests: 0, progress: "Discovering Android games across the selected countries…", stores: states, store: "android", retry: 0, receipts: [] };
-    await save(key, job);
+    await saveJob(job);
     return response(job);
   } finally { await releaseSenseLease(key + ":lease", token); }
 }
@@ -49,6 +103,7 @@ export async function advanceSense(key: string): Promise<SenseRunResponse> {
   if (!/^sense:v1:[a-f0-9]{64}$/.test(key)) throw new Response("Invalid scan ID", { status: 400 });
   const initial = await load<Job>(key);
   if (!initial) throw new Response("Scan not found", { status: 404 });
+  if (await load<boolean>(key + ":paused")) return { ...response(initial), paused: true };
   if (initial.status !== "running" || initial.retryAt && initial.retryAt > now()) return response(initial);
   const lease = randomUUID();
   if (!await claimSenseLease(key + ":lease", lease, new Date(Date.now() + 60000).toISOString())) return response(initial);
@@ -58,22 +113,19 @@ export async function advanceSense(key: string): Promise<SenseRunResponse> {
     if (!job || job.status !== "running") return response(job ?? initial);
     requestLease = await claimSenseLease("sense:upstream:lease", lease, new Date(Date.now() + 60000).toISOString());
     if (!requestLease) return response(job);
-    if (job.requests >= 1000) { job.status = "error"; job.error = "Request budget reached. Discovery is incomplete; choose fewer countries or retry later."; await save(key, job); return response(job); }
-    job.requests++;
-    await save(key, job); // Count attempts even if the host shuts down during a request.
     try {
       await step(job);
       job.retry = 0; delete job.retryAt;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Sensor Tower request failed";
       job.retry++;
-      if (job.retry >= 3 || message.includes("access") || message.includes("configured") || message.includes("Unexpected") || message.includes("duplicate")) { job.status = "error"; job.error = message; }
+      if (job.retry >= 3 || message.includes("budget") || message.includes("access") || message.includes("configured") || message.includes("Unexpected") || message.includes("duplicate")) { job.status = "error"; job.error = message; }
       else { job.retryAt = new Date(Date.now() + Math.min(60000, 10000 * 2 ** job.retry)).toISOString(); job.progress = `${message}. Retrying shortly (${job.retry}/3)…`; }
     }
     job.updatedAt = now();
     const owner = await getTechLaunchReadinessCache(key + ":lease");
     if (owner?.payload !== lease) return response(await load<Job>(key) ?? initial);
-    await save(key, job);
+    await saveJob(job);
     return response(job);
   } finally {
     if (requestLease) await releaseSenseLease("sense:upstream:lease", lease, 1000);
@@ -82,6 +134,9 @@ export async function advanceSense(key: string): Promise<SenseRunResponse> {
 }
 
 async function sensor(job: Job, endpoint: string, parameters: Record<string, string | number>) {
+  if (job.requests >= 1000) throw new Error("Sensor Tower request budget reached; discovery is incomplete. Choose fewer countries or retry later.");
+  job.requests++;
+  await saveJob(job); // Count attempts even if the host shuts down during a request.
   const token = process.env.SENSOR_TOWER_TOKEN?.trim();
   if (!token) throw new Error("Sensor Tower is not configured on this server");
   const url = new URL(endpoint, "https://api.sensortower.com");
@@ -141,18 +196,16 @@ async function step(job: Job) {
     } else {
       s.historyIds = s.ids.filter(id => classifySense(id, store, s.apps[id].categories).classification !== "excluded");
       s.phase = "history";
-      job.requests--; // This transition did not make an upstream call.
     }
   } else if (s.phase === "history") {
     const batch = s.historyIds.slice(s.historyIndex, s.historyIndex + 25);
     if (!batch.length) {
       s.phase = "done";
-      job.requests--;
       if (store === "android") { job.store = "ios"; job.progress = "Discovering iOS games across the selected countries…"; }
       else await finish(job);
       return;
     }
-    const length = batch.every(id => s.apps[id].backfilled && Object.keys(s.apps[id].histories).some(c => Object.hasOwn(s.apps[id].histories[c as SenseCountry] ?? {}, shiftDate(s.watermark!, -27)))) ? 7 : 28;
+    const length = batch.every(id => { const app = s.apps[id]; return app.backfilled && app.historyStart && app.historyStart <= shiftDate(s.watermark!, -27) && app.historyEnd && app.historyEnd >= shiftDate(s.watermark!, -7); }) ? 7 : 28;
     const end = shiftDate(s.watermark!, -s.week * 7), start = shiftDate(end, -6);
     const p = await sensor(job, `/v1/${store}/sales_report_estimates`, { app_ids: batch.join(","), countries: countryList, date_granularity: "daily", start_date: start, end_date: end });
     if (!Array.isArray(p)) throw new Error("Unexpected Sensor Tower history response");
@@ -170,18 +223,23 @@ async function step(job: Job) {
       const app = s.apps[id];
       for (const country of job.filters.countries) {
         app.histories[country] ??= {};
-        for (let i = 0; i < 7; i++) { const d = shiftDate(start, i); app.histories[country]![d] = normalized.get(`${id}:${country}:${d}`) ?? null; }
+        for (let i = 0; i < 7; i++) {
+          const d = shiftDate(start, i), value = normalized.get(`${id}:${country}:${d}`);
+          if (validDownloads(value)) app.histories[country]![d] = value;
+          else delete app.histories[country]![d]; // Omitted observations remain missing, including revisions.
+        }
         Object.keys(app.histories[country]!).filter(d => d < shiftDate(s.watermark!, -27) || d > s.watermark!).forEach(d => { delete app.histories[country]![d]; });
       }
       app.historyAt = now();
     }
     s.week++;
-    if (s.week * 7 >= length) { batch.forEach(id => { s.apps[id].backfilled = true; }); s.historyIndex += batch.length; s.week = 0; }
+    if (s.week * 7 >= length) { batch.forEach(id => { s.apps[id].backfilled = true; s.apps[id].historyStart = shiftDate(s.watermark!, -27); s.apps[id].historyEnd = s.watermark; }); s.historyIndex += batch.length; s.week = 0; }
     job.progress = `${store === "ios" ? "iOS" : "Android"}: loading ${length}-day download history (${Math.min(s.historyIndex + batch.length, s.historyIds.length)}/${s.historyIds.length} games), all selected countries together.`;
   }
 }
 
 async function finish(job: Job) {
+  const listingCountry = job.filters.countries.includes("US") ? "US" : job.filters.countries[0];
   const games: SenseGame[] = [];
   for (const store of stores) {
     const s = job.stores[store];
@@ -191,7 +249,7 @@ async function finish(job: Job) {
       const evaluation = evaluateSense(aggregate.history, t, app.releaseDate);
       if (store === "android") evaluation.flags.push("latest_android_provisional");
       if (aggregate.unavailableCountries.length) evaluation.flags.push("some_countries_unavailable");
-      games.push({ appId: id, store, name: app.name, publisher: app.publisher, releaseDate: app.releaseDate, ...classifySense(id, store, app.categories), ...aggregate, evaluation, retrievedAt: app.historyAt ?? now(), url: store === "ios" ? `https://apps.apple.com/us/app/id${id}` : `https://play.google.com/store/apps/details?id=${encodeURIComponent(id)}` });
+      games.push({ appId: id, store, name: app.name, publisher: app.publisher, releaseDate: app.releaseDate, ...classifySense(id, store, app.categories), ...aggregate, evaluation, retrievedAt: app.historyAt ?? now(), url: store === "ios" ? `https://apps.apple.com/${listingCountry.toLowerCase()}/app/id${id}` : `https://play.google.com/store/apps/details?id=${encodeURIComponent(id)}&gl=${listingCountry}` });
     }
   }
   const ranks = { confirmed_momentum: 0, early_warning: 1, launch_traction: 2, none: 3, insufficient_data: 4 };

@@ -53,6 +53,8 @@ export default function LudiosSense() {
   const [selection, setSelection] = useState<string | null>(null);
   const [limit, setLimit] = useState(30);
   const [collapsed, setCollapsed] = useState(false);
+  const [details, setDetails] = useState<Record<string, SenseGame>>({});
+  const [detailError, setDetailError] = useState("");
   const controller = useRef<AbortController | null>(null);
   const busy = submitting || scan?.status === "running" && !paused;
   const result = scan?.result;
@@ -61,6 +63,18 @@ export default function LudiosSense() {
     (group === "all" || group === "included" && active(game) && game.classification === "included" || group === "review" && active(game) && game.classification === "review" || group === "traction" && game.evaluation.signal === "launch_traction") &&
     `${game.name} ${game.publisher} ${game.appId}`.toLowerCase().includes(search.toLowerCase())), [games, group, store, search]);
   const selected = visible.find(g => `${g.store}:${g.appId}` === selection) ?? visible[0];
+  const detailKey = selected && scan ? `${scan.jobKey}:${selected.store}:${selected.appId}` : "";
+  const selectedDetail = details[detailKey];
+  useEffect(() => {
+    if (!selected || !scan || selectedDetail) return;
+    const abort = new AbortController();
+    setDetailError("");
+    void fetch("/api/ludios-sense/game", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobKey: scan.jobKey, appId: selected.appId, store: selected.store }), signal: abort.signal })
+      .then(async r => { if (!r.ok) throw new Error("Could not load this game's download chart. Select another game and try again."); return await r.json() as SenseGame; })
+      .then(game => { if (!abort.signal.aborted) setDetails(v => ({ ...v, [detailKey]: game })); })
+      .catch(e => { if (!abort.signal.aborted) setDetailError(e instanceof Error ? e.message : "Chart unavailable"); });
+    return () => abort.abort();
+  }, [detailKey, selectedDetail]);
   useEffect(() => {
     try {
       const pending = JSON.parse(sessionStorage.getItem(storageKey) ?? "null");
@@ -79,7 +93,7 @@ export default function LudiosSense() {
     const timer = window.setTimeout(async () => {
       try {
         const next = await call("/api/ludios-sense/status", { jobKey: scan.jobKey }, abort.signal);
-        if (!stopped) { setScan(next); if (next.status === "error") setError(next.error ?? "Check failed"); }
+        if (!stopped) { setScan(next); setPaused(Boolean(next.paused)); if (next.status === "error") setError(next.error ?? "Check failed"); }
       } catch (e) {
         if (!stopped && !abort.signal.aborted) { setError(e instanceof Error ? e.message : "Connection lost. Resume the check to continue."); setPaused(true); }
       }
@@ -95,16 +109,23 @@ export default function LudiosSense() {
     } catch (e) { setError(e instanceof Error ? e.message : "Check failed"); }
     finally { setSubmitting(false); }
   }
+  async function togglePaused() {
+    if (!scan) return;
+    const nextPaused = !paused;
+    setPaused(nextPaused); setError("");
+    try { setScan(await call("/api/ludios-sense/status", { jobKey: scan.jobKey, action: nextPaused ? "pause" : "resume" })); }
+    catch (e) { setPaused(!nextPaused); setError(e instanceof Error ? e.message : "Could not change the scan state"); }
+  }
   const changed = result && (date !== result.filters.date || [...countries].sort().join(",") !== result.filters.countries.join(","));
   return <CerberusShell currentProduct="ludios-sense" collapsed={collapsed} onToggleCollapsed={() => setCollapsed(v => !v)}>
     <header className="mb-7 flex flex-wrap items-start justify-between gap-4"><div><h1 className="font-display text-3xl font-bold text-ink">Ludios Sense</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">Spot casual games gaining traction across your test markets. Combined downloads, separate signals for iOS and Android.</p></div><Radar className="h-8 w-8 text-cobalt" /></header>
     <section className="rounded-xl border border-line bg-surface-panel p-5" aria-label="Check filters">
-      <div className="flex flex-wrap items-end gap-4"><label className="flex flex-col gap-2 text-xs font-semibold text-slate-500">Date (t)<input aria-label="Date (t)" type="date" value={date} max={new Date().toISOString().slice(0,10)} disabled={Boolean(busy)} onChange={e => setDate(e.target.value)} className={inputClass} /></label><button onClick={run} disabled={Boolean(busy) || !countries.length || !date} className="focus-ring inline-flex h-10 items-center gap-2 rounded-lg bg-cobalt px-5 text-sm font-bold text-white disabled:opacity-50">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />} {busy ? "Checking…" : "Run check"}</button>{scan?.status === "running" ? <button className={`${inputClass} text-cobalt`} onClick={() => { setPaused(v => !v); setError(""); }}>{paused ? "Resume check" : "Pause check"}</button> : null}</div>
+      <div className="flex flex-wrap items-end gap-4"><label className="flex flex-col gap-2 text-xs font-semibold text-slate-500">Date (t)<input aria-label="Date (t)" type="date" value={date} max={new Date().toISOString().slice(0,10)} disabled={Boolean(busy)} onChange={e => setDate(e.target.value)} className={inputClass} /></label><button onClick={run} disabled={Boolean(busy) || !countries.length || !date} className="focus-ring inline-flex h-10 items-center gap-2 rounded-lg bg-cobalt px-5 text-sm font-bold text-white disabled:opacity-50">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />} {busy ? "Checking…" : "Run check"}</button>{scan?.status === "running" ? <button className={`${inputClass} text-cobalt`} onClick={togglePaused}>{paused ? "Resume check" : "Pause check"}</button> : null}</div>
       <fieldset disabled={Boolean(busy)} className="mt-5"><legend className="mb-3 text-xs font-semibold text-slate-500">Countries · downloads combined across your selection</legend><div className="flex flex-wrap gap-2">{senseCountryCodes.map(c => <label key={c} className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm ${countries.includes(c) ? "border-cobalt/40 bg-cobalt/10 text-ink" : "border-line text-slate-500"}`}><input type="checkbox" checked={countries.includes(c)} onChange={e => setCountries(v => e.target.checked ? [...v,c] : v.filter(x => x!==c))} className="accent-cobalt" />{senseCountries[c]}</label>)}</div></fieldset>
       <p className="mt-4 text-xs leading-5 text-slate-500">Today is selected by default. If estimates for t are unavailable, the report uses the latest completed reporting date and shows it explicitly. The minimum is 1,000 combined downloads/day per store.</p>
     </section>
     {error ? <div role="alert" className="mt-4 rounded-lg border border-rose-400/40 bg-rose-400/10 p-4 text-sm text-ink">{error}</div> : null}
-    {scan ? <div role="status" className="mt-5 flex items-center gap-3 rounded-lg border border-line bg-surface-panel p-4 text-sm text-ink">{scan.status === "completed" ? <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-500" /> : busy ? <Loader2 className="h-5 w-5 shrink-0 animate-spin text-cobalt" /> : <Activity className="h-5 w-5 shrink-0 text-cobalt" />}<div>{paused ? "Check paused. Resume to continue from the saved step." : scan.progress}<p className="mt-1 text-xs text-slate-500">{scan.requests} API requests{scan.cached ? " · Recently saved result reused" : ""}. One request at a time, with countries batched together.</p></div></div> : null}
+    {scan ? <div role="status" className="mt-5 flex items-center gap-3 rounded-lg border border-line bg-surface-panel p-4 text-sm text-ink">{scan.status === "completed" ? <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-500" /> : busy ? <Loader2 className="h-5 w-5 shrink-0 animate-spin text-cobalt" /> : <Activity className="h-5 w-5 shrink-0 text-cobalt" />}<div>{paused ? "Check paused. Resume to continue from the saved step." : scan.progress}<p className="mt-1 text-xs text-slate-500">{scan.requests} API requests{scan.cached ? " · Recently saved result reused" : ""}. One request at a time, with countries batched together. The scan continues on the server when this tab is inactive.</p></div></div> : null}
     {!scan ? <div className="my-16 text-center"><Radar className="mx-auto mb-4 h-10 w-10 text-cobalt/60" /><h2 className="text-lg font-bold text-ink">Find the next game to investigate</h2><p className="mt-2 text-sm text-slate-500">Choose a date and markets, then run a check. Both stores are included.</p></div> : null}
     {result ? <>
       <div className="my-6 grid gap-3 sm:grid-cols-3">{[["Growth signals",games.filter(g => active(g) && g.classification === "included").length],["Awaiting genre review",games.filter(g => active(g) && g.classification === "review").length],["Games / stores evaluated",games.length]].map(([label,value]) => <div key={label} className="rounded-xl border border-line bg-surface-panel p-5"><p className="text-xs font-semibold text-slate-500">{label}</p><p className="mt-2 text-3xl font-bold text-ink">{value}</p></div>)}</div>
@@ -118,7 +139,7 @@ export default function LudiosSense() {
       </section>
       {selected ? <section className="mt-6 rounded-xl border border-line bg-surface-panel p-5" aria-label="Selected game detail"><div className="mb-5 flex flex-wrap items-start justify-between gap-3"><div><h2 className="text-xl font-bold text-ink">{selected.name}</h2><p className="mt-1 text-xs text-slate-500">{selected.publisher} · {selected.store === "ios" ? "iOS" : "Android"} · {selected.genre}</p></div><a href={selected.url} target="_blank" rel="noreferrer" className="focus-ring inline-flex items-center gap-1 text-sm font-semibold text-cobalt">Open store listing <ArrowUpRight className="h-4 w-4" /></a></div>
         <div className="mb-5 grid gap-3 sm:grid-cols-3">{[["Latest 3-day average",number(selected.evaluation.recentAverage)],["Rule baseline",number(selected.evaluation.baseline)],["Trigger",selected.evaluation.variant?.replaceAll("_"," ") ?? labels[selected.evaluation.signal]]].map(([label,value]) => <div key={label} className="rounded-lg bg-surface-table p-3"><p className="text-xs text-slate-500">{label}</p><p className="mt-1 text-sm font-bold text-ink">{value}</p></div>)}</div>
-        <DownloadChart key={`${selected.store}:${selected.appId}`} game={selected} />
+        {selectedDetail ? <DownloadChart key={detailKey} game={selectedDetail} /> : <div role="status" className="flex h-56 items-center justify-center text-sm text-slate-500">{detailError || "Loading download chart…"}</div>}
         <div className="mt-5 border-t border-line pt-4 text-xs leading-6 text-slate-500"><p>Observed activity: {selected.evaluation.activityDate ?? "Not established"} · Reported release: {selected.releaseDate ?? "Unknown"}{selected.evaluation.releaseAge !== null ? ` (${selected.evaluation.releaseAge} days before t)` : ""}. Release date does not gate detection.</p><p>Combined countries with observations: {selected.availableCountries.map(c => senseCountries[c]).join(", ") || "None"}.</p>{selected.unavailableCountries.length ? <p>No observations in this lookback: {selected.unavailableCountries.map(c => senseCountries[c]).join(", ")}. These countries are omitted from both the recent period and baseline.</p> : null}<p>Data labels: {selected.evaluation.flags.length ? selected.evaluation.flags.map(f => f.replaceAll("_"," ")).join(" · ") : "No additional data flags"} · Retrieved {new Date(selected.retrievedAt).toLocaleString()}.</p></div>
       </section> : null}
       <p className="my-6 max-w-3xl text-xs leading-6 text-slate-500">Research the gameplay, core mechanics, differentiation, and recent updates. Download growth does not establish organic demand, retention, or commercial success. Thresholds remain provisional. A breakout in one market can be diluted by flat volume elsewhere.</p>

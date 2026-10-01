@@ -52,10 +52,10 @@ function sqliteLiteral(value: string) {
   return `'${value.replaceAll("'", "''")}'`;
 }
 
-function sqliteJsonRows<T>(sql: string): T[] {
+function sqliteJsonRows<T>(sql: string, maxBuffer = 1024 * 1024 * 32): T[] {
   const output = execFileSync("sqlite3", ["-json", localSqlitePath, sql], {
     encoding: "utf8",
-    maxBuffer: 1024 * 1024 * 32,
+    maxBuffer,
   }).trim();
   return output ? (JSON.parse(output) as T[]) : [];
 }
@@ -1213,7 +1213,7 @@ export async function getTechLaunchReadinessCache(cacheKey: string): Promise<Tec
       FROM tech_launch_readiness_cache
       WHERE cache_key = ${sqliteLiteral(cacheKey)}
       LIMIT 1
-    `);
+    `, 1024 * 1024 * 128);
     return row ? rowToTechLaunchCacheRecord(row) : null;
   }
 
@@ -1624,4 +1624,20 @@ export async function refundQueueStatus() {
   const statement = `SELECT COUNT(CASE WHEN done=0 THEN 1 END) AS pending, COUNT(CASE WHEN done=1 AND payload LIKE '%"deliveryFailed":true%' THEN 1 END) AS delivery_failed FROM refund_review_jobs`;
   const rows = getDatabaseUrl() ? await getSql().unsafe(statement) : refundSqlite<{ pending: number; delivery_failed: number }>(statement);
   return { pending: Number(rows[0].pending), deliveryFailed: Number(rows[0].delivery_failed) };
+}
+
+/** Read only IDs of user-started, unfinished scans; no automatic market scans. */
+export async function listPendingSenseJobs(): Promise<string[]> {
+  const now = new Date().toISOString();
+  if (shouldUseLocalSqlite()) {
+    ensureSqliteTechLaunchCacheTable();
+    return sqliteJsonRows<{ cache_key: string }>(`SELECT cache_key FROM tech_launch_readiness_cache
+      WHERE cache_key LIKE 'sense:v1:%' AND length(cache_key)=73 AND payload LIKE '%"status":"running"%'
+      AND expires_at>${sqliteLiteral(now)} ORDER BY created_at LIMIT 10`).map(r => r.cache_key);
+  }
+  const sql = await ensureTechLaunchCacheTable();
+  const rows = await sql<{ cache_key: string }[]>`SELECT cache_key FROM tech_launch_readiness_cache
+    WHERE cache_key LIKE 'sense:v1:%' AND length(cache_key)=73 AND payload LIKE '%"status":"running"%'
+    AND expires_at>${now} ORDER BY created_at LIMIT 10`;
+  return rows.map(r => r.cache_key);
 }

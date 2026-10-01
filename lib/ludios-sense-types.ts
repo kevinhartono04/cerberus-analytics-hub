@@ -18,7 +18,7 @@ export type SenseEvaluation = {
 export type SenseGame = {
   appId: string; store: SenseStore; name: string; publisher: string; genre: string;
   classification: "included" | "review" | "excluded"; releaseDate: string | null; url: string;
-  history: SensePoint[];
+  history: SensePoint[]; historyLoaded?: boolean;
   availableCountries: SenseCountry[]; unavailableCountries: SenseCountry[];
   evaluation: SenseEvaluation; retrievedAt: string;
 };
@@ -26,4 +26,4 @@ export type SenseResult = {
   filters: SenseFilters; generatedAt: string; watermarks: Partial<Record<SenseStore, string>>;
   games: SenseGame[]; errors: string[]; requests: number; coverageComplete: boolean; ruleVersion: string;
 };
-export type SenseRunResponse = { jobKey: string; status: "running" | "completed" | "error"; progress: string; requests: number; result?: SenseResult; error?: string; cached?: boolean };
+export type SenseRunResponse = { jobKey: string; status: "running" | "completed" | "error"; progress: string; requests: number; result?: SenseResult; error?: string; cached?: boolean; paused?: boolean };
