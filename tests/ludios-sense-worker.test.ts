@@ -50,6 +50,23 @@ describe("resumable Sense scan",()=>{
     expect((await advanceSense(run.jobKey)).requests).toBe(8);
     expect(JSON.parse(records.get(run.jobKey)!).requests).toBe(8);
   });
+  it("finishes a legacy partial batch before switching to 100 apps, keeping four weeks per app",async()=>{
+    const run=await startSense({date:t,countries:["US"]});
+    const job=JSON.parse(records.get(run.jobKey)!);
+    const ids=Array.from({length:125},(_,i)=>String(i));
+    const state=job.stores.android;
+    Object.assign(state,{phase:"history",watermark:t,historyIds:ids,ids,week:1,historyIndex:0});
+    state.apps=Object.fromEntries(ids.map(id=>[id,{appId:id,name:id,publisher:"",categories:["GAME_PUZZLE"],releaseDate:null,discoveredDate:t,histories:{US:{[t]:1}}}]));
+    records.set(run.jobKey,JSON.stringify(job));
+    const batches:number[]=[];
+    vi.stubGlobal("fetch",vi.fn(async(input:URL)=>{batches.push(new URL(input).searchParams.get("app_ids")!.split(",").length);return Response.json([]);}));
+    for(let i=0;i<7;i++) await advanceSense(run.jobKey);
+    expect(batches).toEqual([25,25,25,100,100,100,100]);
+    const saved=JSON.parse(records.get(run.jobKey)!);
+    expect(saved.stores.android.historyIndex).toBe(125);
+    expect(saved.stores.android.historyBatchSize).toBe(100);
+    expect(Object.values(saved.stores.android.apps).every((a:any)=>a.backfilled)).toBe(true);
+  });
   it("uses combined rankings, normalizes both stores, deduplicates concurrent scans, caches completed scans and refreshes seven days",async()=>{
     const calls:URL[]=[];
     vi.stubGlobal("fetch",vi.fn(async(input:URL)=>{

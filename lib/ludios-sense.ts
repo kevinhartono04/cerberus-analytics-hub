@@ -5,7 +5,7 @@ import { aggregateSenseHistory, classifySense, evaluateSense, senseRuleVersion, 
 import type { SenseCountry, SenseFilters, SenseGame, SenseResult, SenseRunResponse, SenseStore } from "@/lib/ludios-sense-types";
 
 type App = { appId: string; name: string; publisher: string; categories: string[]; releaseDate: string | null; metadataAt?: string; discoveredDate: string; histories: Partial<Record<SenseCountry, Record<string, number | null>>>; backfilled?: boolean; historyStart?: string; historyEnd?: string; historyAt?: string };
-type StoreState = { apps: Record<string, App>; ids: string[]; historyIds: string[]; watermark?: string; rankingDate: string; datesFound: number; daysChecked: number; offset: number; lastDownloads: number; metadataIndex: number; historyIndex: number; week: number; phase: "discovery" | "metadata" | "history" | "done" };
+type StoreState = { apps: Record<string, App>; ids: string[]; historyIds: string[]; watermark?: string; rankingDate: string; datesFound: number; daysChecked: number; offset: number; lastDownloads: number; metadataIndex: number; historyIndex: number; week: number; historyBatchSize?: number; phase: "discovery" | "metadata" | "history" | "done" };
 type Job = { jobKey: string; filters: SenseFilters; status: SenseRunResponse["status"]; createdAt: string; updatedAt: string; requests: number; progress: string; stores: Record<SenseStore, StoreState>; store: SenseStore; result?: SenseResult; error?: string; retry: number; retryAt?: string; receipts: Array<{ endpoint: string; parameters: Record<string, string | number>; retrievedAt: string }> };
 const stores: SenseStore[] = ["android", "ios"];
 const now = () => new Date().toISOString();
@@ -209,7 +209,9 @@ async function step(job: Job) {
       s.phase = "history";
     }
   } else if (s.phase === "history") {
-    const batch = s.historyIds.slice(s.historyIndex, s.historyIndex + 25);
+    // Keep an in-flight legacy 25-app batch intact across deployment; enlarge the next batch.
+    if (s.week === 0) s.historyBatchSize = 100;
+    const batch = s.historyIds.slice(s.historyIndex, s.historyIndex + (s.historyBatchSize ?? 25));
     if (!batch.length) {
       s.phase = "done";
       if (store === "android") { job.store = "ios"; job.progress = "Discovering iOS games across the selected countries…"; }
