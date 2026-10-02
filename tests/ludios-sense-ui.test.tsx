@@ -1,4 +1,5 @@
 import React from "react";
+import { renderToString } from "react-dom/server";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { senseToday } from "@/lib/ludios-sense-types";
@@ -6,6 +7,37 @@ import LudiosSense from "@/components/LudiosSense";
 vi.mock("@/components/CerberusShell",()=>({default:({children}:{children:React.ReactNode})=><main>{children}</main>}));
 beforeEach(()=>{sessionStorage.clear();vi.unstubAllGlobals();});
 describe("Sense page",()=>{
+ it("uses today's limit when cached HTML was rendered on a previous day",()=>{
+  vi.useFakeTimers();
+  vi.stubGlobal("fetch",vi.fn(async()=>Response.json({scan:null})));
+  vi.setSystemTime(new Date("2026-10-01T03:00:00Z"));
+  const container=document.createElement("div");
+  container.innerHTML=renderToString(<LudiosSense/>);
+  document.body.appendChild(container);
+  vi.setSystemTime(new Date("2026-10-02T03:00:00Z"));
+  const view=render(<LudiosSense/>,{container,hydrate:true});
+  try {expect(screen.getByLabelText("Date (t)")).toHaveAttribute("max","2026-10-02");}
+  finally {view.unmount();container.remove();vi.useRealTimers();}
+ });
+ it("updates the WIB date limit overnight and on return without replacing a selected historical date",()=>{
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-10-01T16:59:30Z"));
+  vi.stubGlobal("fetch",vi.fn(async()=>Response.json({scan:null})));
+  const view=render(<LudiosSense/>);
+  try {
+   const input=screen.getByLabelText("Date (t)");
+   expect(input).toHaveAttribute("max","2026-10-01");
+   fireEvent.change(input,{target:{value:"2026-09-25"}});
+   vi.setSystemTime(new Date("2026-10-01T17:01:00Z"));
+   fireEvent.focus(window);
+   expect(input).toHaveAttribute("max","2026-10-02");
+   expect(input).toHaveValue("2026-09-25");
+   vi.setSystemTime(new Date("2026-10-02T17:01:00Z"));
+   fireEvent(document,new Event("visibilitychange"));
+   expect(input).toHaveAttribute("max","2026-10-03");
+   expect(input).toHaveValue("2026-09-25");
+  } finally {view.unmount();vi.useRealTimers();}
+ });
  it("defaults to today and seven selected markets, sends unchecked selection, and renders the completed report",async()=>{
   const fetch=vi.fn(async(_url:string,init:RequestInit)=>{if(_url.endsWith("/cache"))return Response.json({scan:null});const filters=JSON.parse(init.body as string);return Response.json({jobKey:"sense:v1:"+"a".repeat(64),status:"completed",requests:12,progress:"Check complete",result:{filters:{...filters,countries:[...filters.countries].sort()},games:[],generatedAt:new Date().toISOString(),watermarks:{ios:"2026-09-28",android:"2026-09-28"},coverageComplete:true,errors:[],ruleVersion:"1.4-aggregate",requests:12}});});
   vi.stubGlobal("fetch",fetch);render(<LudiosSense/>);
