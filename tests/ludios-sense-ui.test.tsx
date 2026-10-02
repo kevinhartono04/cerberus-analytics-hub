@@ -7,6 +7,21 @@ import LudiosSense from "@/components/LudiosSense";
 vi.mock("@/components/CerberusShell",()=>({default:({children}:{children:React.ReactNode})=><main>{children}</main>}));
 beforeEach(()=>{sessionStorage.clear();vi.unstubAllGlobals();});
 describe("Sense page",()=>{
+ it("shows a saved breakout by default and separates it from current signals",async()=>{
+  const date=senseToday(),jobKey="sense:v1:"+"a".repeat(64),generatedAt=new Date().toISOString();
+  const game={appId:"rings",store:"ios",name:"Rotate Rings",publisher:"Studio",genre:"Puzzle",classification:"included",releaseDate:null,iconUrl:null,unifiedAppId:null,url:"https://example.com",history:[],availableCountries:["US"],unavailableCountries:[],evaluation:{date,signal:"none",latest:86722,recentAverage:90133,baseline:null,growth:null,added:null,flags:[],releaseAge:null,activityDate:null},retrievedAt:generatedAt};
+  const watched={...game,watch:{firstDetected:"2026-09-29",lastDetected:"2026-09-29",referenceAverage:99090,status:"holding_scale",sourceJobKey:jobKey,sourceGeneratedAt:generatedAt,currentObserved:true}};
+  const scan={jobKey,status:"completed",cached:true,requests:64,progress:"Complete",result:{filters:{date,countries:["AU","CA","DE","GB","JP","RU","US"]},games:[game],generatedAt,watermarks:{ios:date},coverageComplete:true}};
+  const fetch=vi.fn(async(url:string)=>Response.json(url.endsWith("/cache")?{scan}:url.endsWith("/recent")?{games:[watched]}:url.endsWith("/game")?game:{}));
+  vi.stubGlobal("fetch",fetch);render(<LudiosSense/>);
+  await waitFor(()=>expect(screen.getByText("Holding scale")).toBeInTheDocument());
+  expect(screen.getByLabelText("Signal group")).toHaveValue("recent");
+  expect(screen.getByRole("button",{name:"Inspect Rotate Rings, ios"})).toBeInTheDocument();
+  expect(screen.getByText("Detected 2026-09-29")).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText("Signal group"),{target:{value:"included"}});
+  expect(screen.queryByRole("button",{name:"Inspect Rotate Rings, ios"})).not.toBeInTheDocument();
+  expect(fetch.mock.calls.every(([url])=>["/api/ludios-sense/cache","/api/ludios-sense/usage","/api/ludios-sense/recent","/api/ludios-sense/game"].includes(url))).toBe(true);
+ });
  it("uses today's limit when cached HTML was rendered on a previous day",()=>{
   vi.useFakeTimers();
   vi.stubGlobal("fetch",vi.fn(async()=>Response.json({scan:null})));
@@ -93,7 +108,7 @@ describe("Sense page",()=>{
   vi.stubGlobal("fetch",fetch);render(<LudiosSense/>);
   await waitFor(()=>expect(screen.getByText("Research shortlist")).toBeInTheDocument());
   expect(screen.getByText(/Shared saved report/)).toHaveTextContent("No new scan started");
-  expect(fetch.mock.calls.every(([url])=>["/api/ludios-sense/cache","/api/ludios-sense/usage"].includes(url))).toBe(true);
+  expect(fetch.mock.calls.every(([url])=>["/api/ludios-sense/cache","/api/ludios-sense/usage","/api/ludios-sense/recent"].includes(url))).toBe(true);
  });
  it("disables checks when every country is unchecked",()=>{
   render(<LudiosSense/>);screen.getAllByRole("checkbox").forEach(c=>fireEvent.click(c));

@@ -6,6 +6,7 @@ import { sensorTowerRequest } from "@/lib/sensortower-api";
 import { claimSenseLease, getTechLaunchReadinessCache, listPendingSenseJobs, releaseSenseLease, saveTechLaunchReadinessCache } from "@/lib/db";
 import { aggregateSenseHistory, classifySense, evaluateSense, senseRuleVersion, shiftDate, validDownloads } from "@/lib/ludios-sense-detection";
 import { senseToday } from "@/lib/ludios-sense-types";
+import { buildSenseWatchlist } from "@/lib/ludios-sense-watchlist";
 import type { SenseCountry, SenseFilters, SenseGame, SenseResult, SenseRunResponse, SenseStore } from "@/lib/ludios-sense-types";
 
 type App = StoredSenseHistory & { appId: string; name: string; publisher: string; iconUrl?: string | null; unifiedAppId?: string | null; categories: string[]; releaseDate: string | null; metadataAt?: string; discoveredDate: string; histories: Partial<Record<SenseCountry, Record<string, number | null>>>; countryHistory?: Partial<Record<SenseCountry, { start: string; end: string; at: string }>>; backfilled?: boolean; historyStart?: string; historyEnd?: string; historyAt?: string };
@@ -114,6 +115,15 @@ export async function getSenseGame(key: string, appId: string, store: SenseStore
   const game = result?.games.find(g => g.appId === appId && g.store === store);
   if (!game) throw new Response("Game report not found", { status: 404 });
   return { ...game, historyLoaded: true };
+}
+
+export async function getSenseWatchlist(key: string) {
+  const current = await getSenseStatus(key);
+  if (!current.result) return [];
+  const filters = current.result.filters;
+  const previous = await Promise.all(Array.from({ length: 7 }, (_, i) =>
+    load<SenseRunResponse>(cacheKey({ ...filters, date: shiftDate(filters.date, -i - 1) }) + ":summary")));
+  return buildSenseWatchlist(current, previous.filter((r): r is SenseRunResponse => r !== null && r.status === "completed"));
 }
 
 export async function setSensePaused(key: string, paused: boolean): Promise<SenseRunResponse> {

@@ -18,6 +18,7 @@ export type SenseEvaluation = {
   growth: number | null; added: number | null; flags: string[]; activityDate: string | null; releaseAge: number | null;
 };
 export type SenseGame = {
+  watch?: { firstDetected: string; lastDetected: string; referenceAverage: number | null; status: "current_signal" | "holding_scale" | "cooling_down" | "insufficient_data"; sourceJobKey: string; sourceGeneratedAt: string; currentObserved: boolean };
   appId: string; store: SenseStore; name: string; publisher: string; genre: string; iconUrl?: string | null; unifiedAppId?: string | null;
   classification: "included" | "review" | "excluded"; releaseDate: string | null; url: string;
   history: SensePoint[]; historyLoaded?: boolean;

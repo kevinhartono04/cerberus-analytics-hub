@@ -7,7 +7,7 @@ import { groupSenseGames, senseTableGenres } from "@/lib/ludios-sense-presentati
 import CerberusShell from "@/components/CerberusShell";
 import { senseCountries, senseCountryCodes, senseToday, type SenseCountry, type SenseGame, type SenseRunResponse } from "@/lib/ludios-sense-types";
 
-const labels = { confirmed_momentum: "Confirmed momentum", early_warning: "Early warning", launch_traction: "Traction — growth unconfirmed", insufficient_data: "Insufficient data", none: "No signal" };
+const labels = { confirmed_momentum: "Confirmed momentum", early_warning: "Early warning", launch_traction: "Traction — growth unconfirmed", insufficient_data: "Insufficient data", none: "No current signal" };
 const number = (v: number | null) => v === null ? "—" : new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(v);
 const growth = (game: SenseGame) => game.evaluation.baseline === 0 ? "From zero" : game.evaluation.growth === null ? "—" : `${game.evaluation.growth.toFixed(2)}×`;
 const active = (game: SenseGame) => game.evaluation.signal === "confirmed_momentum" || game.evaluation.signal === "early_warning";
@@ -77,7 +77,10 @@ export default function LudiosSense() {
   const [usageError, setUsageError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [paused, setPaused] = useState(false);
-  const [group, setGroup] = useState("included");
+  const [group, setGroup] = useState("recent");
+  const [recent, setRecent] = useState<SenseGame[]>([]);
+  const [recentError, setRecentError] = useState("");
+  const [recentLoading, setRecentLoading] = useState(false);
   const [store, setStore] = useState("all");
   const [search, setSearch] = useState("");
   const [selection, setSelection] = useState<string | null>(null);
@@ -91,12 +94,29 @@ export default function LudiosSense() {
   const controller = useRef<AbortController | null>(null);
   const busy = submitting || scan?.status === "running" && !paused;
   const result = scan?.result;
-  const games = result?.games ?? [];
+  const currentGames = result?.games ?? [];
+  const games = useMemo(() => {
+    const map = new Map(currentGames.map(g => [`${g.store}:${g.appId}`, g]));
+    for (const game of recent) map.set(`${game.store}:${game.appId}`, game);
+    return [...map.values()];
+  }, [currentGames, recent]);
+  useEffect(() => {
+    setRecent([]); setRecentError("");
+    if (!scan?.jobKey || !result) { setRecentLoading(false); return; }
+    const abort = new AbortController();
+    setRecentLoading(true);
+    void fetch("/api/ludios-sense/recent", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({jobKey:scan.jobKey}),signal:abort.signal})
+      .then(async r => { if (!r.ok) throw new Error("Recent detections could not be loaded. Today's signals are still available."); return await r.json(); })
+      .then(value => {if (!abort.signal.aborted) setRecent(value.games ?? []);})
+      .catch(e => {if (!abort.signal.aborted) setRecentError(e instanceof Error ? e.message : "Recent detections unavailable");})
+      .finally(() => {if (!abort.signal.aborted) setRecentLoading(false);});
+    return () => abort.abort();
+  }, [scan?.jobKey, result?.generatedAt]);
   const visible = useMemo(() => games.filter(game => (store === "all" || game.store === store) &&
-    (group === "all" || group === "included" && active(game) && game.classification === "included" || group === "review" && active(game) && game.classification === "review" || group === "traction" && game.evaluation.signal === "launch_traction") &&
+    (group === "recent" && (Boolean(game.watch) || active(game) && game.classification === "included") || group === "all" && game.watch?.currentObserved !== false || group === "included" && active(game) && game.classification === "included" || group === "review" && active(game) && game.classification === "review" || group === "traction" && game.evaluation.signal === "launch_traction") &&
     `${game.name} ${game.publisher} ${game.appId}`.toLowerCase().includes(search.toLowerCase())), [games, group, store, search]);
   const grouped = useMemo(() => groupSenseGames(visible,unifiedIds),[visible,unifiedIds]);
-  const iconSelection = JSON.stringify(grouped.slice(0,limit).flatMap(group=>group.members).filter(g => g.iconUrl === undefined || g.unifiedAppId === undefined).map(g => ({ appId:g.appId, store:g.store })));
+  const iconSelection = JSON.stringify(grouped.slice(0,limit).flatMap(group=>group.members).filter(g => g.watch?.currentObserved !== false && (g.iconUrl === undefined || g.unifiedAppId === undefined)).map(g => ({ appId:g.appId, store:g.store })));
   useEffect(() => {
     if (!scan?.jobKey) return;
     const abort = new AbortController();
@@ -127,13 +147,15 @@ export default function LudiosSense() {
     return () => abort.abort();
   }, [scan?.jobKey, iconSelection]);
   const selected = visible.find(g => `${g.store}:${g.appId}` === selection) ?? visible[0];
-  const detailKey = selected && scan ? `${scan.jobKey}:${result?.generatedAt}:${selected.store}:${selected.appId}` : "";
+  const chartJobKey = selected?.watch?.sourceJobKey ?? scan?.jobKey;
+  const chartGeneratedAt = selected?.watch?.sourceGeneratedAt ?? result?.generatedAt;
+  const detailKey = selected && scan ? `${chartJobKey}:${chartGeneratedAt}:${selected.store}:${selected.appId}` : "";
   const selectedDetail = details[detailKey];
   useEffect(() => {
     if (!selected || !scan || selectedDetail) return;
     const abort = new AbortController();
     setDetailError("");
-    void fetch("/api/ludios-sense/game", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobKey: scan.jobKey, appId: selected.appId, store: selected.store, generatedAt: result?.generatedAt }), signal: abort.signal })
+    void fetch("/api/ludios-sense/game", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobKey: chartJobKey, appId: selected.appId, store: selected.store, generatedAt: chartGeneratedAt }), signal: abort.signal })
       .then(async r => { if (!r.ok) throw new Error("Could not load this game's download chart. Select another game and try again."); return await r.json() as SenseGame; })
       .then(game => { if (!abort.signal.aborted) setDetails(v => ({ ...v, [detailKey]: game })); })
       .catch(e => { if (!abort.signal.aborted) setDetailError(e instanceof Error ? e.message : "Chart unavailable"); });
@@ -231,15 +253,17 @@ export default function LudiosSense() {
     {!scan ? <div className="sense-panel my-8 rounded-2xl border border-dashed border-cobalt/20 surface-card-gradient px-6 py-14 text-center"><Radar className="mx-auto mb-4 h-10 w-10 text-cobalt/60" /><h2 className="text-lg font-bold text-ink">Find the next game to investigate</h2><p className="mt-2 text-sm text-slate-500">Choose a date and markets, then run a check. Both stores are included.</p></div> : null}
     {result ? <>
       {!result.coverageComplete ? <div role="alert" className="mt-4 rounded-lg border border-amber-400/40 p-4 text-sm text-ink">Partial coverage: {result.errors.join(" ")} Results include only games whose history finished loading. Other games may have been missed.</div> : null}
-      <div className="my-6 grid gap-4 sm:grid-cols-3">{[
-        {label:"Growth games",value:groupSenseGames(games.filter(g=>active(g)&&g.classification==="included"),unifiedIds).length,Icon:TrendingUp,color:"text-emerald",tint:"bg-emerald/10 border-emerald/20",accent:"bg-emerald",detail:"Early warnings & confirmed momentum"},
-        {label:"Awaiting genre review",value:groupSenseGames(games.filter(g=>active(g)&&g.classification==="review"),unifiedIds).length,Icon:CircleHelp,color:"text-amber",tint:"bg-amber/10 border-amber/20",accent:"bg-amber",detail:"Growth detected · classification to review"},
-        {label:"Games / stores evaluated",value:games.length,Icon:Layers3,color:"text-cobalt",tint:"bg-cobalt/10 border-cobalt/20",accent:"bg-cobalt",detail:"Across your selected test markets"},
+      <div className="my-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{[
+        {label:"Current signals",value:groupSenseGames(currentGames.filter(g=>active(g)&&g.classification==="included"),unifiedIds).length,Icon:TrendingUp,color:"text-emerald",tint:"bg-emerald/10 border-emerald/20",accent:"bg-emerald",detail:"Early warnings & confirmed momentum"},
+        {label:"Recently detected",value:groupSenseGames(games.filter(g=>g.watch || active(g)&&g.classification==="included"),unifiedIds).length,Icon:Radar,color:"text-cobalt",tint:"bg-cobalt/10 border-cobalt/20",accent:"bg-cobalt",detail:"Retained for 7 reporting days"},
+        {label:"Awaiting genre review",value:groupSenseGames(currentGames.filter(g=>active(g)&&g.classification==="review"),unifiedIds).length,Icon:CircleHelp,color:"text-amber",tint:"bg-amber/10 border-amber/20",accent:"bg-amber",detail:"Growth detected · classification to review"},
+        {label:"Games / stores evaluated",value:currentGames.length,Icon:Layers3,color:"text-cobalt",tint:"bg-cobalt/10 border-cobalt/20",accent:"bg-cobalt",detail:"Across your selected test markets"},
       ].map(({label,value,Icon,color,tint,accent,detail})=><div key={label} className="sense-panel relative overflow-hidden rounded-2xl border border-line/70 surface-card-gradient p-5"><div className={`absolute inset-y-5 left-0 w-1 rounded-r-full ${accent}`} /><div className="flex items-start justify-between gap-3"><p className="text-xs font-semibold text-slate-500">{label}</p><span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border ${tint}`}><Icon aria-hidden="true" className={`h-4 w-4 ${color}`} /></span></div><p className={`mt-1 font-display text-4xl font-extrabold tracking-tight ${color}`}>{number(value)}</p><p className="mt-2 text-[11px] text-slate-500">{detail}</p></div>)}</div>
       <p className="mb-4 text-xs leading-5 text-slate-500">Requested t: {result.filters.date} · Evaluated: Android {result.watermarks.android ?? "unavailable"}, iOS {result.watermarks.ios ?? "unavailable"} · Retrieved {new Date(result.generatedAt).toLocaleString()} · Countries: {result.filters.countries.map(c => senseCountries[c]).join(", ")}. {result.coverageComplete ? "Discovery and history requests completed." : "Incomplete coverage."} Latest Android estimates are provisional.</p>
       {changed ? <p className="mb-4 rounded-lg border border-amber-400/40 p-3 text-sm text-ink">Filters changed. Run check to update the report; the results below use the selection shown above.</p> : null}
       <section className="sense-panel overflow-hidden rounded-2xl border border-line/70 bg-surface-card">
-        <div className="flex flex-wrap items-center gap-3 border-b border-line/70 surface-gradient p-4"><h2 className="mr-auto flex items-center gap-2 font-display text-base font-bold text-ink"><span className="flex h-8 w-8 items-center justify-center rounded-lg bg-cobalt/10"><Radar aria-hidden="true" className="h-4 w-4 text-cobalt" /></span>Research shortlist</h2><select aria-label="Signal group" className={inputClass} value={group} onChange={e => { setGroup(e.target.value); setLimit(30); }}><option value="included">In-scope growth</option><option value="review">Needs genre review</option><option value="traction">Traction, unconfirmed</option><option value="all">All evaluated games</option></select><select aria-label="Store" className={inputClass} value={store} onChange={e => { setStore(e.target.value); setLimit(30); }}><option value="all">Both stores</option><option value="ios">iOS</option><option value="android">Android</option></select><label className="relative"><Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-500" /><input aria-label="Search games" placeholder="Game or publisher" value={search} onChange={e => { setSearch(e.target.value); setLimit(30); }} className={`${inputClass} pl-9`} /></label></div>
+        <div className="flex flex-wrap items-center gap-3 border-b border-line/70 surface-gradient p-4"><h2 className="mr-auto flex items-center gap-2 font-display text-base font-bold text-ink"><span className="flex h-8 w-8 items-center justify-center rounded-lg bg-cobalt/10"><Radar aria-hidden="true" className="h-4 w-4 text-cobalt" /></span>Research shortlist</h2><select aria-label="Signal group" className={inputClass} value={group} onChange={e => { setGroup(e.target.value); setLimit(30); }}><option value="recent">Recent detections (7 days)</option><option value="included">Current signals</option><option value="review">Needs genre review</option><option value="traction">Traction, unconfirmed</option><option value="all">All evaluated games</option></select><select aria-label="Store" className={inputClass} value={store} onChange={e => { setStore(e.target.value); setLimit(30); }}><option value="all">Both stores</option><option value="ios">iOS</option><option value="android">Android</option></select><label className="relative"><Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-500" /><input aria-label="Search games" placeholder="Game or publisher" value={search} onChange={e => { setSearch(e.target.value); setLimit(30); }} className={`${inputClass} pl-9`} /></label></div>
+        {group === "recent" ? <div className="border-b border-line/60 bg-cobalt/5 px-4 py-3 text-xs leading-5 text-slate-500">Previously detected games stay visible for seven reporting days. Holding scale means the three-day average remains at least 80% of its last detection average and the latest day reaches 1,000. {recentLoading ? "Loading saved detections…" : "Uses saved reports for the same country selection; no download API calls."}{recentError ? <p role="alert" className="text-amber">{recentError}</p> : null}</div> : null}
         <div className="overflow-x-auto"><table className="w-full min-w-[640px] text-left text-sm"><thead className="bg-surface-table text-[10px] uppercase tracking-wider text-slate-500"><tr>{["Game / store", "Signal", "Latest day", "Growth", "Added / day"].map(h => <th key={h} className="px-4 py-3 font-semibold">{h}</th>)}</tr></thead>
           {grouped.slice(0,limit).map(({key,members}) => <tbody key={key} className="border-t border-line/60 transition-colors hover:bg-cobalt/[0.025]">{members.map((g,index) => <tr key={`${g.store}:${g.appId}`} className={selected===g ? "surface-selected-gradient" : ""}>
             {index===0 ? <td rowSpan={members.length} className="px-4 py-4 align-middle"><div className="flex items-center gap-3"><GameIcon key={g.iconUrl ?? icons[`${g.store}:${g.appId}`] ?? "missing"} url={g.iconUrl ?? icons[`${g.store}:${g.appId}`]} /><div>
@@ -248,15 +272,16 @@ export default function LudiosSense() {
               {senseTableGenres(members) ? <p className="mt-1 text-xs text-slate-500">{senseTableGenres(members)}</p> : null}
               {members.length>1 ? <div className="mt-2 flex gap-2">{members.map(member=><button key={`${member.store}:${member.appId}`} aria-label={`View ${member.store === "ios" ? "iOS" : "Android"} report for ${member.name}`} onClick={()=>setSelection(`${member.store}:${member.appId}`)} className={`focus-ring rounded-md border px-2.5 py-1 text-[10px] font-semibold transition-colors ${selected===member ? "border-cobalt/30 bg-cobalt/10 text-cobalt" : "border-line/70 bg-surface-table text-slate-500 hover:border-cobalt/30 hover:text-cobalt"}`}>{member.store === "ios" ? "iOS" : "Android"}</button>)}</div> : null}
             </div></div></td> : null}
-            <td className="px-4 py-4 text-ink">{members.length>1 ? <p className="mb-1 text-xs text-slate-500">{g.store === "ios" ? "iOS" : "Android"}</p> : null}<SignalBadge game={g} /></td>
+            <td className="px-4 py-4 text-ink">{members.length>1 ? <p className="mb-1 text-xs text-slate-500">{g.store === "ios" ? "iOS" : "Android"}</p> : null}<SignalBadge game={g} />{g.watch ? <div className="mt-2 text-xs text-slate-500"><p className={g.watch.status === "holding_scale" ? "font-semibold text-cobalt" : ""}>{({current_signal:"Current signal",holding_scale:"Holding scale",cooling_down:"Cooling down",insufficient_data:"Insufficient data"})[g.watch.status]}</p><p className="mt-1">Detected {g.watch.firstDetected}{g.watch.lastDetected !== g.watch.firstDetected ? ` · Last signal ${g.watch.lastDetected}` : ""}</p></div> : null}</td>
             <td className="px-4 py-4 font-mono text-ink">{number(g.evaluation.latest)}</td><td className={`px-4 py-4 font-mono font-semibold ${active(g) ? "text-emerald" : "text-ink"}`}>{growth(g)}</td><td className="px-4 py-4 font-mono text-ink">{g.evaluation.added === null ? "—" : `+${number(g.evaluation.added)}`}</td>
           </tr>)}</tbody>)}
         </table></div>
-        {!visible.length ? <p className="p-8 text-center text-sm text-slate-500">No games match this group. Try “Needs genre review” or “All evaluated games”.</p> : null}
+        {!visible.length ? <p className="p-8 text-center text-sm text-slate-500">No games match this group. Try “Current signals”, “Needs genre review”, or “All evaluated games”.</p> : null}
         {grouped.length > limit ? <button className="focus-ring m-4 text-sm font-semibold text-cobalt" onClick={() => setLimit(v => v + 30)}>Show 30 more</button> : null}
       </section>
       {selected ? <section className="sense-panel mt-6 rounded-2xl border border-line/70 surface-card-gradient p-5 sm:p-6" aria-label="Selected game detail"><div className="mb-5 flex flex-wrap items-start justify-between gap-3"><div><div className="mb-2"><SignalBadge game={selected} /></div><h2 className="font-display text-xl font-bold text-ink">{selected.name}</h2><p className="mt-1 text-xs text-slate-500">{selected.publisher} · {selected.store === "ios" ? "iOS" : "Android"} · {selected.genre}</p></div><a href={selected.url} target="_blank" rel="noreferrer" className="focus-ring inline-flex items-center gap-1 text-sm font-semibold text-cobalt">Open store listing <ArrowUpRight className="h-4 w-4" /></a></div>
         <div className="mb-5 grid gap-3 sm:grid-cols-3">{[["Latest 3-day average",number(selected.evaluation.recentAverage)],["Rule baseline",number(selected.evaluation.baseline)],["Trigger",selected.evaluation.variant?.replaceAll("_"," ") ?? labels[selected.evaluation.signal]]].map(([label,value]) => <div key={label} className="rounded-xl border border-line/60 bg-surface-table p-4"><p className="text-xs text-slate-500">{label}</p><p className="mt-1 text-sm font-bold text-ink">{value}</p></div>)}</div>
+        {selected.watch?.currentObserved === false ? <p className="mb-3 text-xs text-amber">Not evaluated in this report. The chart below is from the saved report dated {selected.watch.lastDetected}; current downloads are unavailable.</p> : null}
         {selectedDetail ? <DownloadChart key={detailKey} game={selectedDetail} /> : <div role="status" className="flex h-56 items-center justify-center text-sm text-slate-500">{detailError || "Loading download chart…"}</div>}
         <div className="mt-5 border-t border-line pt-4 text-xs leading-6 text-slate-500"><p>Observed activity: {selected.evaluation.activityDate ?? "Not established"} · Reported release: {selected.releaseDate ?? "Unknown"}{selected.evaluation.releaseAge !== null ? ` (${selected.evaluation.releaseAge} days before t)` : ""}. Release date does not gate detection.</p><p>Combined countries with observations: {selected.availableCountries.map(c => senseCountries[c]).join(", ") || "None"}.</p>{selected.unavailableCountries.length ? <p>No observations in this lookback: {selected.unavailableCountries.map(c => senseCountries[c]).join(", ")}. These countries are omitted from both the recent period and baseline.</p> : null}<p>Data labels: {selected.evaluation.flags.length ? selected.evaluation.flags.map(f => f.replaceAll("_"," ")).join(" · ") : "No additional data flags"} · Retrieved {new Date(selected.retrievedAt).toLocaleString()}.</p></div>
       </section> : null}
