@@ -1,3 +1,5 @@
+import { gameNameSchema, validatedGameId } from "@/lib/game-catalog";
+import { gameAppId } from "@/lib/game-registry";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -11,7 +13,6 @@ import {
   type IncentConfigValidatorSettingsRecord,
 } from "@/lib/db";
 import { getCountQuery, submitCountSql, type CountQuery } from "@/lib/count-api";
-import { techLaunchAppIds, techLaunchAppOptions } from "@/lib/tech-launch";
 
 const sqlPath = path.join(process.cwd(), "data", "tech_launch_incent_config_validator.sql");
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
@@ -30,12 +31,12 @@ export const incentConfigPolicy = {
 const mediaSourceSchema = z.string().trim().min(1).max(100).regex(/^[a-z0-9_.-]+$/i, "Media sources may contain letters, numbers, dots, underscores, and hyphens").transform((value) => value.toLowerCase());
 
 export const incentConfigSettingsInputSchema = z.object({
-  appName: z.enum(techLaunchAppOptions),
+  appName: gameNameSchema,
   mediaSources: z.array(mediaSourceSchema).min(1, "Add at least one media source").max(100).transform((values) => [...new Set(values)].sort()),
 });
 
 export const incentConfigValidatorFilterSchema = z.object({
-  appName: z.enum(techLaunchAppOptions),
+  appName: gameNameSchema,
   startDate: z.string().regex(datePattern, "Use YYYY-MM-DD"),
   endDate: z.string().regex(datePattern, "Use YYYY-MM-DD"),
 }).refine((filters) => filters.startDate <= filters.endDate, { path: ["endDate"], message: "End date must be on or after start date" });
@@ -99,7 +100,7 @@ export function normalizedIncentConfigValidatorFilters(input: unknown): IncentCo
   return incentConfigValidatorFilterSchema.parse(input);
 }
 
-export function buildIncentConfigValidatorSql(filtersInput: unknown, configuration: IncentConfigValidatorSettings, now = new Date()) {
+export function buildIncentConfigValidatorSql(filtersInput: unknown, configuration: IncentConfigValidatorSettings, now = new Date(), resolvedAppId?: number) {
   const filters = normalizedIncentConfigValidatorFilters(filtersInput);
   const evaluationHour = latestIncentEvaluationHour(now);
   const densityStart = hourBefore(evaluationHour, incentConfigPolicy.densityBaselineHours);
@@ -120,7 +121,7 @@ export function buildIncentConfigValidatorSql(filtersInput: unknown, configurati
   sql = replaceRequired(sql, /select to_timestamp_ntz\('[^']*'\) -- report hours start parameter/, `select ${sqlTimestampLiteral(reportStart + "Z")} -- report hours start parameter`);
   sql = replaceRequired(sql, /dateadd\(hour, 1, event_hour\) < to_timestamp_ntz\('[^']*'\) -- report hours end parameter/, `dateadd(hour, 1, event_hour) < ${sqlTimestampLiteral(reportEnd + "Z")} -- report hours end parameter`);
   sql = replaceRequired(sql, /lower\(media_source::varchar\) in \([^)]*\) -- media sources parameter/, `lower(media_source::varchar) in (${configuration.mediaSources.map(sqlLiteral).join(", ")}) -- media sources parameter`);
-  sql = replaceRequired(sql, /ep\.app_id\s*=\s*\d+\s*-- app id parameter/, `ep.app_id = ${techLaunchAppIds[filters.appName]} -- app id parameter`);
+  sql = replaceRequired(sql, /ep\.app_id\s*=\s*\d+\s*-- app id parameter/, `ep.app_id = ${validatedGameId(filters.appName, resolvedAppId)} -- app id parameter`);
   sql = replaceRequired(sql, /ep\.created_at\s*>=\s*to_timestamp_ntz\('[^']*'\)\s*-- source start parameter/, `ep.created_at >= ${sqlTimestampLiteral(sourceStart + "Z")} -- source start parameter`);
   sql = replaceRequired(sql, /ep\.created_at\s*<\s*to_timestamp_ntz\('[^']*'\)\s*-- source end parameter/, `ep.created_at < ${sqlTimestampLiteral(sourceEnd + "Z")} -- source end parameter`);
   sql = replaceRequired(sql, /created_at\s*>=\s*to_timestamp_ntz\('[^']*'\)\s*-- report start parameter/, `created_at >= ${sqlTimestampLiteral(reportStart + "Z")} -- report start parameter`);
@@ -229,7 +230,7 @@ export async function startIncentConfigValidator(input: unknown): Promise<Incent
   const request = incentConfigValidatorRequestSchema.parse(input);
   const filters = normalizedIncentConfigValidatorFilters(request);
   const configuration = await configurationFor(filters.appName);
-  const submitted = await submitCountSql(buildIncentConfigValidatorSql(filters, configuration), { cacheStrategy: request.forceRefresh ? "force" : "default" });
+  const submitted = await submitCountSql(buildIncentConfigValidatorSql(filters, configuration, new Date(), await gameAppId(filters.appName)), { cacheStrategy: request.forceRefresh ? "force" : "default" });
   if (submitted.query.status === "error") return completedResponse(submitted.query, filters, configuration);
   if (submitted.query.status === "completed") return completedResponse((await getCountQuery(submitted.query.job_key, 1000)).query, filters, configuration);
   return { status: "running", filters, metadata: { jobKey: submitted.query.job_key, submittedAt: new Date().toISOString() }, pollAfterMs: 1500 };

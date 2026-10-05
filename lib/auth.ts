@@ -1,7 +1,7 @@
 import { getSavedSpecSummary, syncAppUser } from "@/lib/db";
 import { configuredRoleForEmail } from "@/lib/auth-policy";
 import { getExternalTechLaunchApps, isTripledotEmail } from "@/lib/partner-access";
-import { techLaunchAppOptions } from "@/lib/tech-launch";
+import { registeredGames } from "@/lib/game-registry";
 import type { AppUser, SavedSpecSummary, UserRole } from "@/lib/types";
 import { userRoleSchema } from "@/lib/types";
 
@@ -111,7 +111,7 @@ export function isInternalAppUser(user: AppUser) {
 }
 
 export async function techLaunchAppsForUser(user: AppUser) {
-  if (isInternalAppUser(user)) return [...techLaunchAppOptions];
+  if (isInternalAppUser(user)) return (await registeredGames()).map(game => game.name);
   return getExternalTechLaunchApps(user.email);
 }
 

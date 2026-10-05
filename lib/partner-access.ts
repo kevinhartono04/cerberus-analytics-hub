@@ -1,8 +1,9 @@
+import { gameNameSchema } from "@/lib/game-catalog";
+import { registeredGames } from "@/lib/game-registry";
 import { z } from "zod";
 
 import { getPartnerDomainAccess } from "@/lib/db";
 import { launchSignalDashboardSuite } from "@/lib/launch-signal-access";
-import { techLaunchAppOptions } from "@/lib/tech-launch";
 
 const publicEmailDomains = new Set([
   "gmail.com",
@@ -63,7 +64,7 @@ export const partnerDomainAccessInputSchema = z.object({
   domain: z.string().transform(normalizePartnerDomain),
   enabled: z.boolean().default(true),
   expiresOn: z.string().transform(expiryFromDateInput),
-  allowedApps: z.array(z.enum(techLaunchAppOptions)).min(1, "Select at least one app"),
+  allowedApps: z.array(gameNameSchema).min(1, "Select at least one app"),
 });
 
 export type PartnerDomainAccessInput = z.infer<typeof partnerDomainAccessInputSchema>;
@@ -77,7 +78,7 @@ export async function getExternalLaunchSignalAccess(email: string) {
 }
 
 export async function getExternalTechLaunchApps(email: string) {
-  if (isTripledotEmail(email)) return [...techLaunchAppOptions];
+  if (isTripledotEmail(email)) return (await registeredGames()).map(game => game.name);
   const domain = domainFromEmail(email);
   if (!domain) return [];
   const access = await getPartnerDomainAccess(domain);

@@ -1,4 +1,6 @@
 "use client";
+import { defaultGameNames } from "@/lib/game-catalog";
+import { useGameOptions } from "@/hooks/use-game-options";
 
 import { AlertTriangle, CheckCircle2, RefreshCw, X, XCircle } from "lucide-react";
 import React, { FormEvent, useEffect, useMemo, useRef, useState } from "react";
@@ -7,10 +9,7 @@ import CerberusShell from "@/components/CerberusShell";
 import { FunnelDateRangePicker, FunnelFilterDropdown, FunnelLevelRange, FunnelMultiSelect, FunnelVersionMultiSelect } from "@/components/LevelFunnelControls";
 import { readDashboardSession, sameDashboardFilters, writeDashboardSession } from "@/lib/dashboard-session";
 
-const appOptions = [
-  "blockkingdom", "bloomsort", "bubblego", "bubblewordchain", "dotpaint", "hexago", "hexastack", "jelly", "mahjongbloom", "marble", "marbledrop", "ringtangle",
-  "sizzle", "stacksmash", "treasureshot", "tripletile", "wooblast", "woodoku", "wordblast", "wordoku", "wordrush",
-] as const;
+const appOptions: readonly string[] = defaultGameNames;
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 const levelFunnelPendingJobStorageKey = "tech-launch:level-funnel:pending-count-job";
 const levelFunnelSessionStorageKey = "cerberus.level-funnel.snapshot.v1";
@@ -143,7 +142,7 @@ function defaultFilters(): Filters {
 }
 
 function isAppName(value: string): value is typeof appOptions[number] {
-  return (appOptions as readonly string[]).includes(value);
+  return /^[a-z][a-z0-9_-]*$/.test(value);
 }
 
 function isDateValue(value: string) {
@@ -289,6 +288,7 @@ async function responseMessage(response: Response) {
 type ConfigurableGameplaySettings = Pick<GameplayAlertSettings, "dashboardNormalThreshold" | "dashboardHardThreshold" | "dashboardMinPlayers" | "dashboardExcludeTestCountries" | "normalThreshold" | "hardThreshold" | "minPlayers" | "excludeTestCountries" | "adMetricZScoreThreshold" | "alertTargets">;
 
 function AlertSettings({ settings, canManage, onSave }: { settings: GameplayAlertSettings; canManage: boolean; onSave: (value: Partial<ConfigurableGameplaySettings>) => Promise<void> }) {
+  const appOptions = useGameOptions();
   const [dashboardNormal, setDashboardNormal] = useState(String(Math.round((settings.dashboardNormalThreshold ?? 0.4) * 100)));
   const [dashboardHard, setDashboardHard] = useState(String(Math.round((settings.dashboardHardThreshold ?? 0.7) * 100)));
   const [dashboardMinimum, setDashboardMinimum] = useState(String(settings.dashboardMinPlayers ?? 100));
@@ -521,6 +521,7 @@ function FailRateChart({ data, loading }: { data: LevelFailRateResponse; loading
 }
 
 export default function LevelFunnelDashboard() {
+  const appOptions = useGameOptions();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [filters, setFilters] = useState<Filters>(() => defaultFilters());
   const [allowedApps, setAllowedApps] = useState<string[] | null>(null);
@@ -542,7 +543,7 @@ export default function LevelFunnelDashboard() {
   const [pendingUrlRun, setPendingUrlRun] = useState(false);
   const [isSessionStateReady, setIsSessionStateReady] = useState(false);
 
-  const selectableApps = useMemo(() => allowedApps?.length ? appOptions.filter((app) => allowedApps.includes(app)) : appOptions, [allowedApps]);
+  const selectableApps = useMemo(() => allowedApps === null ? [] : appOptions.filter((app) => allowedApps.includes(app)), [allowedApps, appOptions]);
 
   useEffect(() => {
     let cancelled = false;

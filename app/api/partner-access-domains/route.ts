@@ -1,3 +1,4 @@
+import { registeredGames } from "@/lib/game-registry";
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
 
@@ -30,6 +31,8 @@ export async function POST(request: Request) {
     const user = await requireCurrentAppUser(request);
     assertAdmin(user);
     const body = partnerDomainAccessInputSchema.parse(await request.json());
+    const knownGames = new Set((await registeredGames()).map(game => game.name));
+    if (!Array.isArray(body.allowedApps) || body.allowedApps.some((name: string) => !knownGames.has(name))) return NextResponse.json({ error: "Choose registered games" }, { status: 400 });
     return NextResponse.json(
       await savePartnerDomainAccess({
         domain: body.domain,

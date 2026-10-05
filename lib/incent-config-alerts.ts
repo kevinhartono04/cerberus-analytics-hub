@@ -1,3 +1,5 @@
+import { validatedGameId } from "@/lib/game-catalog";
+import { gameAppId } from "@/lib/game-registry";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -8,7 +10,6 @@ import { listIncentConfigValidatorSettings, type IncentConfigValidatorSettingsRe
 import { incentConfigPolicy, evaluateIncentDensityMetric, latestIncentEvaluationHour, type DensityPoint } from "@/lib/incent-config-validator";
 import { gameplayAlertWebhookUrls } from "@/lib/gameplay-alerts";
 import { newSlackDeliveryTraceId, postSlackWebhookMessage, type SlackQueryTrace } from "@/lib/slack-delivery";
-import { techLaunchAppIds } from "@/lib/tech-launch";
 
 const sqlPath = path.join(process.cwd(), "data", "tech_launch_incent_config_alerts.sql");
 
@@ -36,7 +37,7 @@ export function incentConfigAlertPreviousEvaluationHour(now = new Date()) { retu
 export function incentConfigAlertEvaluationKeyForHour(appName: string, evaluationHour: string) { return ["incent-config", appName, evaluationHour].join(":"); }
 export function incentConfigAlertEvaluationKey(appName: string, now = new Date()) { return incentConfigAlertEvaluationKeyForHour(appName, incentConfigAlertEvaluationHour(now)); }
 
-export function buildIncentConfigAlertSql(configuration: IncentConfigValidatorSettingsRecord, now = new Date()) {
+export function buildIncentConfigAlertSql(configuration: IncentConfigValidatorSettingsRecord, now = new Date(), resolvedAppId?: number) {
   const evaluationHour = incentConfigAlertEvaluationHour(now);
   const densityStart = hourBefore(evaluationHour, incentConfigPolicy.densityBaselineHours);
   const evaluationEnd = hourBefore(evaluationHour, -1);
@@ -44,7 +45,7 @@ export function buildIncentConfigAlertSql(configuration: IncentConfigValidatorSe
   sql = replaceRequired(sql, /select to_timestamp_ntz\('[^']*'\) -- density start parameter/, `select ${sqlTimestampLiteral(densityStart)} -- density start parameter`);
   sql = replaceRequired(sql, /event_hour < to_timestamp_ntz\('[^']*'\) -- evaluation hour parameter/, `event_hour < ${sqlTimestampLiteral(evaluationHour)} -- evaluation hour parameter`);
   sql = replaceRequired(sql, /lower\(media_source::varchar\) in \([^)]*\) -- media sources parameter/, `lower(media_source::varchar) in (${configuration.mediaSources.map(sqlLiteral).join(", ")}) -- media sources parameter`);
-  sql = replaceRequired(sql, /ep\.app_id\s*=\s*\d+\s*-- app id parameter/, `ep.app_id = ${techLaunchAppIds[configuration.appName as keyof typeof techLaunchAppIds]} -- app id parameter`);
+  sql = replaceRequired(sql, /ep\.app_id\s*=\s*\d+\s*-- app id parameter/, `ep.app_id = ${validatedGameId(configuration.appName, resolvedAppId)} -- app id parameter`);
   sql = replaceRequired(sql, /ep\.created_at\s*<\s*to_timestamp_ntz\('[^']*'\)\s*-- evaluation end parameter/, `ep.created_at < ${sqlTimestampLiteral(evaluationEnd)} -- evaluation end parameter`);
   sql = replaceRequired(sql, /created_at\s*>=\s*to_timestamp_ntz\('[^']*'\)\s*-- density start parameter/, `created_at >= ${sqlTimestampLiteral(densityStart)} -- density start parameter`);
   sql = replaceRequired(sql, /created_at\s*<\s*to_timestamp_ntz\('[^']*'\)\s*-- evaluation end parameter/, `created_at < ${sqlTimestampLiteral(evaluationEnd)} -- evaluation end parameter`);
@@ -95,7 +96,7 @@ export function alertsFromIncentConfigQuery(configuration: IncentConfigValidator
 }
 
 export async function listIncentConfigAlertConfigurations() { return (await listIncentConfigValidatorSettings()).filter((configuration) => configuration.mediaSources.length); }
-export async function submitIncentConfigAlertQuery(configuration: IncentConfigValidatorSettingsRecord, now = new Date()) { return (await submitCountSql(buildIncentConfigAlertSql(configuration, now), { cacheStrategy: "force" })).query; }
+export async function submitIncentConfigAlertQuery(configuration: IncentConfigValidatorSettingsRecord, now = new Date()) { return (await submitCountSql(buildIncentConfigAlertSql(configuration, now, await gameAppId(configuration.appName)), { cacheStrategy: "force" })).query; }
 export async function getIncentConfigAlertQuery(jobKey: string) { return (await getCountQuery(jobKey, 1000)).query; }
 
 function label(kind: IncentConfigAlertKind) { return kind === "first_interstitial" ? "First interstitial median level" : kind === "no_ads" ? "No-ads purchases" : kind === "season_pass" ? "Season Pass purchases" : kind.toUpperCase(); }

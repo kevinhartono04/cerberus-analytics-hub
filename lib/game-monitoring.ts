@@ -1,3 +1,5 @@
+import { gameNameSchema, validatedGameId } from "@/lib/game-catalog";
+import { gameAppId } from "@/lib/game-registry";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -5,13 +7,13 @@ import { parse as parseCsv } from "csv-parse/sync";
 import { z } from "zod";
 
 import { getCountQuery, submitCountSql, type CountQuery } from "@/lib/count-api";
-import { techLaunchAppIds, techLaunchAppOptions, techLaunchPlatformOptions } from "@/lib/tech-launch";
+import { techLaunchPlatformOptions } from "@/lib/tech-launch";
 
 const sqlPath = path.join(process.cwd(), "data", "tech_launch_game_monitoring.sql");
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 
 export const gameMonitoringFilterSchema = z.object({
-  appName: z.enum(techLaunchAppOptions),
+  appName: gameNameSchema,
   platforms: z.array(z.enum(techLaunchPlatformOptions)).min(1).max(techLaunchPlatformOptions.length),
   appVersions: z.array(z.string().trim().min(1).max(80)).max(100),
   startDate: z.string().regex(datePattern, "Use YYYY-MM-DD"),
@@ -89,12 +91,12 @@ function replaceRequired(sql: string, pattern: RegExp, replacement: string) {
   return sql.replace(pattern, replacement);
 }
 
-export function buildGameMonitoringSql(input: unknown) {
+export function buildGameMonitoringSql(input: unknown, resolvedAppId?: number) {
   const filters = normalizedGameMonitoringFilters(input);
   let sql = readBaseSql();
   sql = replaceRequired(sql, /select to_date\('[^']*'\) -- modifiable parameter/, `select ${sqlDateLiteral(filters.startDate)} -- modifiable parameter`);
   sql = replaceRequired(sql, /event_date < to_date\('[^']*'\) -- modifiable parameter/, `event_date < ${sqlDateLiteral(filters.endDate)} -- modifiable parameter`);
-  sql = replaceRequired(sql, /ep\.app_id\s*=\s*\d+\s*-- modifiable parameter/, `ep.app_id = ${techLaunchAppIds[filters.appName]} -- modifiable parameter`);
+  sql = replaceRequired(sql, /ep\.app_id\s*=\s*\d+\s*-- modifiable parameter/, `ep.app_id = ${validatedGameId(filters.appName, resolvedAppId)} -- modifiable parameter`);
   sql = replaceRequired(sql, /select column1::string as platform from values \([^)]*\) -- modifiable parameter/, `select column1::string as platform from values ${filters.platforms.map((platform) => `(${sqlLiteral(platform)})`).join(", ")} -- modifiable parameter`);
   sql = replaceRequired(sql, /ep\.app_version\s+in\s*\([^)]*\)\s*-- modifiable parameter/, filters.appVersions.length ? `ep.app_version in (${sqlList(filters.appVersions)}) -- modifiable parameter` : "1 = 1 -- modifiable parameter");
   sql = replaceRequired(
@@ -170,7 +172,7 @@ export async function startGameMonitoring(input: unknown): Promise<GameMonitorin
   const request = gameMonitoringRequestSchema.parse(input);
   const filters = normalizedGameMonitoringFilters(request);
   try {
-    const submitted = await submitCountSql(buildGameMonitoringSql(filters), { cacheStrategy: request.forceRefresh ? "force" : "default" });
+    const submitted = await submitCountSql(buildGameMonitoringSql(filters, await gameAppId(filters.appName)), { cacheStrategy: request.forceRefresh ? "force" : "default" });
     if (submitted.query.status === "error") return completedResponse(submitted.query, filters);
     if (submitted.query.status === "completed") return completedResponse((await getCountQuery(submitted.query.job_key, 1000)).query, filters);
     return { status: "running", filters, metadata: { jobKey: submitted.query.job_key, submittedAt: new Date().toISOString() }, pollAfterMs: 1500 };

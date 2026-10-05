@@ -1,3 +1,4 @@
+import { gameAppId } from "@/lib/game-registry";
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
 
@@ -15,6 +16,7 @@ export async function POST(request: Request) {
   try {
     const user = await requireCurrentAppUser(request);
     const body = adjustEventsCheckRequestSchema.parse(await request.json());
+    await gameAppId(body.appName);
     await assertCanUseTechLaunch(user, body.appName);
     return NextResponse.json(await getAdjustEventsCheck(body));
   } catch (error) {

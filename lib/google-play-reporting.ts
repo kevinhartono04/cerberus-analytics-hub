@@ -1,3 +1,4 @@
+import { storedGame } from "@/lib/game-registry";
 import crypto from "node:crypto";
 
 import { z } from "zod";
@@ -188,7 +189,8 @@ async function resolveVersionCodes(appVersion: string, config: AppMap[string]) {
 
 export async function getGooglePlayVitals(appName: string, appVersion: string, startDate: string, endDate: string): Promise<GooglePlayVitals | null> {
   const map = getAppMap();
-  const config = map?.[appName];
+  const game = await storedGame(appName);
+  const config = game ? { packageName: game.bundleId } : map?.[appName];
   if (!config) return null;
   const versionCodes = await resolveVersionCodes(appVersion, config);
   if (!versionCodes.length) throw new Error(`No Google Play release matches ${appVersion}`);

@@ -1,4 +1,6 @@
 "use client";
+import { defaultGameNames } from "@/lib/game-catalog";
+import { useGameOptions } from "@/hooks/use-game-options";
 
 import {
   Activity,
@@ -31,28 +33,7 @@ import {
   type ComparisonSummary,
 } from "@/lib/tech-launch-comparison";
 
-const appOptions = [
-  "blockkingdom",
-  "bloomsort",
-  "bubblego",
-  "bubblewordchain",
-  "dotpaint",
-  "hexago",
-  "hexastack",
-  "jelly",
-  "mahjongbloom",
-  "marble",
-  "marbledrop", "ringtangle",
-  "sizzle",
-  "stacksmash",
-  "treasureshot",
-  "tripletile",
-  "wooblast",
-  "woodoku",
-  "wordblast",
-  "wordoku",
-  "wordrush",
-] as const;
+const appOptions: readonly string[] = defaultGameNames;
 
 const metricDisplayOrder = [
   "Telemetry_First_Load_Time",
@@ -258,7 +239,7 @@ function defaultFilters(): Filters {
 }
 
 function isAppName(value: string): value is Filters["appName"] {
-  return (appOptions as readonly string[]).includes(value);
+  return /^[a-z][a-z0-9_-]*$/.test(value);
 }
 
 function isPlatform(value: string): value is Filters["platform"] {
@@ -914,6 +895,7 @@ function DateRangePicker({
 }
 
 export default function TechLaunchDashboard() {
+  const appOptions = useGameOptions();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [allowedApps, setAllowedApps] = useState<string[] | null>(null);
   const [accessError, setAccessError] = useState("");

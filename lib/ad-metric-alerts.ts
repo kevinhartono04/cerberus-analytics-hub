@@ -1,3 +1,5 @@
+import { validatedGameId } from "@/lib/game-catalog";
+import { gameAppId } from "@/lib/game-registry";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -8,7 +10,6 @@ import { listAdMetricAlertStates, markAdMetricAlertSlackDelivered, saveAdMetricA
 import { type CountQuery } from "@/lib/count-api";
 import { allAppVersionsAlertScope, allPlatformsAlertScope, gameplayAlertWebhookUrls, type GameplayAlertCronFilters } from "@/lib/gameplay-alerts";
 import { newSlackDeliveryTraceId, postSlackWebhookMessage, type SlackQueryTrace } from "@/lib/slack-delivery";
-import { techLaunchAppIds } from "@/lib/tech-launch";
 
 const sqlPath = path.join(process.cwd(), "data", "tech_launch_ad_metric_alerts.sql");
 
@@ -62,14 +63,14 @@ export function isAdMetricAlertCronWindow(now = new Date()) {
   return now.getUTCMinutes() === 0;
 }
 
-export function buildAdMetricAlertSql(filters: GameplayAlertCronFilters, now = new Date()) {
+export function buildAdMetricAlertSql(filters: GameplayAlertCronFilters, now = new Date(), resolvedAppId?: number) {
   const evaluationHour = adMetricEvaluationHour(now);
   const startHour = hourBefore(evaluationHour, 24);
   const endHour = hourBefore(evaluationHour, -1);
   let sql = fs.readFileSync(sqlPath, "utf8");
   sql = replaceRequired(sql, /select to_timestamp_ntz\('[^']*'\) -- modifiable parameter/, `select ${sqlTimestampLiteral(startHour)} -- modifiable parameter`);
   sql = replaceRequired(sql, /event_hour < to_timestamp_ntz\('[^']*'\) -- modifiable parameter/, `event_hour < ${sqlTimestampLiteral(evaluationHour)} -- modifiable parameter`);
-  sql = replaceRequired(sql, /ep\.app_id\s*=\s*\d+\s*-- modifiable parameter/, `ep.app_id = ${techLaunchAppIds[filters.appName as keyof typeof techLaunchAppIds]} -- modifiable parameter`);
+  sql = replaceRequired(sql, /ep\.app_id\s*=\s*\d+\s*-- modifiable parameter/, `ep.app_id = ${validatedGameId(filters.appName, resolvedAppId)} -- modifiable parameter`);
   sql = replaceRequired(sql, /ep\.platform\s+in\s*\([^)]*\)\s*-- modifiable parameter/, `ep.platform in (${sqlList(filters.platforms)}) -- modifiable parameter`);
   sql = replaceRequired(sql, /ep\.app_version\s+in\s*\([^)]*\)\s*-- modifiable parameter/, filters.appVersions.length ? `ep.app_version in (${sqlList(filters.appVersions)}) -- modifiable parameter` : "1 = 1 -- modifiable parameter");
   sql = replaceRequired(sql, /ep\.created_at\s*>=\s*to_timestamp_ntz\('[^']*'\)\s*-- modifiable parameter\s*and\s+ep\.created_at\s*<\s*to_timestamp_ntz\('[^']*'\)\s*-- modifiable parameter/i, `ep.created_at >= ${sqlTimestampLiteral(startHour)} -- modifiable parameter\n    and ep.created_at < ${sqlTimestampLiteral(endHour)} -- modifiable parameter`);

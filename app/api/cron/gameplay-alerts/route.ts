@@ -1,3 +1,4 @@
+import { gameAppId } from "@/lib/game-registry";
 import { NextResponse } from "next/server";
 import { areAlertsPaused } from "@/lib/recovery-mode";
 
@@ -91,14 +92,14 @@ async function attachQueryTraces<T extends AlertTransitionWithScope>(
   targets: AlertTarget[],
   jobFor: (evaluationKey: string) => GameplayAlertQueryJobRecord | undefined,
   evaluationKeyFor: (filters: AlertTarget) => string,
-  sqlFor: (filters: AlertTarget, job: GameplayAlertQueryJobRecord) => string,
+  sqlFor: (filters: AlertTarget, job: GameplayAlertQueryJobRecord) => string | Promise<string>,
 ) {
   const traces = new Map<string, Promise<SlackQueryTrace>>();
   return Promise.all(transitions.map(async (transition) => {
     const target = targetForState(targets, transition.state);
     const job = target && jobFor(evaluationKeyFor(target));
     if (!target || !job) return transition;
-    const trace = traces.get(job.jobKey) ?? queryTraceForJob(job, sqlFor(target, job));
+    const trace = traces.get(job.jobKey) ?? queryTraceForJob(job, await sqlFor(target, job));
     traces.set(job.jobKey, trace);
     return { ...transition, queryTrace: await trace };
   }));
@@ -154,7 +155,7 @@ async function evaluateDailyTargets(targets: AlertTarget[], existingByKey: Map<s
 
       if (!allowSubmission) return;
 
-      const submitted = (await submitCountSql(buildDailyLevelFailRateSql(queryFilters, settings), { cacheStrategy: "force" })).query;
+      const submitted = (await submitCountSql(buildDailyLevelFailRateSql(queryFilters, settings, await gameAppId(queryFilters.appName)), { cacheStrategy: "force" })).query;
       result.submittedCount += 1;
       job = { evaluationKey, jobKey: submitted.job_key, filters: JSON.stringify(filters), status: "running", submittedAt: new Date().toISOString() };
       if (submitted.status === "error") {
@@ -215,7 +216,7 @@ async function evaluateCriticalTargets(targets: AlertTarget[], existingByKey: Ma
         return;
       }
 
-      const submitted = (await submitCountSql(buildCriticalLevelFailRateSql(dailyQueryFilters(filters), settings), { cacheStrategy: "force" })).query;
+      const submitted = (await submitCountSql(buildCriticalLevelFailRateSql(dailyQueryFilters(filters), settings, await gameAppId(filters.appName)), { cacheStrategy: "force" })).query;
       result.submittedCount += 1;
       job = { evaluationKey, jobKey: submitted.job_key, filters: JSON.stringify(filters), status: "running", submittedAt: new Date().toISOString() };
       if (submitted.status === "error") {
@@ -271,7 +272,7 @@ async function evaluateAdMetricTargets(targets: AlertTarget[], existingByKey: Ma
         return;
       }
       if (job || !allowSubmission) return;
-      const submitted = (await submitCountSql(buildAdMetricAlertSql(filters, now), { cacheStrategy: "force" })).query;
+      const submitted = (await submitCountSql(buildAdMetricAlertSql(filters, now, await gameAppId(filters.appName)), { cacheStrategy: "force" })).query;
       result.submittedCount += 1;
       job = { evaluationKey, jobKey: submitted.job_key, filters: JSON.stringify(filters), status: "running", submittedAt: new Date().toISOString() };
       if (submitted.status === "error") {
@@ -318,9 +319,9 @@ export async function GET(request: Request) {
   const criticalRetryTransitions = (await Promise.all(targets.map((filters) => undeliveredGameplayAlertTransitions(filters, "critical")))).flat();
   const adMetricRetryTransitions = (await Promise.all(targets.map(undeliveredAdMetricAlertTransitions))).flat();
   const [dailyDeliveryTransitions, criticalDeliveryTransitions, adMetricDeliveryTransitions] = await Promise.all([
-    attachQueryTraces(uniqueTransitions(daily.transitions), targets, jobFor, gameplayAlertEvaluationKey, (filters) => buildDailyLevelFailRateSql(dailyQueryFilters(filters), settings)),
-    attachQueryTraces(uniqueTransitions([...critical.transitions, ...criticalRetryTransitions]), targets, jobFor, criticalGameplayAlertEvaluationKey, (filters) => buildCriticalLevelFailRateSql(dailyQueryFilters(filters), settings)),
-    attachQueryTraces(uniqueTransitions([...adMetrics.transitions, ...adMetricRetryTransitions]), targets, jobFor, (filters) => adMetricAlertEvaluationKey(filters, now), (filters, job) => buildAdMetricAlertSql(filters, new Date(job.submittedAt))),
+    attachQueryTraces(uniqueTransitions(daily.transitions), targets, jobFor, gameplayAlertEvaluationKey, async (filters) => buildDailyLevelFailRateSql(dailyQueryFilters(filters), settings, await gameAppId(filters.appName))),
+    attachQueryTraces(uniqueTransitions([...critical.transitions, ...criticalRetryTransitions]), targets, jobFor, criticalGameplayAlertEvaluationKey, async (filters) => buildCriticalLevelFailRateSql(dailyQueryFilters(filters), settings, await gameAppId(filters.appName))),
+    attachQueryTraces(uniqueTransitions([...adMetrics.transitions, ...adMetricRetryTransitions]), targets, jobFor, (filters) => adMetricAlertEvaluationKey(filters, now), async (filters, job) => buildAdMetricAlertSql(filters, new Date(job.submittedAt), await gameAppId(filters.appName))),
   ]);
 
   const failures = [...daily.failures, ...critical.failures];

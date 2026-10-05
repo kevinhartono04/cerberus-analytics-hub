@@ -1,3 +1,5 @@
+import { gameNameSchema, validatedGameId, isDefaultGameId } from "@/lib/game-catalog";
+import { gameAppId } from "@/lib/game-registry";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -11,62 +13,14 @@ import { getGooglePlayVitals } from "@/lib/google-play-reporting";
 
 const sqlPath = path.join(process.cwd(), "data", "tech_launch_telemetry_metrics.sql");
 
-export const techLaunchAppOptions = [
-  "hexago",
-  "hexastack",
-  "marble",
-  "marbledrop",
-  "tripletile",
-  "wooblast",
-  "woodoku",
-  "blockkingdom",
-  "bubblego",
-  "mahjongbloom",
-  "wordblast",
-  "wordoku",
-  "jelly",
-  "bloomsort",
-  "wordrush",
-  "sizzle",
-  "stacksmash",
-  "treasureshot",
-  "dotpaint",
-  "bubblewordchain",
-  "ringtangle",
-] as const;
-
-// App names are the user-facing filter contract; query builders resolve them
-// to immutable source IDs before generating SQL so Snowflake can prune early.
-export const techLaunchAppIds: Record<(typeof techLaunchAppOptions)[number], number> = {
-  hexago: 18,
-  hexastack: 3008,
-  marble: 22,
-  marbledrop: 3007,
-  tripletile: 9,
-  wooblast: 28,
-  woodoku: 4,
-  blockkingdom: 117,
-  bubblego: 23,
-  mahjongbloom: 119,
-  wordblast: 122,
-  wordoku: 3013,
-  jelly: 125,
-  bloomsort: 3003,
-  wordrush: 3001,
-  sizzle: 3004,
-  stacksmash: 3011,
-  treasureshot: 3012,
-  dotpaint: 3005,
-  bubblewordchain: 3006,
-  ringtangle: 3015,
-};
+export { defaultGameNames as techLaunchAppOptions, defaultGameIds as techLaunchAppIds } from "@/lib/game-catalog";
 
 export const techLaunchPlatformOptions = ["android", "ios"] as const;
 
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 
 const techLaunchFilterFields = {
-  appName: z.enum(techLaunchAppOptions),
+  appName: gameNameSchema,
   platform: z.enum(techLaunchPlatformOptions),
   appVersion: z.string().trim().min(1).max(80),
   startDate: z.string().regex(datePattern, "Use YYYY-MM-DD"),
@@ -211,10 +165,13 @@ function replaceRequired(sql: string, pattern: RegExp, replacement: string) {
   return sql.replace(pattern, replacement);
 }
 
-export function buildTechLaunchSql(filtersInput: unknown) {
+export function buildTechLaunchSql(filtersInput: unknown, resolvedAppId?: number) {
   const filters = techLaunchFilterSchema.parse(filtersInput);
-  const appId = techLaunchAppIds[filters.appName];
+  const appId = validatedGameId(filters.appName, resolvedAppId);
   let sql = readBaseSql();
+  if (resolvedAppId && !isDefaultGameId(resolvedAppId)) {
+    sql = sql.replace(/(app_id in \([^)]*)\)/, `$1, ${appId})`);
+  }
   sql = replaceRequired(
     sql,
     /ep\.app_id\s*=\s*\d+\s*-- modifiable parameter/,
@@ -238,16 +195,16 @@ export function buildTechLaunchSql(filtersInput: unknown) {
   return sql;
 }
 
-export function buildTechLaunchAppVersionsSql(filtersInput: unknown) {
+export function buildTechLaunchAppVersionsSql(filtersInput: unknown, resolvedAppId?: number) {
   const filters = normalizedTechLaunchAppVersionFilters(filtersInput);
-  const appId = techLaunchAppIds[filters.appName];
+  const appId = validatedGameId(filters.appName, resolvedAppId);
   return `
 with events as (
   select
     ep.app_version,
     ep.created_at::date as event_date
   from (
-      select * from tds_db.raw.ludios_telemetry_events_production where app_id in (3001, 3003, 3004, 3005, 3006, 3007, 3008, 3011, 3012, 3013, 3015)
+      select * from tds_db.raw.ludios_telemetry_events_production where app_id in (3001, 3003, 3004, 3005, 3006, 3007, 3008, 3011, 3012, 3013, 3015${resolvedAppId && !isDefaultGameId(resolvedAppId) ? ", " + resolvedAppId : ""})
           union all
       select * from tds_db.raw.telemetry_events_production where app_id in (18,22,117,122)
   ) ep
@@ -636,7 +593,7 @@ export async function getTechLaunchAppVersions(input: unknown): Promise<TechLaun
   const cached = await cachedTechLaunchAppVersions(cacheKey, now);
   if (cached) return cached;
 
-  const countResult = await runCountSql(buildTechLaunchAppVersionsSql(filters), {
+  const countResult = await runCountSql(buildTechLaunchAppVersionsSql(filters, await gameAppId(filters.appName)), {
     cacheStrategy: "default",
     previewRows: 1000,
   });
@@ -681,7 +638,7 @@ export async function getTechLaunchReadiness(input: unknown): Promise<TechLaunch
     if (cached) return cached;
   }
 
-  const querySql = buildTechLaunchSql(filters);
+  const querySql = buildTechLaunchSql(filters, await gameAppId(filters.appName));
   const countResult = await submitCountSql(querySql, {
     cacheStrategy: request.forceRefresh ? "force" : "default",
   });
