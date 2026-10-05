@@ -32,7 +32,7 @@ const appOptions = [
   "jelly",
   "mahjongbloom",
   "marble",
-  "marbledrop",
+  "marbledrop", "ringtangle",
   "sizzle",
   "stacksmash",
   "treasureshot",

@@ -85,6 +85,7 @@ export const specCheckAppIds: Record<(typeof techLaunchAppOptions)[number], numb
   treasureshot: 3012,
   dotpaint: 3005,
   bubblewordchain: 3006,
+  ringtangle: 3015,
 };
 
 const DEFAULT_ENUM_FIELD_NORMS = ["item", "source", "itemtype", "placement"] as const;
