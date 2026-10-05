@@ -3,15 +3,15 @@ import { safeSenseIconUrl } from "@/lib/ludios-sense-icons";
 import { createHash, randomUUID } from "node:crypto";
 import { getSenseUsage, reserveSenseRequest, recordSenseOrganizationUsage } from "@/lib/ludios-sense-usage";
 import { sensorTowerRequest } from "@/lib/sensortower-api";
-import { claimSenseLease, getTechLaunchReadinessCache, listPendingSenseJobs, releaseSenseLease, saveTechLaunchReadinessCache } from "@/lib/db";
+import { claimSenseLease, getSenseDetectionReports, getTechLaunchReadinessCache, listPendingSenseJobs, releaseSenseLease, saveTechLaunchReadinessCache } from "@/lib/db";
 import { aggregateSenseHistory, classifySense, evaluateSense, senseRuleVersion, shiftDate, validDownloads } from "@/lib/ludios-sense-detection";
-import { senseToday } from "@/lib/ludios-sense-types";
+import { senseCountryCodes, senseToday } from "@/lib/ludios-sense-types";
 import { buildSenseWatchlist } from "@/lib/ludios-sense-watchlist";
 import type { SenseCountry, SenseFilters, SenseGame, SenseResult, SenseRunResponse, SenseStore } from "@/lib/ludios-sense-types";
 
 type App = StoredSenseHistory & { appId: string; name: string; publisher: string; iconUrl?: string | null; unifiedAppId?: string | null; categories: string[]; releaseDate: string | null; metadataAt?: string; discoveredDate: string; histories: Partial<Record<SenseCountry, Record<string, number | null>>>; countryHistory?: Partial<Record<SenseCountry, { start: string; end: string; at: string }>>; backfilled?: boolean; historyStart?: string; historyEnd?: string; historyAt?: string };
 type StoreState = { apps: Record<string, App>; ids: string[]; historyIds: string[]; watermark?: string; rankingDate: string; datesFound: number; daysChecked: number; offset: number; lastDownloads: number; metadataIndex: number; historyIndex: number; week: number; historyBatchSize?: number; historyWeeks?: number[]; candidateIds?: string[]; phase: "discovery" | "metadata" | "history" | "done" };
-type Job = { jobKey: string; filters: SenseFilters; status: SenseRunResponse["status"]; createdAt: string; updatedAt: string; requests: number; progress: string; stores: Record<SenseStore, StoreState>; store: SenseStore; result?: SenseResult; error?: string; retry: number; retryAt?: string; receipts: Array<{ endpoint: string; parameters: Record<string, string | number>; retrievedAt: string }> };
+type Job = { jobKey: string; filters: SenseFilters; status: SenseRunResponse["status"]; createdAt: string; updatedAt: string; requests: number; progress: string; stores: Record<SenseStore, StoreState>; store: SenseStore; result?: SenseResult; error?: string; retry: number; retryAt?: string; subsetReuseChecked?: boolean; receipts: Array<{ endpoint: string; parameters: Record<string, string | number>; retrievedAt: string }> };
 const stores: SenseStore[] = ["android", "ios"];
 const now = () => new Date().toISOString();
 const trace = (event: string, fields: Record<string, string | number | boolean>) => console.info("[ludios-sense]", JSON.stringify({ event, ...fields }));
@@ -66,8 +66,76 @@ async function warmHistory(filters: SenseFilters) {
   return mergeHistories(shared, basket, filters.countries);
 }
 
+/** A country subset uses the original saved observations and reporting dates, not revised warm history. */
+function subsetJob(source: Job, filters: SenseFilters): Job | null {
+  if (source.status !== "completed" || !source.result || source.result.ruleVersion !== senseRuleVersion ||
+    source.filters.date !== filters.date || !filters.countries.every(country => source.filters.countries.includes(country))) return null;
+  const games: SenseGame[] = [];
+  const listingCountry = filters.countries.includes("US") ? "US" : filters.countries[0];
+  for (const game of source.result.games) {
+    const app = source.stores[game.store]?.apps[game.appId], t = game.evaluation.date;
+    // Queried missing observations are reusable; a country that was never queried is not.
+    if (!app || !t || requiredHistoryWeeks(app,filters.countries,t,false).length) return null;
+    const aggregate = aggregateSenseHistory(app.histories,filters.countries,t);
+    const evaluation = evaluateSense(aggregate.history,t,game.releaseDate);
+    if (game.store === "android") evaluation.flags.push("latest_android_provisional");
+    if (aggregate.unavailableCountries.length) evaluation.flags.push("some_countries_unavailable");
+    games.push({...game,...aggregate,evaluation,iconUrl:game.iconUrl ?? app.iconUrl ?? null,unifiedAppId:game.unifiedAppId ?? app.unifiedAppId ?? null,
+      url:game.store === "ios" ? `https://apps.apple.com/${listingCountry.toLowerCase()}/app/id${game.appId}` : `https://play.google.com/store/apps/details?id=${encodeURIComponent(game.appId)}&gl=${listingCountry}`});
+  }
+  sortResultGames(games);
+  const timestamp = now();
+  return {...source,jobKey:cacheKey(filters),filters,status:"completed",createdAt:timestamp,updatedAt:timestamp,requests:0,retry:0,retryAt:undefined,receipts:[],subsetReuseChecked:true,
+    progress:"Recalculated from saved country data. No new Sensor Tower calls.",
+    result:{...source.result,filters,generatedAt:timestamp,games,requests:0,reusedFrom:source.result.reusedFrom ?? {jobKey:source.jobKey,countries:source.filters.countries,generatedAt:source.result.generatedAt}}};
+}
+
+async function findSubsetJob(filters: SenseFilters): Promise<Job | null> {
+  const extras = senseCountryCodes.filter(country => !filters.countries.includes(country));
+  if (!extras.length) return null;
+  const baskets = Array.from({length:(1 << extras.length)-1},(_,index) => {
+    const mask=index+1;
+    return [...filters.countries,...extras.filter((_,bit) => mask & (1 << bit))].sort() as SenseCountry[];
+  });
+  const full = baskets.find(countries => countries.length === senseCountryCodes.length)!;
+  // The shared daily report is the usual source. Avoid reading every basket when it suffices.
+  const firstKey=cacheKey({...filters,countries:full});
+  const firstSummary=await load<SenseRunResponse>(firstKey+":summary");
+  let partial: Job | null = null;
+  async function candidate(key: string, summary: SenseRunResponse | null) {
+    if (summary?.status !== "completed" || summary.result?.ruleVersion !== senseRuleVersion) return null;
+    const source=await load<Job>(key);
+    return source ? subsetJob(source,filters) : null;
+  }
+  const first=await candidate(firstKey,firstSummary);
+  if (first?.result?.coverageComplete) return first;
+  partial=first;
+  const remaining=baskets.filter(countries=>countries.length!==full.length).sort((a,b)=>a.length-b.length || a.join().localeCompare(b.join()));
+  const summaries=await Promise.all(remaining.map(countries=>load<SenseRunResponse>(cacheKey({...filters,countries})+":summary")));
+  for (let index=0;index<remaining.length;index++) {
+    const derived=await candidate(cacheKey({...filters,countries:remaining[index]}),summaries[index]);
+    if (derived?.result?.coverageComplete) return derived;
+    partial ??= derived;
+  }
+  return partial;
+}
+
+async function saveSubsetJob(job: Job) {
+  // Retain the audit of calls already attempted by an older in-progress job; derivation adds none.
+  const [previous,summary] = await Promise.all([load<Job>(job.jobKey),load<SenseRunResponse>(job.jobKey+":summary")]);
+  job.requests=Math.max(job.requests,previous?.requests ?? 0,summary?.requests ?? 0);
+  job.result!.requests=job.requests;
+  job.receipts=previous?.receipts ?? [];
+  await save("sense:result:"+job.jobKey+":"+job.result!.generatedAt,{result:job.result,receipts:job.receipts});
+  await saveJob(job);
+  await save(job.jobKey+":paused",false);
+  trace("subset_report_reused",{scan:job.jobKey.slice(-8),source:job.result!.reusedFrom!.jobKey.slice(-8),countries:job.filters.countries.join(","),games:job.result!.games.length});
+}
+
 export async function estimateSense(filters: SenseFilters) {
   const usage = await getSenseUsage();
+  const cached = await getCachedSense(filters);
+  if (cached?.status === "completed") return {usage,knownGames:cached.result?.games.length ?? 0,knownHistoryCalls:0,knownMetadataCalls:0,cachedReport:true,note:"Saved report ready. No new Sensor Tower calls needed for this selection."};
   const previous = await warmHistory(filters);
   const today = now().slice(0,10), t = filters.date < today ? filters.date : shiftDate(today,-1);
   let historyCalls = 0, metadataCalls = 0, knownGames = 0;
@@ -84,7 +152,7 @@ export async function estimateSense(filters: SenseFilters) {
     }
     historyCalls += [...plans.values()].reduce((sum,plan)=>sum+Math.ceil(plan.count/100)*plan.weeks,0);
   }
-  return { usage, knownGames, knownHistoryCalls: historyCalls, knownMetadataCalls: metadataCalls, note: "Estimate covers saved candidates. Discovery pages, new games and retries add calls. A first scan has no reliable estimate yet." };
+  return { usage, knownGames, knownHistoryCalls: historyCalls, knownMetadataCalls: metadataCalls, cachedReport:false, note: "Estimate covers saved candidates. Discovery pages, new games and retries add calls. A first scan has no reliable estimate yet." };
 }
 
 function response(job: Job, cached = false): SenseRunResponse {
@@ -121,9 +189,10 @@ export async function getSenseWatchlist(key: string) {
   const current = await getSenseStatus(key);
   if (!current.result) return [];
   const filters = current.result.filters;
-  const previous = await Promise.all(Array.from({ length: 7 }, (_, i) =>
-    load<SenseRunResponse>(cacheKey({ ...filters, date: shiftDate(filters.date, -i - 1) }) + ":summary")));
-  return buildSenseWatchlist(current, previous.filter((r): r is SenseRunResponse => r !== null && r.status === "completed"));
+  const previous = await getSenseDetectionReports(Array.from({ length: 7 }, (_, i) =>
+    cacheKey({ ...filters, date: shiftDate(filters.date, -i - 1) }) + ":summary"));
+  return buildSenseWatchlist(current, previous.filter(record => !record.expiresAt || record.expiresAt > now())
+    .map(record => JSON.parse(record.payload) as SenseRunResponse));
 }
 
 export async function setSensePaused(key: string, paused: boolean): Promise<SenseRunResponse> {
@@ -156,7 +225,6 @@ export async function continuePendingSenseJobs() {
 }
 
 export async function startSense(filters: SenseFilters): Promise<SenseRunResponse> {
-  if (!process.env.SENSOR_TOWER_TOKEN?.trim()) throw new Error("Sensor Tower is not configured on this server. Set SENSOR_TOWER_TOKEN in the server environment.");
   const key = cacheKey(filters), token = randomUUID();
   await save(key + ":paused", false);
   if (!await claimSenseLease(key + ":lease", token, new Date(Date.now() + 60000).toISOString())) {
@@ -166,7 +234,11 @@ export async function startSense(filters: SenseFilters): Promise<SenseRunRespons
   }
   try {
     const existing = await load<Job>(key);
-    if (existing?.status === "running" || existing?.status === "completed" && existing.result?.ruleVersion === senseRuleVersion) return response(existing, existing.status === "completed");
+    if (existing?.status === "completed" && existing.result?.ruleVersion === senseRuleVersion) return response(existing,true);
+    const subset = await findSubsetJob(filters);
+    if (subset) { await saveSubsetJob(subset); return response(subset,true); }
+    if (existing?.status === "running") return response(existing);
+    if (!process.env.SENSOR_TOWER_TOKEN?.trim()) throw new Error("Sensor Tower is not configured on this server. Set SENSOR_TOWER_TOKEN in the server environment.");
     const previous = await warmHistory(filters);
     const today = now().slice(0,10);
     const latest = filters.date < today ? filters.date : shiftDate(today, -1);
@@ -178,16 +250,31 @@ export async function startSense(filters: SenseFilters): Promise<SenseRunRespons
       }
       return [store, { apps, candidateIds: Object.keys(apps).filter(id => apps[id].discoveredDate <= latest && apps[id].discoveredDate >= shiftDate(latest,-30)), ids: [], historyIds: [], rankingDate: latest, datesFound: 0, daysChecked: 0, offset: 0, lastDownloads: Number.MAX_VALUE, metadataIndex: 0, historyIndex: 0, week: 0, phase: "discovery" }];
     })) as unknown as Record<SenseStore, StoreState>;
-    const job: Job = { jobKey: key, filters, status: "running", createdAt: now(), updatedAt: now(), requests: 0, progress: "Discovering Android games across the selected countries…", stores: states, store: "android", retry: 0, receipts: [] };
+    const job: Job = { jobKey: key, filters, status: "running", createdAt: now(), updatedAt: now(), requests: 0, progress: "Discovering Android games across the selected countries…", stores: states, store: "android", retry: 0, receipts: [], subsetReuseChecked:true };
     await saveJob(job);
     return response(job);
   } finally { await releaseSenseLease(key + ":lease", token); }
 }
 
-/** Read-only: opening a page never starts a Sensor Tower scan. */
+/** Cache-only: may save a recalculated subset, but never starts upstream work. */
 export async function getCachedSense(filters: SenseFilters): Promise<SenseRunResponse | null> {
-  const summary=await load<SenseRunResponse>(cacheKey(filters)+":summary");
-  return summary ? {...await getSenseStatus(summary.jobKey),cached:summary.status==="completed"} : null;
+  const key=cacheKey(filters);
+  const summary=await load<SenseRunResponse>(key+":summary");
+  if (summary?.status === "completed" && summary.result?.ruleVersion === senseRuleVersion) return {...await getSenseStatus(key),cached:true};
+  const subset=await findSubsetJob(filters);
+  if (subset) {
+    const token=randomUUID();
+    if (await claimSenseLease(key+":lease",token,new Date(Date.now()+60000).toISOString())) {
+      try {
+        // An in-flight step may have completed while the source report was being read.
+        const current=await load<SenseRunResponse>(key+":summary");
+        if (current?.status === "completed" && current.result?.ruleVersion === senseRuleVersion) return {...await getSenseStatus(key),cached:true};
+        await saveSubsetJob(subset);
+        return response(subset,true);
+      } finally { await releaseSenseLease(key+":lease",token); }
+    }
+  }
+  return summary ? {...await getSenseStatus(key),cached:summary.status==="completed"} : null;
 }
 export async function startDailySense() {
   const filters:SenseFilters={date:senseToday(),countries:["AU","CA","DE","GB","JP","RU","US"]};
@@ -207,6 +294,12 @@ export async function advanceSense(key: string): Promise<SenseRunResponse> {
     const job = await load<Job>(key);
     if (!job) return initial;
     if (job.status !== "running") return response(job);
+    // Existing runs started before subset reuse was available can stop before their next request.
+    if (!job.subsetReuseChecked) {
+      const subset=await findSubsetJob(job.filters);
+      if (subset) { await saveSubsetJob(subset); return response(subset,true); }
+      job.subsetReuseChecked=true;
+    }
     // The compact summary journals attempted requests without rewriting all histories.
     job.requests = Math.max(job.requests, initial.requests);
     if (job.retryAt && job.retryAt > now()) return response(job);
@@ -366,6 +459,11 @@ async function step(job: Job) {
   }
 }
 
+function sortResultGames(games: SenseGame[]) {
+  const ranks = { confirmed_momentum: 0, early_warning: 1, launch_traction: 2, none: 3, insufficient_data: 4 };
+  games.sort((a,b) => ranks[a.evaluation.signal] - ranks[b.evaluation.signal] || (b.evaluation.added ?? 0) - (a.evaluation.added ?? 0) || (b.evaluation.growth ?? 0) - (a.evaluation.growth ?? 0) || a.appId.localeCompare(b.appId));
+}
+
 async function finish(job: Job, complete = true) {
   const listingCountry = job.filters.countries.includes("US") ? "US" : job.filters.countries[0];
   const games: SenseGame[] = [];
@@ -380,8 +478,7 @@ async function finish(job: Job, complete = true) {
       games.push({ appId: id, store, name: app.name, publisher: app.publisher, iconUrl: app.iconUrl, unifiedAppId: app.unifiedAppId, releaseDate: app.releaseDate, ...classifySense(id, store, app.categories), ...aggregate, evaluation, retrievedAt: app.historyAt ?? now(), url: store === "ios" ? `https://apps.apple.com/${listingCountry.toLowerCase()}/app/id${id}` : `https://play.google.com/store/apps/details?id=${encodeURIComponent(id)}&gl=${listingCountry}` });
     }
   }
-  const ranks = { confirmed_momentum: 0, early_warning: 1, launch_traction: 2, none: 3, insufficient_data: 4 };
-  games.sort((a,b) => ranks[a.evaluation.signal] - ranks[b.evaluation.signal] || (b.evaluation.added ?? 0) - (a.evaluation.added ?? 0) || (b.evaluation.growth ?? 0) - (a.evaluation.growth ?? 0) || a.appId.localeCompare(b.appId));
+  sortResultGames(games);
   job.result = { filters: job.filters, generatedAt: now(), watermarks: Object.fromEntries(stores.map(s => [s, job.stores[s].watermark])), games, requests: job.requests, errors: complete ? [] : [job.error ?? "Call allowance reached; coverage is incomplete."], coverageComplete: complete, ruleVersion: senseRuleVersion };
   await save("sense:result:" + job.jobKey + ":" + job.result.generatedAt, { result: job.result, receipts: job.receipts });
   job.status = "completed"; job.progress = complete ? "Check complete. Downloads are combined across the selected countries, separately for each store." : "Call allowance reached. Partial report saved; some games or stores were not checked.";

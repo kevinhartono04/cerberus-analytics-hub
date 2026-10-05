@@ -3,6 +3,7 @@ import { z, ZodError } from "zod";
 import { assertInternalAppUser, jsonError, requireCurrentAppUser } from "@/lib/auth";
 import { getSenseWatchlist } from "@/lib/ludios-sense";
 export const runtime = "nodejs";
+export const maxDuration = 60;
 export async function POST(request: Request) {
   try {
     assertInternalAppUser(await requireCurrentAppUser(request));

@@ -26,3 +26,19 @@ describe("Sense table presentation",()=>{
     expect(groupSenseGames([ios])).toHaveLength(1);
   });
 });
+
+describe("Attention ordering", () => {
+ const candidate = (id: string, signal: SenseGame["evaluation"]["signal"], added: number, latest=2000) => game({appId:id,classification:"included",evaluation:{signal,added,latest} as SenseGame["evaluation"]});
+ it("prioritizes confirmed signals, early warnings, then holding scale with deterministic ties",async()=>{
+  const { sortSenseGroups, senseWorthAttention } = await import("@/lib/ludios-sense-presentation");
+  const holding = (id:string,latest:number) => ({...candidate(id,"none",null as unknown as number,latest),watch:{status:"holding_scale"} as SenseGame["watch"]});
+  const games=[holding("low",3000),candidate("early","early_warning",9999),candidate("b","confirmed_momentum",100),holding("high",9000),candidate("a","confirmed_momentum",100),candidate("cool","none",500)];
+  expect(sortSenseGroups(groupSenseGames(games.filter(senseWorthAttention))).map(group=>group.members[0].appId)).toEqual(["a","b","early","high","low"]);
+ });
+ it("places a qualifying store first without removing its counterpart",async()=>{
+  const { sortSenseGroups } = await import("@/lib/ludios-sense-presentation");
+  const ios={...candidate("1","none",0),unifiedAppId:"same"};
+  const android={...candidate("pkg","early_warning",1000),unifiedAppId:"same",store:"android" as const};
+  expect(sortSenseGroups(groupSenseGames([ios,android]))[0].members).toEqual([android,ios]);
+ });
+});

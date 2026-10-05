@@ -22,8 +22,9 @@ export function buildSenseWatchlist(current: SenseRunResponse, previous: SenseRu
       }
     }
   }
+  const observations = new Map(current.result.games.map(game => [`${game.store}:${game.appId}`,game]));
   return [...detections.values()].map(({ game: detected, first, last, source }) => {
-    const observed = current.result!.games.find(g => g.store === detected.store && g.appId === detected.appId);
+    const observed = observations.get(`${detected.store}:${detected.appId}`);
     const game = observed ?? { ...detected, evaluation: { ...detected.evaluation, date: current.result!.watermarks[detected.store]!, signal: "insufficient_data" as const, latest: null, recentAverage: null, baseline: null, growth: null, added: null } };
     const reference = detected.evaluation.recentAverage ?? detected.evaluation.latest;
     const status: NonNullable<SenseGame["watch"]>["status"] = !observed || game.evaluation.signal === "insufficient_data" || game.evaluation.latest === null || game.evaluation.recentAverage === null ? "insufficient_data" : hasSenseSignal(game) ? "current_signal" : game.evaluation.latest >= 1000 && reference !== null && game.evaluation.recentAverage >= .8 * reference ? "holding_scale" : "cooling_down";

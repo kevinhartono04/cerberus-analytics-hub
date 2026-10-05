@@ -110,7 +110,7 @@ describe("resumable Sense scan",()=>{
     expect(calls).toHaveLength(0);
     expect(run.cached).toBe(true);
   });
-  it("reuses two old discovery dates and country-level history when the date or country selection changes",async()=>{
+  it("refreshes a new reporting date but reaggregates a country subset without upstream calls",async()=>{
     const calls:URL[]=[];
     vi.stubGlobal("fetch",vi.fn(async(input:URL)=>{
       const url=new URL(input);calls.push(url);
@@ -129,10 +129,11 @@ describe("resumable Sense scan",()=>{
     expect(calls.filter(c=>c.pathname.endsWith("/apps"))).toHaveLength(0);
     expect(calls.filter(c=>c.pathname.endsWith("sales_report_estimates"))).toHaveLength(2);
     calls.length=0;
-    await scan(shiftDate(t,1),["US"]);
-    expect(calls.filter(c=>c.pathname.endsWith("sales_report_estimates"))).toHaveLength(2);
+    const narrowed=await scan(shiftDate(t,1),["US"]);
+    expect(narrowed.cached).toBe(true);expect(narrowed.result?.reusedFrom?.countries).toEqual(["JP","US"]);
+    expect(calls).toHaveLength(0);
     expect(calls.filter(c=>c.pathname.endsWith("/apps"))).toHaveLength(0);
-    expect((await estimateSense({date:shiftDate(t,1),countries:["JP","US"]})).knownHistoryCalls).toBe(2);
+    expect((await estimateSense({date:shiftDate(t,1),countries:["JP","US"]})).knownHistoryCalls).toBe(0);
   });
   it("separates 100 warm games from one cold game instead of backfilling the warm group",async()=>{
     const run=await startSense({date:t,countries:["US"]}),job=JSON.parse(records.get(run.jobKey)!);

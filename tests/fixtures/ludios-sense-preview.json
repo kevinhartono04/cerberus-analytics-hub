@@ -1,0 +1,170 @@
+[
+  {
+    "appId": "1",
+    "store": "android",
+    "name": "Bus Stop Crowd",
+    "publisher": "Triple Tap Games",
+    "genre": "Puzzle \u00b7 Casual",
+    "classification": "included",
+    "signal": "confirmed_momentum",
+    "latest": 12300,
+    "unifiedAppId": "demo-bus"
+  },
+  {
+    "appId": "2",
+    "store": "ios",
+    "name": "Puppy Trails",
+    "publisher": "Screaming Panda",
+    "genre": "Puzzle \u00b7 Casual",
+    "classification": "included",
+    "signal": "confirmed_momentum",
+    "latest": 8200
+  },
+  {
+    "appId": "3",
+    "store": "android",
+    "name": "Arrow Breaker",
+    "publisher": "HIPAHIPA Games",
+    "genre": "Puzzle \u00b7 Casual",
+    "classification": "included",
+    "signal": "confirmed_momentum",
+    "latest": 7500
+  },
+  {
+    "appId": "4",
+    "store": "ios",
+    "name": "Stable Tactics",
+    "publisher": "SpaceTimer",
+    "genre": "Puzzle \u00b7 Casual",
+    "classification": "included",
+    "signal": "early_warning",
+    "latest": 6400
+  },
+  {
+    "appId": "5",
+    "store": "android",
+    "name": "Pizza Blast",
+    "publisher": "Kuri Creativity",
+    "genre": "Puzzle \u00b7 Casual",
+    "classification": "included",
+    "signal": "early_warning",
+    "latest": 5300
+  },
+  {
+    "appId": "6",
+    "store": "ios",
+    "name": "Cat Slash Hero",
+    "publisher": "Game Lift",
+    "genre": "Puzzle \u00b7 Casual",
+    "classification": "included",
+    "signal": "early_warning",
+    "latest": 4900
+  },
+  {
+    "appId": "7",
+    "store": "android",
+    "name": "Air Wings",
+    "publisher": "Pangea",
+    "genre": "Puzzle \u00b7 Casual",
+    "classification": "included",
+    "signal": "early_warning",
+    "latest": 3700
+  },
+  {
+    "appId": "8",
+    "store": "ios",
+    "name": "Ludo World",
+    "publisher": "Biza Studio",
+    "genre": "Puzzle \u00b7 Casual",
+    "classification": "included",
+    "signal": "early_warning",
+    "latest": 2500
+  },
+  {
+    "appId": "9",
+    "store": "android",
+    "name": "Rotate Rings",
+    "publisher": "Nebula Studio",
+    "genre": "Puzzle \u00b7 Casual",
+    "classification": "included",
+    "signal": "none",
+    "latest": 86722,
+    "status": "holding_scale"
+  },
+  {
+    "appId": "10",
+    "store": "ios",
+    "name": "Playful Coloring",
+    "publisher": "ELEMENTARY",
+    "genre": "Puzzle \u00b7 Casual",
+    "classification": "included",
+    "signal": "none",
+    "latest": 12800,
+    "status": "holding_scale"
+  },
+  {
+    "appId": "11",
+    "store": "android",
+    "name": "Road Trip Cars",
+    "publisher": "Mortuary Prep",
+    "genre": "Puzzle \u00b7 Casual",
+    "classification": "included",
+    "signal": "none",
+    "latest": 7900,
+    "status": "holding_scale"
+  },
+  {
+    "appId": "12",
+    "store": "ios",
+    "name": "Siege Happens",
+    "publisher": "EpicStar",
+    "genre": "Puzzle \u00b7 Casual",
+    "classification": "included",
+    "signal": "none",
+    "latest": 2600,
+    "status": "holding_scale"
+  },
+  {
+    "appId": "13",
+    "store": "android",
+    "name": "Traffic Sandbox",
+    "publisher": "Vibe Games",
+    "genre": "Puzzle \u00b7 Casual",
+    "classification": "included",
+    "signal": "none",
+    "latest": 800,
+    "status": "cooling_down"
+  },
+  {
+    "appId": "14",
+    "store": "ios",
+    "name": "2048 Neon",
+    "publisher": "Unknown studio",
+    "genre": "Puzzle \u00b7 Casual",
+    "classification": "included",
+    "signal": "launch_traction",
+    "latest": 2300
+  },
+  {
+    "appId": "ios-bus",
+    "store": "ios",
+    "name": "Bus Stop Crowd",
+    "publisher": "Triple Tap Games",
+    "genre": "Puzzle \u00b7 Casual",
+    "classification": "included",
+    "signal": "confirmed_momentum",
+    "latest": 6400,
+    "unifiedAppId": "demo-bus"
+  },
+  {
+    "appId": "genre-review",
+    "store": "android",
+    "name": "Mystery Puzzle",
+    "publisher": "HIPAHIPA Games",
+    "genre": "Puzzle \u00b7 Casual",
+    "classification": "review",
+    "signal": "confirmed_momentum",
+    "latest": 7500,
+    "unifiedAppId": null
+  }
+]

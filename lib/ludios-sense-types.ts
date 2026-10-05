@@ -20,13 +20,17 @@ export type SenseEvaluation = {
 export type SenseGame = {
   watch?: { firstDetected: string; lastDetected: string; referenceAverage: number | null; status: "current_signal" | "holding_scale" | "cooling_down" | "insufficient_data"; sourceJobKey: string; sourceGeneratedAt: string; currentObserved: boolean };
   appId: string; store: SenseStore; name: string; publisher: string; genre: string; iconUrl?: string | null; unifiedAppId?: string | null;
+  /** Optional store media; absent when the existing metadata source supplies none. */
+  screenshotUrls?: string[];
   classification: "included" | "review" | "excluded"; releaseDate: string | null; url: string;
   history: SensePoint[]; historyLoaded?: boolean;
   availableCountries: SenseCountry[]; unavailableCountries: SenseCountry[];
   evaluation: SenseEvaluation; retrievedAt: string;
 };
 export type SenseResult = {
-  filters: SenseFilters; generatedAt: string; watermarks: Partial<Record<SenseStore, string>>;
+  filters: SenseFilters; generatedAt: string;
+  reusedFrom?: { jobKey: string; countries: SenseCountry[]; generatedAt: string };
+  watermarks: Partial<Record<SenseStore, string>>;
   games: SenseGame[]; errors: string[]; requests: number; coverageComplete: boolean; ruleVersion: string;
 };
 export type SenseRunResponse = { jobKey: string; status: "running" | "completed" | "error"; progress: string; requests: number; result?: SenseResult; error?: string; cached?: boolean; paused?: boolean };

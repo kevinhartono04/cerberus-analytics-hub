@@ -8,3 +8,8 @@ data/*.sqlite-*
 coverage
 test-results
 playwright-report
+.next-sense-wip
+scripts/ludios-sense-dev.mjs
+scripts/ludios-sense-preview.mjs
+scripts/verify-ludios-sense-preview.mjs
+tests/fixtures/ludios-sense-preview.json

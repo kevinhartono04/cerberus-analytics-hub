@@ -1227,6 +1227,38 @@ export async function getTechLaunchReadinessCache(cacheKey: string): Promise<Tec
   return row ? rowToTechLaunchCacheRecord(row) : null;
 }
 
+/** Read only saved detections, rather than transferring every evaluated game in each old report. */
+export async function getSenseDetectionReports(cacheKeys: string[]): Promise<TechLaunchReadinessCacheRecord[]> {
+  if (!cacheKeys.length) return [];
+  if (shouldUseLocalSqlite()) {
+    const records = await Promise.all(cacheKeys.map(getTechLaunchReadinessCache));
+    return records.flatMap(record => {
+      if (!record) return [];
+      const report = JSON.parse(record.payload);
+      if (report.status !== "completed" || !report.result) return [];
+      report.result.games = report.result.games.filter((game: {classification:string;evaluation:{signal:string}}) =>
+        game.classification === "included" && ["confirmed_momentum","early_warning"].includes(game.evaluation.signal));
+      return [{...record,payload:JSON.stringify(report)}];
+    });
+  }
+  const sql = await ensureTechLaunchCacheTable();
+  const rows = await sql<Record<string, unknown>[]>`
+    SELECT cache_key, created_at, expires_at,
+      jsonb_set(doc, '{result,games}', COALESCE((
+        SELECT jsonb_agg(game)
+        FROM jsonb_array_elements(doc #> '{result,games}') game
+        WHERE game->>'classification' = 'included'
+          AND game #>> '{evaluation,signal}' IN ('confirmed_momentum','early_warning')
+      ), '[]'::jsonb))::text AS payload
+    FROM (
+      SELECT cache_key, created_at, expires_at, payload::jsonb AS doc
+      FROM tech_launch_readiness_cache WHERE cache_key = ANY(${sql.array(cacheKeys,25)})
+    ) reports
+    WHERE doc->>'status' = 'completed' AND doc->'result' IS NOT NULL
+  `;
+  return rows.map(rowToTechLaunchCacheRecord);
+}
+
 export async function saveTechLaunchReadinessCache(record: TechLaunchReadinessCacheRecord) {
   if (shouldUseLocalSqlite()) {
     ensureSqliteTechLaunchCacheTable();
