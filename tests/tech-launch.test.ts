@@ -72,7 +72,7 @@ describe("Tech Launch readiness helpers", () => {
   it("includes MarbleDrop in the Ludios telemetry app-version lookup", () => {
     const sql = buildTechLaunchAppVersionsSql({ ...filters, appName: "marbledrop" });
 
-    expect(sql).toContain("app_id in (3001, 3003, 3004, 3005, 3006, 3007, 3008, 3011, 3012, 3013)");
+    expect(sql).toContain("app_id in (3001, 3003, 3004, 3005, 3006, 3007, 3008, 3011, 3012, 3013, 3015)");
     expect(sql).toContain("ep.app_id = 3007");
   });
 

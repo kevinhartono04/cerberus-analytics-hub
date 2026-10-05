@@ -32,6 +32,7 @@ export const techLaunchAppOptions = [
   "treasureshot",
   "dotpaint",
   "bubblewordchain",
+  "ringtangle",
 ] as const;
 
 // App names are the user-facing filter contract; query builders resolve them
@@ -57,6 +58,7 @@ export const techLaunchAppIds: Record<(typeof techLaunchAppOptions)[number], num
   treasureshot: 3012,
   dotpaint: 3005,
   bubblewordchain: 3006,
+  ringtangle: 3015,
 };
 
 export const techLaunchPlatformOptions = ["android", "ios"] as const;
@@ -245,7 +247,7 @@ with events as (
     ep.app_version,
     ep.created_at::date as event_date
   from (
-      select * from tds_db.raw.ludios_telemetry_events_production where app_id in (3001, 3003, 3004, 3005, 3006, 3007, 3008, 3011, 3012, 3013)
+      select * from tds_db.raw.ludios_telemetry_events_production where app_id in (3001, 3003, 3004, 3005, 3006, 3007, 3008, 3011, 3012, 3013, 3015)
           union all
       select * from tds_db.raw.telemetry_events_production where app_id in (18,22,117,122)
   ) ep
