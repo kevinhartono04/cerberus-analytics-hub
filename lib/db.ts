@@ -1227,6 +1227,39 @@ export async function getTechLaunchReadinessCache(cacheKey: string): Promise<Tec
   return row ? rowToTechLaunchCacheRecord(row) : null;
 }
 
+/** Project one game's saved chart in the database; never transfer the full scan checkpoint. */
+export async function getSenseGameReport(cacheKeys: string[], appId: string, store: string): Promise<TechLaunchReadinessCacheRecord | null> {
+  const now = new Date().toISOString();
+  if (shouldUseLocalSqlite()) {
+    for (const key of cacheKeys) {
+      const record = await getTechLaunchReadinessCache(key);
+      if (!record || (record.expiresAt && record.expiresAt <= now)) continue;
+      const report = JSON.parse(record.payload);
+      const game = report.result?.games.find((g: {appId:string;store:string}) => g.appId === appId && g.store === store);
+      return {...record,payload:JSON.stringify({result:{generatedAt:report.result?.generatedAt,games:game ? [game] : []}})};
+    }
+    return null;
+  }
+  const sql = await ensureTechLaunchCacheTable();
+  const [row] = await sql<Record<string, unknown>[]>`
+    WITH selected AS MATERIALIZED (
+      SELECT cache_key, created_at, expires_at, payload FROM tech_launch_readiness_cache
+      WHERE cache_key = ANY(${sql.array(cacheKeys,25)}) AND expires_at > ${now}
+      ORDER BY array_position(${sql.array(cacheKeys,25)},cache_key) LIMIT 1
+    ), report AS MATERIALIZED (
+      SELECT cache_key, created_at, expires_at, (payload::json->'result')::jsonb AS doc FROM selected
+    )
+    SELECT cache_key, created_at, expires_at,
+      jsonb_build_object('result', jsonb_build_object(
+        'generatedAt', doc->'generatedAt',
+        'games', COALESCE((SELECT jsonb_agg(game) FROM jsonb_array_elements(doc->'games') game
+          WHERE game->>'appId' = ${appId} AND game->>'store' = ${store}), '[]'::jsonb)
+      ))::text AS payload
+    FROM report
+  `;
+  return row ? rowToTechLaunchCacheRecord(row) : null;
+}
+
 /** Read only saved detections, rather than transferring every evaluated game in each old report. */
 export async function getSenseDetectionReports(cacheKeys: string[]): Promise<TechLaunchReadinessCacheRecord[]> {
   if (!cacheKeys.length) return [];

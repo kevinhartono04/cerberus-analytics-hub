@@ -11,6 +11,28 @@ beforeEach(()=>{
  HTMLDialogElement.prototype.close = function() { this.removeAttribute("open"); };
 });
 describe("Sense page",()=>{
+ it("bounds a stalled chart request and retries saved data without a scan",async()=>{
+  vi.useFakeTimers();
+  const date=senseToday(),generatedAt=new Date().toISOString(),jobKey="sense:v1:"+"a".repeat(64);
+  const game={appId:"rings",store:"ios",name:"Rotate Rings",publisher:"Studio",classification:"included",genre:"Puzzle",iconUrl:"https://example.com/icon.png",unifiedAppId:null,url:"https://example.com",history:[],availableCountries:["US"],unavailableCountries:[],evaluation:{date,signal:"early_warning",latest:2000,recentAverage:1800,baseline:1000,growth:2,added:1000,flags:[]},retrievedAt:generatedAt};
+  let ready=false;
+  const fetch=vi.fn(async(url:string)=>{
+   if(url.endsWith("/game"))return ready?Response.json({...game,history:[{date,downloads:2000}]}):new Promise<Response>(()=>{});
+   return Response.json(url.endsWith("/cache")?{scan:{jobKey,status:"completed",cached:true,requests:0,result:{filters:{date,countries:["AU","CA","DE","GB","JP","RU","US"]},games:[game],generatedAt,watermarks:{ios:date},coverageComplete:true}}}:url.endsWith("/recent")?{games:[]}:{});
+  });
+  vi.stubGlobal("fetch",fetch);const view=render(<LudiosSense/>);
+  try{
+   await act(()=>vi.advanceTimersByTimeAsync(400));
+   fireEvent.click(screen.getByRole("button",{name:"Inspect Rotate Rings, ios"}));
+   await act(()=>vi.advanceTimersByTimeAsync(20000));
+   expect(screen.getByRole("dialog")).toHaveTextContent("timed out");
+   ready=true;fireEvent.click(screen.getByRole("button",{name:"Retry saved chart"}));
+   await act(()=>vi.advanceTimersByTimeAsync(1));
+   expect(screen.getByRole("img",{name:"28-day combined daily downloads for Rotate Rings on ios"})).toBeInTheDocument();
+   expect(fetch.mock.calls.filter(([url])=>url.endsWith("/game"))).toHaveLength(2);
+   expect(fetch.mock.calls.every(([url])=>["/api/ludios-sense/cache","/api/ludios-sense/recent","/api/ludios-sense/usage","/api/ludios-sense/game"].includes(url))).toBe(true);
+  }finally{view.unmount();vi.useRealTimers();}
+ });
  it("shows a saved breakout by default and separates it from current signals",async()=>{
   const date=senseToday(),jobKey="sense:v1:"+"a".repeat(64),generatedAt=new Date().toISOString();
   const game={appId:"rings",store:"ios",name:"Rotate Rings",publisher:"Studio",genre:"Puzzle",classification:"included",releaseDate:null,iconUrl:null,unifiedAppId:null,url:"https://example.com",history:[],availableCountries:["US"],unavailableCountries:[],evaluation:{date,signal:"none",latest:86722,recentAverage:90133,baseline:null,growth:null,added:null,flags:[],releaseAge:null,activityDate:null},retrievedAt:generatedAt};
@@ -51,6 +73,27 @@ describe("Sense page",()=>{
    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
    expect(fetch.mock.calls.every(([url])=>["/api/ludios-sense/cache","/api/ludios-sense/usage","/api/ludios-sense/recent"].includes(url))).toBe(true);
   }finally{view.unmount();vi.useRealTimers();}
+ });
+ it("filters publisher names independently of game search and preserves verified store grouping",async()=>{
+  const date=senseToday(),generatedAt=new Date().toISOString();
+  const game={appId:"rings",store:"ios",name:"Rotate Rings",publisher:"Nebula Studio",genre:"Puzzle",classification:"included",iconUrl:null,unifiedAppId:"rings",url:"https://example.com",history:[],availableCountries:["US"],unavailableCountries:[],evaluation:{date,signal:"early_warning",latest:2000,recentAverage:1800,baseline:1000,growth:2,added:1000,flags:[]},retrievedAt:generatedAt};
+  const games=[game,{...game,appId:"pkg",store:"android",publisher:"Nebula Games"},{...game,appId:"smash",unifiedAppId:null,name:"Smash All",publisher:"TDD"}];
+  const fetch=vi.fn(async(url:string)=>Response.json(url.endsWith("/cache")?{scan:{jobKey:"sense:v1:"+"a".repeat(64),status:"completed",cached:true,requests:0,result:{filters:{date,countries:["AU","CA","DE","GB","JP","RU","US"]},games,generatedAt,watermarks:{ios:date},coverageComplete:true}}}:url.endsWith("/recent")?{games:[]}:{}));
+  vi.stubGlobal("fetch",fetch);const view=render(<LudiosSense/>);
+  await waitFor(()=>expect(view.container.querySelectorAll('.sense-game-card')).toHaveLength(2));
+  fireEvent.change(screen.getByLabelText("Publisher"),{target:{value:"NEBULA"}});
+  expect(view.container.querySelectorAll('.sense-game-card')).toHaveLength(1);
+  expect(view.container.querySelector('.sense-game-card')).toHaveTextContent("Android");
+  expect(screen.getByRole("button",{name:/Worth attention/})).toHaveTextContent("1");
+  fireEvent.change(screen.getByLabelText("Search games"),{target:{value:"Smash"}});
+  expect(view.container.querySelectorAll('.sense-game-card')).toHaveLength(0);
+  fireEvent.change(screen.getByLabelText("Search games"),{target:{value:""}});
+  fireEvent.change(screen.getByLabelText("Store"),{target:{value:"android"}});
+  expect(screen.getByRole("button",{name:"Inspect Rotate Rings, android"})).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText("Publisher"),{target:{value:""}});
+  fireEvent.change(screen.getByLabelText("Store"),{target:{value:"all"}});
+  expect(view.container.querySelectorAll('.sense-game-card')).toHaveLength(2);
+  expect(fetch.mock.calls.every(([url])=>["/api/ludios-sense/cache","/api/ludios-sense/usage","/api/ludios-sense/recent"].includes(url))).toBe(true);
  });
  it("uses today's limit when cached HTML was rendered on a previous day",()=>{
   vi.useFakeTimers();

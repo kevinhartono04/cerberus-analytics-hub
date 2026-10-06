@@ -1,6 +1,11 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const { records, leases } = vi.hoisted(() => ({records:new Map<string,string>(),leases:new Map<string,string>()}));
 vi.mock("@/lib/db", () => ({
+  getSenseGameReport: vi.fn(async(keys:string[],appId:string,store:string)=>{
+    const key=keys.find(key=>records.has(key));if(!key)return null;
+    const report=JSON.parse(records.get(key)!);
+    return {payload:JSON.stringify({result:{...report.result,games:report.result?.games.filter((g:{appId:string;store:string})=>g.appId===appId&&g.store===store)}})};
+  }),
   getTechLaunchReadinessCache: vi.fn(async(key:string)=>leases.has(key)?{payload:leases.get(key)}:records.has(key)?{payload:records.get(key)}:null),
   saveTechLaunchReadinessCache: vi.fn(async(r:{cacheKey:string;payload:string})=>{records.set(r.cacheKey,r.payload);}),
   claimSenseLease: vi.fn(async(key:string,token:string)=>{if(leases.has(key))return false;leases.set(key,token);return true;}),
@@ -12,7 +17,8 @@ import { advanceSense, startSense, getSenseStatus, setSensePaused, runSenseWorke
 import { senseToday } from "@/lib/ludios-sense-types";
 import { shiftDate } from "@/lib/ludios-sense-detection";
 const t="2026-09-28";
-beforeEach(()=>{records.clear();leases.clear();process.env.SENSOR_TOWER_TOKEN="test-private-token";delete process.env.SENSE_MONTHLY_REQUEST_LIMIT;vi.unstubAllGlobals();});
+beforeEach(()=>{vi.useFakeTimers({toFake:["Date"]});vi.setSystemTime(new Date("2026-10-02T03:00:00Z"));records.clear();leases.clear();process.env.SENSOR_TOWER_TOKEN="test-private-token";delete process.env.SENSE_MONTHLY_REQUEST_LIMIT;vi.unstubAllGlobals();});
+afterEach(()=>vi.useRealTimers());
 describe("resumable Sense scan",()=>{
   it("persists pause controls and polls compact summaries without making upstream requests",async()=>{
     const fetch=vi.fn();vi.stubGlobal("fetch",fetch);

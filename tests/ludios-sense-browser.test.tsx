@@ -6,6 +6,18 @@ import type { SenseGame } from "@/lib/ludios-sense-types";
 const game: SenseGame = {appId:"1",store:"ios",name:"Puzzle Game",publisher:"Studio",genre:"Games/Puzzle",classification:"included",iconUrl:null,unifiedAppId:null,releaseDate:null,url:"https://example.com/store",history:[],availableCountries:["US"],unavailableCountries:[],evaluation:{date:"2026-10-01",signal:"early_warning",variant:null,latest:2000,recentAverage:1800,baseline:1000,growth:2,added:1000,flags:[],activityDate:null,releaseAge:null},retrievedAt:"2026-10-01T00:00:00Z"};
 afterEach(()=>vi.useRealTimers());
 describe("Game browser",()=>{
+ it("shows accessible store icons and a status dot, with full status text in the preview",()=>{
+  vi.useFakeTimers();
+  const android={...game,appId:"pkg",store:"android" as const};
+  render(<SenseGameGrid groups={[{key:"same",members:[game,android]}]} icons={{}} onInspect={vi.fn()} />);
+  const button=screen.getByRole("button",{name:"Inspect Puzzle Game, ios"});
+  expect(within(button).getByRole("img",{name:"iOS"})).toBeInTheDocument();
+  expect(within(button).getByRole("img",{name:"Android"})).toBeInTheDocument();
+  expect(within(button).getByRole("img",{name:"Early warning"})).toHaveAttribute("title","Early warning");
+  expect(within(button).queryByText("Early warning")).toBeNull();
+  act(()=>button.focus());act(()=>vi.advanceTimersByTime(250));
+  expect(within(screen.getByRole("region")).getByText("Early warning")).toBeInTheDocument();
+ });
  it("opens after 250 ms, keeps the interactive preview open and dismisses on Escape",()=>{
   vi.useFakeTimers();
   render(<SenseGameGrid groups={[{key:"1",members:[game]}]} icons={{}} onInspect={vi.fn()} />);
