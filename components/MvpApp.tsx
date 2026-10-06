@@ -2505,7 +2505,7 @@ function UserRoleAdmin({ currentUser }: { currentUser: AppUser | null }) {
           <span className="h-1.5 w-1.5 rounded-full bg-cobalt shadow-[0_0_10px_#3d82ff]" />
           Admin · User management
         </div>
-        <h1 className="mt-3 font-display text-[34px] font-extrabold leading-none text-ink">User Access</h1>
+        <h1 className="mt-3 font-display text-[34px] font-extrabold leading-none text-ink">Users Access</h1>
         <p className="mt-2 text-[13.5px] text-slate-500">Admins manage roles. Access is gated to approved organization accounts.</p>
       </div>
 
@@ -3811,6 +3811,7 @@ export function AdminApp() {
   return (
     <CerberusShell
       currentProduct="admin"
+      activeAdminSection="users"
       contentClassName="max-w-[1320px]"
       user={{
         authenticated: auth.authenticated,
