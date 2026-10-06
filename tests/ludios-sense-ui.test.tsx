@@ -52,6 +52,27 @@ describe("Sense page",()=>{
    expect(fetch.mock.calls.every(([url])=>["/api/ludios-sense/cache","/api/ludios-sense/usage","/api/ludios-sense/recent"].includes(url))).toBe(true);
   }finally{view.unmount();vi.useRealTimers();}
  });
+ it("filters publisher names independently of game search and preserves verified store grouping",async()=>{
+  const date=senseToday(),generatedAt=new Date().toISOString();
+  const game={appId:"rings",store:"ios",name:"Rotate Rings",publisher:"Nebula Studio",genre:"Puzzle",classification:"included",iconUrl:null,unifiedAppId:"rings",url:"https://example.com",history:[],availableCountries:["US"],unavailableCountries:[],evaluation:{date,signal:"early_warning",latest:2000,recentAverage:1800,baseline:1000,growth:2,added:1000,flags:[]},retrievedAt:generatedAt};
+  const games=[game,{...game,appId:"pkg",store:"android",publisher:"Nebula Games"},{...game,appId:"smash",unifiedAppId:null,name:"Smash All",publisher:"TDD"}];
+  const fetch=vi.fn(async(url:string)=>Response.json(url.endsWith("/cache")?{scan:{jobKey:"sense:v1:"+"a".repeat(64),status:"completed",cached:true,requests:0,result:{filters:{date,countries:["AU","CA","DE","GB","JP","RU","US"]},games,generatedAt,watermarks:{ios:date},coverageComplete:true}}}:url.endsWith("/recent")?{games:[]}:{}));
+  vi.stubGlobal("fetch",fetch);const view=render(<LudiosSense/>);
+  await waitFor(()=>expect(view.container.querySelectorAll('.sense-game-card')).toHaveLength(2));
+  fireEvent.change(screen.getByLabelText("Publisher"),{target:{value:"NEBULA"}});
+  expect(view.container.querySelectorAll('.sense-game-card')).toHaveLength(1);
+  expect(view.container.querySelector('.sense-game-card')).toHaveTextContent("Android");
+  expect(screen.getByRole("button",{name:/Worth attention/})).toHaveTextContent("1");
+  fireEvent.change(screen.getByLabelText("Search games"),{target:{value:"Smash"}});
+  expect(view.container.querySelectorAll('.sense-game-card')).toHaveLength(0);
+  fireEvent.change(screen.getByLabelText("Search games"),{target:{value:""}});
+  fireEvent.change(screen.getByLabelText("Store"),{target:{value:"android"}});
+  expect(screen.getByRole("button",{name:"Inspect Rotate Rings, android"})).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText("Publisher"),{target:{value:""}});
+  fireEvent.change(screen.getByLabelText("Store"),{target:{value:"all"}});
+  expect(view.container.querySelectorAll('.sense-game-card')).toHaveLength(2);
+  expect(fetch.mock.calls.every(([url])=>["/api/ludios-sense/cache","/api/ludios-sense/usage","/api/ludios-sense/recent"].includes(url))).toBe(true);
+ });
  it("uses today's limit when cached HTML was rendered on a previous day",()=>{
   vi.useFakeTimers();
   vi.stubGlobal("fetch",vi.fn(async()=>Response.json({scan:null})));

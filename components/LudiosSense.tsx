@@ -72,6 +72,7 @@ export default function LudiosSense() {
   const [recentAttempt, setRecentAttempt] = useState(0);
   const [store, setStore] = useState("all");
   const [search, setSearch] = useState("");
+  const [publisher, setPublisher] = useState("");
   const [selection, setSelection] = useState<string | null>(null);
   const [limit, setLimit] = useState(30);
   const [collapsed, setCollapsed] = useState(false);
@@ -123,6 +124,8 @@ export default function LudiosSense() {
     return () => abort.abort();
   }, [scan?.jobKey, result?.generatedAt, recentAttempt]);
   const storeGroups = useMemo(() => sortSenseGroups(groupSenseGames(games.filter(game => store === "all" || game.store === store),unifiedIds)),[games,store,unifiedIds]);
+  const publisherNames = useMemo(() => [...new Set(storeGroups.flatMap(item => item.members.map(game => game.publisher).filter(Boolean)))].sort((a,b)=>a.localeCompare(b)),[storeGroups]);
+  const publisherGroups = useMemo(() => storeGroups.filter(item => item.members.some(game => (game.publisher ?? "").toLowerCase().includes(publisher.trim().toLowerCase()))),[storeGroups,publisher]);
   const matchesGroup = (game: SenseGame, filter: string) => filter === "attention" ? senseWorthAttention(game) :
     filter === "recent" ? Boolean(game.watch) || senseCurrentSignal(game) :
     filter === "included" ? senseCurrentSignal(game) :
@@ -132,7 +135,7 @@ export default function LudiosSense() {
     ["attention","Worth attention"],["recent","Recent detections"],["included","Current signals"],
     ["review","Genre review"],["traction","Unconfirmed traction"],["all","All evaluated"],
   ];
-  const grouped = storeGroups.filter(item => item.members.some(game => matchesGroup(game,group)) &&
+  const grouped = publisherGroups.filter(item => item.members.some(game => matchesGroup(game,group)) &&
     item.members.some(game => `${game.name} ${game.publisher} ${game.appId}`.toLowerCase().includes(search.toLowerCase())));
   const visible = grouped.flatMap(item => item.members);
   const iconSelection = JSON.stringify(grouped.slice(0,limit).flatMap(group=>group.members).filter(g => g.watch?.currentObserved !== false && (g.iconUrl === undefined || g.unifiedAppId === undefined)).map(g => ({ appId:g.appId, store:g.store })));
@@ -286,8 +289,8 @@ export default function LudiosSense() {
       </div></details>
       {changed ? <p className="mb-4 rounded-lg border border-amber-400/40 p-3 text-sm text-ink">Filters changed. Run check to update the report. These results use {result.filters.date} · {result.filters.countries.map(c => senseCountries[c]).join(", ")}.</p> : null}
       <section className="sense-panel mt-5 rounded-2xl border border-line/70 bg-surface-card" aria-label="Research shortlist">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line/60 p-4 sm:p-5"><h2 className="font-display text-base sm:text-lg font-bold text-ink">Research shortlist</h2><div className="grid w-full min-w-0 grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap"><select aria-label="Store" className={`${inputClass} min-w-0 px-2 text-xs sm:px-3 sm:text-sm`} value={store} onChange={e => { setStore(e.target.value); setLimit(30); }}><option value="all">Both stores</option><option value="ios">iOS</option><option value="android">Android</option></select><label className="relative min-w-0"><Search aria-hidden="true" className="absolute left-3 top-3 h-4 w-4 text-slate-500" /><input aria-label="Search games" placeholder="Game or publisher" value={search} onChange={e => { setSearch(e.target.value); setLimit(30); }} className={`${inputClass} w-full min-w-0 pl-9 text-xs sm:w-48 sm:text-sm`} /></label></div></div>
-        <div role="group" aria-label="Signal group" className="flex gap-1.5 overflow-x-auto border-b border-line/60 p-3 sm:flex-wrap">{tabs.map(([value,label]) => <button key={value} aria-pressed={group === value} onClick={() => { setGroup(value); setLimit(30); }} className={`focus-ring shrink-0 whitespace-nowrap rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${group === value ? "bg-cobalt/10 text-cobalt" : "text-slate-500 hover:bg-surface-table"}`}>{label}<span className="ml-2 opacity-60">{["attention","recent"].includes(value) && (recentLoading || recentError) ? "…" : storeGroups.filter(item => item.members.some(game => matchesGroup(game,value))).length}</span></button>)}</div>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line/60 p-4 sm:p-5"><h2 className="font-display text-base sm:text-lg font-bold text-ink">Research shortlist</h2><div className="grid w-full min-w-0 grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap"><select aria-label="Store" className={`${inputClass} min-w-0 px-2 text-xs sm:px-3 sm:text-sm`} value={store} onChange={e => { setStore(e.target.value); setLimit(30); }}><option value="all">Both stores</option><option value="ios">iOS</option><option value="android">Android</option></select><label className="min-w-0"><span className="sr-only">Publisher</span><input type="search" aria-label="Publisher" list="sense-publishers" placeholder="All publishers" value={publisher} onChange={e => { setPublisher(e.target.value); setLimit(30); }} className={`${inputClass} w-full min-w-0 px-3 text-xs sm:w-44 sm:text-sm`} /><datalist id="sense-publishers">{publisherNames.map(name => <option key={name} value={name} />)}</datalist></label><label className="relative col-span-2 min-w-0"><Search aria-hidden="true" className="absolute left-3 top-3 h-4 w-4 text-slate-500" /><input aria-label="Search games" placeholder="Game or publisher" value={search} onChange={e => { setSearch(e.target.value); setLimit(30); }} className={`${inputClass} w-full min-w-0 pl-9 text-xs sm:w-48 sm:text-sm`} /></label></div></div>
+        <div role="group" aria-label="Signal group" className="flex gap-1.5 overflow-x-auto border-b border-line/60 p-3 sm:flex-wrap">{tabs.map(([value,label]) => <button key={value} aria-pressed={group === value} onClick={() => { setGroup(value); setLimit(30); }} className={`focus-ring shrink-0 whitespace-nowrap rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${group === value ? "bg-cobalt/10 text-cobalt" : "text-slate-500 hover:bg-surface-table"}`}>{label}<span className="ml-2 opacity-60">{["attention","recent"].includes(value) && (recentLoading || recentError) ? "…" : publisherGroups.filter(item => item.members.some(game => matchesGroup(game,value))).length}</span></button>)}</div>
         {recentError ? <div role="alert" className="px-5 pt-4 text-xs text-amber"><p>{recentError}</p><button className="focus-ring mt-2 rounded-lg border border-line px-3 py-2 font-semibold" onClick={() => setRecentAttempt(value => value+1)}>Retry saved detections</button></div> : null}
         {recentLoading ? <p role="status" className="px-5 pt-4 text-xs text-slate-500">Loading saved detections… This shortlist is incomplete until history loads.</p> : null}
         <div className="p-5 sm:p-6">

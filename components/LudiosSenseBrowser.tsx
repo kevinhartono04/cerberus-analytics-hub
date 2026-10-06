@@ -4,6 +4,7 @@ import React, { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Image from "next/image";
 import { ArrowUpRight, Gamepad2, X } from "lucide-react";
+import { sensePreviewPosition } from "@/lib/ludios-sense-preview";
 import type { SenseGame } from "@/lib/ludios-sense-types";
 import { senseAttentionRank, senseTableGenres, type groupSenseGames } from "@/lib/ludios-sense-presentation";
 
@@ -20,8 +21,8 @@ export function SenseStatus({ game }: { game: SenseGame }) {
 }
 function GameArtwork({ url }: { url?: string | null }) {
   const [failed, setFailed] = useState(false);
-  return <span className="sense-game-art flex aspect-square w-full items-center justify-center overflow-hidden rounded-[22px] border border-line/50 bg-surface-table shadow-sm">
-    {url && !failed ? <Image unoptimized src={url} alt="" width={160} height={160} loading="lazy" referrerPolicy="no-referrer" className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" onError={() => setFailed(true)} /> : <Gamepad2 aria-hidden="true" className="h-12 w-12 text-slate-400" />}
+  return <span className="sense-game-art flex aspect-square w-full items-center justify-center overflow-hidden max-w-[112px] rounded-2xl border border-line/50 bg-surface-table shadow-sm">
+    {url && !failed ? <Image unoptimized src={url} alt="" width={112} height={112} loading="lazy" referrerPolicy="no-referrer" className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" onError={() => setFailed(true)} /> : <Gamepad2 aria-hidden="true" className="h-8 w-8 text-slate-400" />}
   </span>;
 }
 export function SenseScreenshots({ game }: { game: SenseGame }) {
@@ -48,7 +49,7 @@ function GameCard({ group, icons, onInspect }: { group: GameGroup; icons: Record
   const game = group.members[0];
   const [preview, setPreview] = useState(false);
   const [storeGame, setStoreGame] = useState(game);
-  const [position, setPosition] = useState({ left: 0, top: 0 });
+  const [position, setPosition] = useState({ left: 0, top: 0, width:420,maxHeight:460 });
   const card = useRef<HTMLDivElement>(null);
   const popup = useRef<HTMLDivElement>(null);
   const openTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -63,10 +64,9 @@ function GameCard({ group, icons, onInspect }: { group: GameGroup; icons: Record
     if (dismissed.current) return;
     clearTimers();
     openTimer.current = setTimeout(() => {
-      const rect = card.current?.getBoundingClientRect();
+      const rect = card.current?.querySelector(".sense-game-art")?.getBoundingClientRect();
       if (!rect) return;
-      const width = Math.min(420,window.innerWidth-24);
-      setPosition({ left: Math.max(12,Math.min(rect.left,window.innerWidth-width-12)), top: Math.max(12,Math.min(rect.top+30,window.innerHeight-460)) });
+      setPosition(sensePreviewPosition(rect,{width:window.innerWidth,height:window.innerHeight}));
       document.dispatchEvent(new CustomEvent("sense-preview-open", { detail: id }));
       setStoreGame(group.members[0]); setPreview(true);
     },250);
@@ -104,12 +104,12 @@ function GameCard({ group, icons, onInspect }: { group: GameGroup; icons: Record
   return <div ref={card} className="sense-game-card relative min-w-0" onMouseEnter={() => { if (pointerSuppressed.current) return; dismissed.current = false; schedule(); }} onMouseLeave={event => leave(event.relatedTarget)} onFocus={event => { if (!event.currentTarget.contains(event.relatedTarget)) { if (!popup.current?.contains(event.relatedTarget)) dismissed.current = false; schedule(); } }} onBlur={event => leave(event.relatedTarget)}>
     <button aria-label={`Inspect ${game.name}, ${game.store}`} aria-expanded={preview} aria-controls={preview ? id : undefined} onKeyDown={event => { if (event.key === "Tab" && !event.shiftKey && preview) { event.preventDefault(); popup.current?.querySelector("button")?.focus(); } }} onClick={() => { close(); onInspect(game); }} className="focus-ring group block w-full rounded-2xl text-left">
       <GameArtwork key={game.iconUrl ?? icons[`${game.store}:${game.appId}`] ?? "missing"} url={game.iconUrl ?? icons[`${game.store}:${game.appId}`]} />
-      <span className="mt-3 block truncate text-sm font-bold text-ink">{game.name}</span>
+      <span className="mt-2 block truncate text-xs font-bold text-ink">{game.name}</span>
       <span className="mt-0.5 block truncate text-[11px] text-slate-500">{game.publisher || "Publisher unavailable"}</span>
       <span className="mt-2 flex items-center gap-1.5 text-[10px] font-medium text-slate-500">{group.members.map(g => <span key={g.store} className="rounded border border-line/60 px-1.5 py-0.5">{g.store === "ios" ? "iOS" : "Android"}</span>)}</span>
       <span className="mt-2 block"><SenseStatus game={game} /></span>
     </button>
-    {preview ? createPortal(<div ref={popup} id={id} role="region" aria-label={`Preview ${game.name}`} style={{left:position.left,top:position.top,width:"min(420px, calc(100vw - 24px))",maxHeight:`calc(100dvh - ${position.top+12}px)`}} className="fixed z-40 overflow-y-auto rounded-2xl border border-line bg-surface-card p-5 text-ink shadow-2xl" onMouseEnter={clearTimers} onMouseLeave={event => leave(event.relatedTarget)} onFocus={clearTimers} onBlur={event => leave(event.relatedTarget)}>
+    {preview ? createPortal(<div ref={popup} id={id} role="region" aria-label={`Preview ${game.name}`} style={{left:position.left,top:position.top,width:position.width,maxHeight:position.maxHeight}} className="fixed z-40 overflow-y-auto rounded-2xl border border-line bg-surface-card p-5 text-ink shadow-2xl" onMouseEnter={clearTimers} onMouseLeave={event => leave(event.relatedTarget)} onFocus={clearTimers} onBlur={event => leave(event.relatedTarget)}>
       <div className="mb-3 flex items-start justify-between gap-2"><div><h3 className="text-base font-bold">{storeGame.name}</h3><p className="mt-1 text-xs text-slate-500">{storeGame.publisher}</p></div><button aria-label="Close preview" onKeyDown={event => { if (event.key === "Tab" && event.shiftKey) { event.preventDefault(); card.current?.querySelector("button")?.focus(); } }} onClick={() => { dismissed.current = true; document.dispatchEvent(new Event("sense-preview-suppress")); close(); card.current?.querySelector("button")?.focus(); }} className="focus-ring rounded-lg p-1 text-slate-500"><X aria-hidden="true" className="h-4 w-4" /></button></div>
       <div className="mb-3"><SenseStoreTabs members={group.members} selected={storeGame} onSelect={setStoreGame} /></div>
       <SenseScreenshots key={`${storeGame.store}:${storeGame.appId}`} game={storeGame} />
@@ -120,7 +120,7 @@ function GameCard({ group, icons, onInspect }: { group: GameGroup; icons: Record
   </div>;
 }
 export function SenseGameGrid({ groups, icons, onInspect }: { groups: GameGroup[]; icons: Record<string,string|null>; onInspect: (game: SenseGame) => void }) {
-  return <div className="sense-game-grid grid grid-cols-2 gap-x-5 gap-y-7 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">{groups.map(group => <GameCard key={group.key} group={group} icons={icons} onInspect={onInspect} />)}</div>;
+  return <div className="sense-game-grid grid grid-cols-[repeat(auto-fill,minmax(104px,1fr))] gap-x-3 gap-y-5">{groups.map(group => <GameCard key={group.key} group={group} icons={icons} onInspect={onInspect} />)}</div>;
 }
 export function SenseDetailDrawer({ game, members, onSelect, onClose, children }: { game: SenseGame; members: SenseGame[]; onSelect: (game: SenseGame) => void; onClose: () => void; children: React.ReactNode }) {
   const dialog = useRef<HTMLDialogElement>(null);
