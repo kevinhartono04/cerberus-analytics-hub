@@ -1,4 +1,5 @@
 "use client";
+import { useGameOptions } from "@/hooks/use-game-options";
 
 import Image from "next/image";
 import DownloadSpecButton from "@/components/DownloadSpecButton";
@@ -49,10 +50,7 @@ import {
   UserRole,
 } from "@/lib/types";
 
-const techLaunchApps = [
-  "blockkingdom", "bloomsort", "bubblego", "bubblewordchain", "dotpaint", "hexago", "hexastack", "jelly", "mahjongbloom",
-  "marble", "marbledrop", "ringtangle", "sizzle", "stacksmash", "treasureshot", "tripletile", "wooblast", "woodoku", "wordblast", "wordoku", "wordrush",
-] as const;
+
 
 function defaultPartnerExpiryDate() {
   const date = new Date();
@@ -2294,6 +2292,7 @@ function SavedSpecsBrowser({
 }
 
 function PartnerDomainAccessAdmin() {
+  const techLaunchApps = useGameOptions();
   const [domains, setDomains] = useState<PartnerDomainAccess[]>([]);
   const [domain, setDomain] = useState("");
   const [allowedApps, setAllowedApps] = useState<string[]>([]);

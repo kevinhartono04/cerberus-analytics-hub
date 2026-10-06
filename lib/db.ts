@@ -53,7 +53,7 @@ function sqliteLiteral(value: string) {
 }
 
 function sqliteJsonRows<T>(sql: string, maxBuffer = 1024 * 1024 * 32): T[] {
-  const output = execFileSync("sqlite3", ["-json", localSqlitePath, sql], {
+  const output = execFileSync("sqlite3", ["-cmd", ".timeout 5000", "-json", localSqlitePath, sql], {
     encoding: "utf8",
     maxBuffer,
   }).trim();
@@ -63,7 +63,7 @@ function sqliteJsonRows<T>(sql: string, maxBuffer = 1024 * 1024 * 32): T[] {
 function sqliteExec(sql: string) {
   // Large app icons are persisted as data URLs. Passing the SQL as a process
   // argument hits the operating system's argument-size limit, so stream it.
-  execFileSync("sqlite3", [localSqlitePath], {
+  execFileSync("sqlite3", ["-cmd", ".timeout 5000", localSqlitePath], {
     encoding: "utf8",
     input: sql,
     maxBuffer: 1024 * 1024 * 32,
@@ -1672,4 +1672,42 @@ export async function listPendingSenseJobs(): Promise<string[]> {
     WHERE cache_key LIKE 'sense:v1:%' AND length(cache_key)=73 AND payload LIKE '%"status":"running"%'
     AND expires_at>${now} ORDER BY created_at LIMIT 10`;
   return rows.map(r => r.cache_key);
+}
+
+// Game integrations stay in the server-only application schema.
+export type StoredGame = import("@/lib/game-catalog").GameInput & { createdAt: string; createdBy: string };
+let gamesTableReady: Promise<void> | null = null;
+async function ensureGamesTable() {
+  if (!gamesTableReady) {
+    gamesTableReady = (async () => {
+      if (shouldUseLocalSqlite()) {
+        sqliteExec(`CREATE TABLE IF NOT EXISTS game_registry (name TEXT PRIMARY KEY, app_id INTEGER NOT NULL UNIQUE, bundle_id TEXT NOT NULL UNIQUE, adjust_android TEXT NOT NULL, adjust_ios TEXT NOT NULL, created_at TEXT NOT NULL, created_by TEXT NOT NULL)`);
+      } else {
+        const sql = getSql();
+        await sql.begin(async transaction => {
+          await transaction`CREATE TABLE IF NOT EXISTS game_registry (name TEXT PRIMARY KEY, app_id INTEGER NOT NULL UNIQUE, bundle_id TEXT NOT NULL UNIQUE, adjust_android TEXT NOT NULL, adjust_ios TEXT NOT NULL, created_at TEXT NOT NULL, created_by TEXT NOT NULL)`;
+          if (process.env.CEREBRAL_DATABASE_URL) await transaction`ALTER TABLE game_registry ENABLE ROW LEVEL SECURITY`;
+        });
+      }
+    })().catch(error => { gamesTableReady = null; throw error; });
+  }
+  await gamesTableReady;
+  return shouldUseLocalSqlite() ? null : getSql();
+}
+function rowToGame(row: Record<string, unknown>): StoredGame {
+  return { name: asString(row.name), appId: Number(row.app_id), bundleId: asString(row.bundle_id), adjustAndroid: asString(row.adjust_android), adjustIos: asString(row.adjust_ios), createdAt: asString(row.created_at), createdBy: asString(row.created_by) };
+}
+export async function listStoredGames(): Promise<StoredGame[]> {
+  if (!getDatabaseUrl() && !shouldUseLocalSqlite()) return [];
+  const sql = await ensureGamesTable();
+  const rows = sql ? await sql`SELECT * FROM game_registry ORDER BY name` : sqliteJsonRows<Record<string, unknown>>("SELECT * FROM game_registry ORDER BY name");
+  return rows.map(rowToGame);
+}
+export async function insertStoredGame(game: StoredGame): Promise<void> {
+  const sql = await ensureGamesTable();
+  if (sql) {
+    await sql`INSERT INTO game_registry (name, app_id, bundle_id, adjust_android, adjust_ios, created_at, created_by) VALUES (${game.name}, ${game.appId}, ${game.bundleId}, ${game.adjustAndroid}, ${game.adjustIos}, ${game.createdAt}, ${game.createdBy})`;
+  } else {
+    sqliteExec(`INSERT INTO game_registry (name, app_id, bundle_id, adjust_android, adjust_ios, created_at, created_by) VALUES (${sqliteLiteral(game.name)}, ${game.appId}, ${sqliteLiteral(game.bundleId)}, ${sqliteLiteral(game.adjustAndroid)}, ${sqliteLiteral(game.adjustIos)}, ${sqliteLiteral(game.createdAt)}, ${sqliteLiteral(game.createdBy)})`);
+  }
 }

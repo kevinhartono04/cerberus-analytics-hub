@@ -1,4 +1,6 @@
 "use client";
+import { defaultGameNames } from "@/lib/game-catalog";
+import { useGameOptions } from "@/hooks/use-game-options";
 
 import {
   AlertTriangle,
@@ -21,28 +23,7 @@ import { createPortal } from "react-dom";
 import CerberusShell from "@/components/CerberusShell";
 import { readDashboardSession, sameDashboardFilters, writeDashboardSession } from "@/lib/dashboard-session";
 
-const appOptions = [
-  "blockkingdom",
-  "bloomsort",
-  "bubblego",
-  "bubblewordchain",
-  "dotpaint",
-  "hexago",
-  "hexastack",
-  "jelly",
-  "mahjongbloom",
-  "marble",
-  "marbledrop", "ringtangle",
-  "sizzle",
-  "stacksmash",
-  "treasureshot",
-  "tripletile",
-  "wooblast",
-  "woodoku",
-  "wordblast",
-  "wordoku",
-  "wordrush",
-] as const;
+const appOptions: readonly string[] = defaultGameNames;
 
 const platformOptions = ["all", "android", "ios"] as const;
 
@@ -247,7 +228,7 @@ function defaultFilters(): Filters {
 }
 
 function isAppName(value: string) {
-  return (appOptions as readonly string[]).includes(value);
+  return /^[a-z][a-z0-9_-]*$/.test(value);
 }
 
 function isPlatform(value: string): value is Platform {
@@ -1047,6 +1028,7 @@ function EventDrilldown({ event }: { event: EventReport }) {
 }
 
 export default function SpecCheckDashboard() {
+  const appOptions = useGameOptions();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [filters, setFilters] = useState<Filters>(() => defaultFilters());
   const [specs, setSpecs] = useState<SavedSpecSummary[]>([]);

@@ -1,3 +1,5 @@
+import { gameNameSchema, validatedGameId } from "@/lib/game-catalog";
+import { gameAppId } from "@/lib/game-registry";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -20,7 +22,7 @@ import {
 } from "@/lib/db";
 import { getCountQuery, runCountSql, submitCountSql, type CountQuery } from "@/lib/count-api";
 import { newSlackDeliveryTraceId, postSlackWebhookMessage, type SlackQueryTrace } from "@/lib/slack-delivery";
-import { normalizedTechLaunchFilters, techLaunchAppIds, techLaunchAppOptions, techLaunchFilterSchema, techLaunchPlatformOptions, type TechLaunchFilters } from "@/lib/tech-launch";
+import { normalizedTechLaunchFilters, techLaunchFilterSchema, techLaunchPlatformOptions, type TechLaunchFilters } from "@/lib/tech-launch";
 
 const sqlPath = path.join(process.cwd(), "data", "tech_launch_level_fail_rate.sql");
 const criticalSqlPath = path.join(process.cwd(), "data", "tech_launch_critical_level_fail_rate.sql");
@@ -33,7 +35,7 @@ export const criticalGameplayAlertMinPlayers = 50;
 export type GameplayAlertKind = "daily" | "critical";
 
 export const gameplayAlertTargetSchema = z.object({
-  appName: z.enum(techLaunchAppOptions),
+  appName: gameNameSchema,
   platforms: z.array(z.enum(techLaunchPlatformOptions)).min(1)
     .transform((platforms) => [...new Set(platforms)].sort())
     .pipe(z.array(z.enum(techLaunchPlatformOptions)).min(1).max(techLaunchPlatformOptions.length)),
@@ -70,7 +72,7 @@ export const gameplayAlertSettingsSchema = z.object({
 export type GameplayAlertSettings = z.infer<typeof gameplayAlertSettingsSchema>;
 
 export const levelFunnelFilterSchema = z.object({
-  appName: z.enum(techLaunchAppOptions),
+  appName: gameNameSchema,
   platforms: z.array(z.enum(techLaunchPlatformOptions)).min(1).max(techLaunchPlatformOptions.length),
   appVersions: z.array(z.string().trim().min(1).max(80)).max(100),
   startDate: z.string().regex(datePattern, "Use YYYY-MM-DD"),
@@ -295,9 +297,9 @@ function applyTestCountryExclusion(sql: string, excludeTestCountries: boolean) {
   );
 }
 
-export function buildLevelFailRateSql(filtersInput: unknown, policy: LevelFunnelAlertPolicy = defaultLevelFunnelAlertPolicy) {
+export function buildLevelFailRateSql(filtersInput: unknown, policy: LevelFunnelAlertPolicy = defaultLevelFunnelAlertPolicy, resolvedAppId?: number) {
   const filters = normalizedLevelFunnelFilters(filtersInput);
-  const appId = techLaunchAppIds[filters.appName];
+  const appId = validatedGameId(filters.appName, resolvedAppId);
   const threshold = Math.min(1, Math.max(0, policy.normalThreshold));
   const hardThreshold = Math.min(1, Math.max(0, policy.hardThreshold));
   const minPlayers = Math.max(1, Math.round(policy.minPlayers));
@@ -330,12 +332,12 @@ export function buildLevelFailRateSql(filtersInput: unknown, policy: LevelFunnel
  * does not reconcile previous alert state, so it can use the short rolling
  * window without treating an absent historical row as a resolution.
  */
-export function buildDailyLevelFailRateSql(filtersInput: unknown, policy: LevelFunnelAlertPolicy = defaultLevelFunnelAlertPolicy) {
+export function buildDailyLevelFailRateSql(filtersInput: unknown, policy: LevelFunnelAlertPolicy = defaultLevelFunnelAlertPolicy, resolvedAppId?: number) {
   const filters = normalizedLevelFunnelFilters(filtersInput);
   // Dashboard queries are deliberately bounded to a user-selected range so
   // Count's preview limit cannot hide later levels. Scheduled alert coverage
   // remains global.
-  let sql = buildLevelFailRateSql({ ...filters, minLevel: 1, maxLevel: 1_000_000 }, policy);
+  let sql = buildLevelFailRateSql({ ...filters, minLevel: 1, maxLevel: 1_000_000 }, policy, resolvedAppId);
   sql = replaceRequired(
     sql,
     /ep\.created_at\s*>=\s*TO_DATE\('[^']+'\)\s*-- modifiable parameter\s*and\s+ep\.created_at\s*<\s*DATEADD\(day,\s*1,\s*TO_DATE\('[^']+'\)\)\s*-- modifiable parameter/i,
@@ -350,9 +352,9 @@ export function buildDailyLevelFailRateSql(filtersInput: unknown, policy: LevelF
 }
 
 /** A short, current-revision query used only by the all-day critical evaluator. */
-export function buildCriticalLevelFailRateSql(filtersInput: unknown, policy: { excludeTestCountries?: boolean } = defaultLevelFunnelAlertPolicy) {
+export function buildCriticalLevelFailRateSql(filtersInput: unknown, policy: { excludeTestCountries?: boolean } = defaultLevelFunnelAlertPolicy, resolvedAppId?: number) {
   const filters = normalizedLevelFunnelFilters(filtersInput);
-  const appId = techLaunchAppIds[filters.appName];
+  const appId = validatedGameId(filters.appName, resolvedAppId);
   let sql = readCriticalSql();
   sql = replaceRequired(sql, /ep\.app_id\s*=\s*\d+\s*-- modifiable parameter/, `ep.app_id = ${appId} -- modifiable parameter`);
   sql = replaceRequired(sql, /ep\.platform\s+in\s*\([^)]*\)\s*-- modifiable parameter/, `ep.platform in (${sqlList(filters.platforms)}) -- modifiable parameter`);
@@ -486,6 +488,7 @@ export async function updateGameplayAlertSettings(input: unknown, actorId: strin
   const patch = gameplayAlertSettingsPatchSchema.parse(input);
   const current = await getGameplayAlertSettings();
   const settings = gameplayAlertSettingsInputSchema.parse({ ...current, ...patch });
+  for (const target of settings.alertTargets) await gameAppId(target.appName);
   const now = new Date().toISOString();
   await saveGameplayAlertSettingsRecord({ ...settings, updatedAt: now, updatedBy: actorId });
   return { ...settings, updatedAt: now, updatedBy: actorId };
@@ -539,7 +542,7 @@ export async function getLevelFailRate(input: unknown): Promise<LevelFailRateRes
   const settings = await getGameplayAlertSettings();
   const dashboardPolicy = dashboardLevelFunnelPolicy(settings);
   try {
-    const result = await runCountSql(buildLevelFailRateSql(filters, dashboardPolicy), { cacheStrategy: "default", previewRows: 1000 });
+    const result = await runCountSql(buildLevelFailRateSql(filters, dashboardPolicy, await gameAppId(filters.appName)), { cacheStrategy: "default", previewRows: 1000 });
     return completedLevelFailRateResponse(result.query, filters, settings, dashboardPolicy);
   } catch (error) {
     if (isUnavailableTelemetryError(error)) return unavailableLevelFailRateResponse(filters, settings);
@@ -553,7 +556,7 @@ export async function startLevelFailRate(input: unknown): Promise<LevelFailRateR
   const settings = await getGameplayAlertSettings();
   const dashboardPolicy = dashboardLevelFunnelPolicy(settings);
   try {
-    const submitted = await submitCountSql(buildLevelFailRateSql(filters, dashboardPolicy), { cacheStrategy: request.forceRefresh ? "force" : "default" });
+    const submitted = await submitCountSql(buildLevelFailRateSql(filters, dashboardPolicy, await gameAppId(filters.appName)), { cacheStrategy: request.forceRefresh ? "force" : "default" });
     if (submitted.query.status === "error") return completedLevelFailRateResponse(submitted.query, filters, settings, dashboardPolicy);
     if (submitted.query.status === "completed") {
       const completed = await getCountQuery(submitted.query.job_key, 1000);
@@ -712,7 +715,7 @@ export async function reconcileGameplayAlerts(filtersInput: unknown) {
   const filters = normalizedTechLaunchFilters(filtersInput);
   const queryFilters = normalizedLevelFunnelFilters(filters);
   const settings = await getGameplayAlertSettings();
-  const result = await runCountSql(buildLevelFailRateSql(queryFilters, settings), { cacheStrategy: "default", previewRows: 1000 });
+  const result = await runCountSql(buildLevelFailRateSql(queryFilters, settings, await gameAppId(queryFilters.appName)), { cacheStrategy: "default", previewRows: 1000 });
   return reconcileGameplayAlertResponse(filters, await completedLevelFailRateResponse(result.query, queryFilters, settings));
 }
 

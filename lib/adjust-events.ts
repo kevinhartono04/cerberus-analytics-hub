@@ -1,6 +1,8 @@
+import { gameNameSchema } from "@/lib/game-catalog";
+import { storedGame } from "@/lib/game-registry";
 import { z } from "zod";
 
-import { techLaunchAppOptions, techLaunchPlatformOptions } from "@/lib/tech-launch";
+import { techLaunchPlatformOptions } from "@/lib/tech-launch";
 
 const adjustEventsEndpoint = "https://automate.adjust.com/reports-service/events";
 const requestTimeoutMs = 10_000;
@@ -23,7 +25,7 @@ const adjustEventSchema = z.object({
 }).passthrough();
 
 export const adjustEventsCheckRequestSchema = z.object({
-  appName: z.enum(techLaunchAppOptions),
+  appName: gameNameSchema,
   platform: z.enum(techLaunchPlatformOptions),
 });
 
@@ -106,11 +108,12 @@ function appTokenMapFromEnvironment() {
   return result.data;
 }
 
-function configurationFor({ appName, platform }: AdjustEventsCheckRequest): AdjustIntegrationConfiguration {
+async function configurationFor({ appName, platform }: AdjustEventsCheckRequest): Promise<AdjustIntegrationConfiguration> {
   const apiToken = process.env.ADJUST_API_TOKEN?.trim();
   if (!apiToken) throw new AdjustEventsConfigurationError("Adjust API integration is not configured");
 
-  const appToken = appTokenMapFromEnvironment()[appName]?.[platform];
+  const game = await storedGame(appName);
+  const appToken = game ? (platform === "android" ? game.adjustAndroid : game.adjustIos) : appTokenMapFromEnvironment()[appName]?.[platform];
   if (!appToken) throw new AdjustEventsConfigurationError(`Adjust is not configured for ${appName} on ${platform}`);
   return { apiToken, appToken };
 }
@@ -255,7 +258,7 @@ function journeyNearMatches(events: z.infer<typeof adjustEventSchema>[]) {
 
 export async function getAdjustEventsCheck(input: unknown): Promise<AdjustEventsCheckResult> {
   const request = adjustEventsCheckRequestSchema.parse(input);
-  const configuration = configurationFor(request);
+  const configuration = await configurationFor(request);
   const events = (await requestAdjustEvents(configuration)).filter((event) => isAssociatedWithApp(event, configuration.appToken));
   const checks = expectedEventChecks.map(({ expected, acceptedNames }) => {
     const matches = exactMatches(events, acceptedNames);

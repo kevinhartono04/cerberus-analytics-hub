@@ -1,3 +1,5 @@
+import { gameNameSchema, validatedGameId } from "@/lib/game-catalog";
+import { gameAppId } from "@/lib/game-registry";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -12,7 +14,7 @@ import {
   getTechLaunchReadinessCache,
   saveTechLaunchReadinessCache,
 } from "@/lib/db";
-import { parseTechLaunchAppVersions, techLaunchAppOptions, type TechLaunchAppVersionOption } from "@/lib/tech-launch";
+import { parseTechLaunchAppVersions, type TechLaunchAppVersionOption } from "@/lib/tech-launch";
 import type { GeneratedSpec } from "@/lib/types";
 
 const sqlPath = path.join(process.cwd(), "data", "events_audit.sql");
@@ -23,7 +25,7 @@ export const specCheckPlatformOptions = ["android", "ios", "all"] as const;
 
 const specCheckFilterFields = {
   specId: z.string().trim().min(1),
-  appName: z.enum(techLaunchAppOptions),
+  appName: gameNameSchema,
   platform: z.enum(specCheckPlatformOptions),
   appVersion: z.string().trim().min(1).max(80),
   startDate: z.string().regex(datePattern, "Use YYYY-MM-DD"),
@@ -64,29 +66,7 @@ export type SpecCheckRequest = z.infer<typeof specCheckRequestSchema>;
 export type SpecCheckStatusRequest = z.infer<typeof specCheckStatusRequestSchema>;
 export type SpecCheckAppVersionsRequest = z.infer<typeof specCheckAppVersionsRequestSchema>;
 
-export const specCheckAppIds: Record<(typeof techLaunchAppOptions)[number], number> = {
-  hexago: 18,
-  hexastack: 3008,
-  marble: 22,
-  marbledrop: 3007,
-  tripletile: 9,
-  wooblast: 28,
-  woodoku: 4,
-  blockkingdom: 117,
-  bubblego: 23,
-  mahjongbloom: 119,
-  wordblast: 122,
-  wordoku: 3013,
-  jelly: 125,
-  bloomsort: 3003,
-  wordrush: 3001,
-  sizzle: 3004,
-  stacksmash: 3011,
-  treasureshot: 3012,
-  dotpaint: 3005,
-  bubblewordchain: 3006,
-  ringtangle: 3015,
-};
+export { defaultGameIds as specCheckAppIds } from "@/lib/game-catalog";
 
 const DEFAULT_ENUM_FIELD_NORMS = ["item", "source", "itemtype", "placement"] as const;
 
@@ -148,6 +128,7 @@ export function buildSpecCheckSql(
   filtersInput: unknown,
   enumFieldNorms: string[] = [...DEFAULT_ENUM_FIELD_NORMS],
   specEventNorms: string[] = [],
+  resolvedAppId?: number,
 ) {
   const filters = specCheckFilterSchema.parse(filtersInput);
   let sql = readBaseSql();
@@ -164,7 +145,7 @@ export function buildSpecCheckSql(
   sql = replaceRequired(
     sql,
     /\d+\s+as app_id,\s*-- modifiable parameter/,
-    `${specCheckAppIds[filters.appName]} as app_id, -- modifiable parameter`,
+    `${validatedGameId(filters.appName, resolvedAppId)} as app_id, -- modifiable parameter`,
   );
   sql = replaceRequired(
     sql,
@@ -200,7 +181,7 @@ export function buildSpecCheckSql(
   return sql;
 }
 
-export function buildSpecCheckAppVersionsSql(filtersInput: unknown) {
+export function buildSpecCheckAppVersionsSql(filtersInput: unknown, resolvedAppId?: number) {
   const filters = specCheckAppVersionsRequestSchema.parse(filtersInput);
   const platformPredicate =
     filters.platform === "all" ? "" : `\n  and lower(platform) = lower(${sqlLiteral(filters.platform)})`;
@@ -211,7 +192,7 @@ select
   min(created_at::date)::varchar as first_seen,
   max(created_at::date)::varchar as last_seen
 from TDS_DB.PUBLIC.EVENTS_PRODUCTION_LUDIOS_UNION
-where app_id = ${specCheckAppIds[filters.appName]}
+where app_id = ${validatedGameId(filters.appName, resolvedAppId)}
   and created_at::date between ${sqlDateLiteral(filters.startDate)} and ${sqlDateLiteral(filters.endDate)}${platformPredicate}
   and app_version is not null
   and app_version <> ''
@@ -1129,7 +1110,7 @@ export async function getSpecCheck(input: unknown): Promise<SpecCheckResponse> {
   const request = specCheckRequestSchema.parse(input);
   const filters = normalizedSpecCheckFilters(request);
   const { spec, info } = await loadSpecForCheck(filters.specId);
-  const querySql = buildSpecCheckSql(filters, specEnumFieldNorms(spec), specEventNameNorms(spec));
+  const querySql = buildSpecCheckSql(filters, specEnumFieldNorms(spec), specEventNameNorms(spec), await gameAppId(filters.appName));
   const cacheKey = specCheckCacheKey(filters, info.updatedAt, querySql);
   const now = new Date();
 
@@ -1168,7 +1149,7 @@ export async function getSpecCheckStatus(input: unknown): Promise<SpecCheckRespo
   const request = specCheckStatusRequestSchema.parse(input);
   const filters = normalizedSpecCheckFilters(request.filters);
   const { spec, info } = await loadSpecForCheck(filters.specId);
-  const querySql = buildSpecCheckSql(filters, specEnumFieldNorms(spec), specEventNameNorms(spec));
+  const querySql = buildSpecCheckSql(filters, specEnumFieldNorms(spec), specEventNameNorms(spec), await gameAppId(filters.appName));
   const cacheKey = specCheckCacheKey(filters, info.updatedAt, querySql);
   if (!request.forceRefresh) {
     const cached = await cachedSpecCheck(cacheKey);
@@ -1225,7 +1206,7 @@ export async function getSpecCheckAppVersions(input: unknown): Promise<SpecCheck
     }
   }
 
-  const countResult = await runCountSql(buildSpecCheckAppVersionsSql(filters), {
+  const countResult = await runCountSql(buildSpecCheckAppVersionsSql(filters, await gameAppId(filters.appName)), {
     cacheStrategy: "default",
     previewRows: 1000,
   });

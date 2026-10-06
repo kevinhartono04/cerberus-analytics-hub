@@ -20,7 +20,7 @@ import {
 import Image from "next/image";
 import React, { CSSProperties, ReactNode, useEffect, useState } from "react";
 
-export type HubProductId = "spec-generator" | "tech-launch" | "spec-check" | "cs-assistance" | "ludios-sense" | "admin";
+export type HubProductId = "spec-generator" | "tech-launch" | "spec-check" | "cs-assistance" | "ludios-sense" | "admin" | "games";
 type Theme = "dark" | "light";
 
 function readStoredTheme(): Theme {
@@ -49,6 +49,7 @@ const products: ProductItem[] = [
   { id: "spec-check", label: "Signal QA", href: "/spec-check", icon: ClipboardCheck, accent: "#f59b56" },
   { id: "cs-assistance", label: "CS Assistance", href: "/cs-assistance", icon: Headphones, accent: "#28c7b7" },
   { id: "ludios-sense", label: "Ludios Sense", href: "/ludios-sense", icon: Radar, accent: "#7c6cff" },
+  { id: "games", label: "Games", href: "/games", icon: Settings, accent: "#28c7b7" },
   { id: "admin", label: "Admin", href: "/admin", icon: Settings, accent: "#f59b56" },
 ];
 
@@ -265,6 +266,7 @@ export default function CerberusShell<T extends string>({
   const isLoadingUser = !hasExplicitUser && sessionUser === undefined;
   const visibleProducts = products.filter((product) => {
     if (sidebarUser?.accountType === "external") return product.id === "tech-launch";
+    if (product.id === "games") return sidebarUser?.role === "admin" || sidebarUser?.role === "editor";
     return product.id !== "admin" || sidebarUser?.role === "admin";
   });
   const toggleTheme = () => {
