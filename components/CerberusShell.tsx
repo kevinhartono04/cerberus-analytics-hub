@@ -20,7 +20,7 @@ import {
 import Image from "next/image";
 import React, { CSSProperties, ReactNode, useEffect, useState } from "react";
 
-export type HubProductId = "spec-generator" | "tech-launch" | "spec-check" | "cs-assistance" | "ludios-sense" | "admin" | "games";
+export type HubProductId = "spec-generator" | "tech-launch" | "spec-check" | "cs-assistance" | "ludios-sense" | "admin";
 type Theme = "dark" | "light";
 
 function readStoredTheme(): Theme {
@@ -49,7 +49,6 @@ const products: ProductItem[] = [
   { id: "spec-check", label: "Signal QA", href: "/spec-check", icon: ClipboardCheck, accent: "#f59b56" },
   { id: "cs-assistance", label: "CS Assistance", href: "/cs-assistance", icon: Headphones, accent: "#28c7b7" },
   { id: "ludios-sense", label: "Ludios Sense", href: "/ludios-sense", icon: Radar, accent: "#7c6cff" },
-  { id: "games", label: "Games", href: "/games", icon: Settings, accent: "#28c7b7" },
   { id: "admin", label: "Admin", href: "/admin", icon: Settings, accent: "#f59b56" },
 ];
 
@@ -189,6 +188,7 @@ export default function CerberusShell<T extends string>({
   user,
   contentClassName = "max-w-[1320px]",
   activeLaunchSection = "technical",
+  activeAdminSection = "games",
   children,
 }: {
   currentProduct: HubProductId;
@@ -200,11 +200,13 @@ export default function CerberusShell<T extends string>({
   user?: ShellUser;
   contentClassName?: string;
   activeLaunchSection?: "technical" | "level-funnel" | "game-monitoring" | "incent-config-validator" | "adjust-events-check";
+  activeAdminSection?: "games" | "users";
   children: ReactNode;
 }) {
   const hasExplicitUser = user !== undefined;
   const [sessionUser, setSessionUser] = useState<ShellUser | undefined>(user);
   const [launchReadinessExpanded, setLaunchReadinessExpanded] = useState(currentProduct === "tech-launch");
+  const [adminExpanded, setAdminExpanded] = useState(currentProduct === "admin");
   const [theme, setTheme] = useState<Theme>("light");
 
   useEffect(() => {
@@ -266,9 +268,15 @@ export default function CerberusShell<T extends string>({
   const isLoadingUser = !hasExplicitUser && sessionUser === undefined;
   const visibleProducts = products.filter((product) => {
     if (sidebarUser?.accountType === "external") return product.id === "tech-launch";
-    if (product.id === "games") return sidebarUser?.role === "admin" || sidebarUser?.role === "editor";
-    return product.id !== "admin" || sidebarUser?.role === "admin";
+    return product.id !== "admin" || sidebarUser?.role === "admin" || sidebarUser?.role === "editor";
   });
+  const adminSections = [
+    { id: "games", label: "Games Setting", href: "/admin/games" },
+    ...(sidebarUser?.role === "admin" ? [{ id: "users", label: "Users Access", href: "/admin/users" }] : []),
+  ];
+  const adminSectionLinks = adminSections.map((section) => (
+    <a key={section.id} href={section.href} aria-current={currentProduct === "admin" && activeAdminSection === section.id ? "page" : undefined} className={`focus-ring rounded-md px-2 py-1.5 text-xs font-semibold transition-colors ${currentProduct === "admin" && activeAdminSection === section.id ? "bg-cobalt/10 text-cobalt" : "text-slate-500 hover:bg-sage hover:text-ink"}`}>{section.label}</a>
+  ));
   const toggleTheme = () => {
     const nextTheme = theme === "dark" ? "light" : "dark";
     applyTheme(nextTheme);
@@ -320,6 +328,11 @@ export default function CerberusShell<T extends string>({
                     <div key={product.id}>
                       <div className="flex items-center gap-1">
                         <ProductLink product={product} active={product.id === currentProduct} collapsed={collapsed} />
+                        {product.id === "admin" && !collapsed ? (
+                          <button type="button" aria-label={adminExpanded ? "Collapse Admin sections" : "Expand Admin sections"} aria-expanded={adminExpanded} onClick={() => setAdminExpanded((expanded) => !expanded)} className="focus-ring -ml-9 mr-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-slate-500 hover:bg-sage hover:text-ink max-md:hidden">
+                            <ChevronDown className={`h-4 w-4 transition-transform ${adminExpanded ? "" : "-rotate-90"}`} />
+                          </button>
+                        ) : null}
                         {isLaunchReadiness && !collapsed ? (
                           <button
                             type="button"
@@ -332,6 +345,9 @@ export default function CerberusShell<T extends string>({
                           </button>
                         ) : null}
                       </div>
+                      {product.id === "admin" && !collapsed && adminExpanded ? (
+                        <div className="ml-8 mt-1 flex flex-col gap-1 border-l border-line/70 pl-3 max-md:hidden">{adminSectionLinks}</div>
+                      ) : null}
                       {isLaunchReadiness && !collapsed && launchReadinessExpanded ? (
                         <div className="ml-8 mt-1 flex flex-col gap-1 border-l border-line/70 pl-3 max-md:hidden">
                           <a href="/tech-launch" aria-current={activeLaunchSection === "technical" ? "page" : undefined} className={`focus-ring rounded-md px-2 py-1.5 text-xs font-semibold transition-colors ${activeLaunchSection === "technical" ? "bg-cobalt/10 text-cobalt" : "text-slate-500 hover:bg-sage hover:text-slate-200"}`}>Technical Readiness</a>
@@ -430,7 +446,7 @@ export default function CerberusShell<T extends string>({
         </aside>
 
         <section className="max-h-screen min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
-          <div className={`mx-auto w-full px-4 py-8 md:px-9 ${contentClassName}`}>{children}</div>
+          <div className={`mx-auto w-full px-4 py-8 md:px-9 ${contentClassName}`}>{currentProduct === "admin" && (sidebarUser?.role === "admin" || sidebarUser?.role === "editor") ? <nav aria-label="Admin settings" className={`mb-6 flex flex-wrap gap-2 ${collapsed ? "" : "md:hidden"}`}>{adminSectionLinks}</nav> : null}{children}</div>
         </section>
       </div>
     </main>

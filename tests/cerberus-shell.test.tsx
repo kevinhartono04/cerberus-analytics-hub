@@ -55,7 +55,7 @@ describe("CerberusShell theme switch", () => {
     expect(screen.getByRole("switch", { name: "Light mode" })).toHaveAttribute("title", "Light mode");
   });
 
-  it("shows the top-level Admin area only to administrators", () => {
+  it("shows Admin to editors while keeping Users Access administrator-only", () => {
     const { rerender } = render(
       <CerberusShell currentProduct="spec-generator" user={{ authenticated: true, accountType: "internal", role: "admin" }}>
         <div>Dashboard content</div>
@@ -70,6 +70,25 @@ describe("CerberusShell theme switch", () => {
       </CerberusShell>,
     );
 
+    expect(screen.getByRole("link", { name: "Admin" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Expand Admin sections" }));
+    expect(screen.getByRole("link", { name: "Games Setting" })).toHaveAttribute("href", "/admin/games");
+    expect(screen.queryByRole("link", { name: "Users Access" })).not.toBeInTheDocument();
+
+    rerender(
+      <CerberusShell currentProduct="spec-generator" user={{ authenticated: true, accountType: "internal", role: "admin" }}>
+        <div>Dashboard content</div>
+      </CerberusShell>,
+    );
+    expect(screen.getByRole("link", { name: "Users Access" })).toHaveAttribute("href", "/admin/users");
+    fireEvent.click(screen.getByRole("button", { name: "Collapse Admin sections" }));
+    expect(screen.queryByRole("link", { name: "Games Setting" })).not.toBeInTheDocument();
+
+    rerender(
+      <CerberusShell currentProduct="spec-generator" user={{ authenticated: true, accountType: "internal", role: "viewer" }}>
+        <div>Dashboard content</div>
+      </CerberusShell>,
+    );
     expect(screen.queryByRole("link", { name: "Admin" })).not.toBeInTheDocument();
   });
 
