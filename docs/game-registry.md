@@ -1,6 +1,8 @@
 # Game setup
 
-Internal editors and admins can use `/games` to add a lowercase game key, telemetry app ID, bundle ID, and optional Android/iOS Adjust app tokens. Adding a game persists it immediately; subsequent dashboard loads use the registry without rebuilding or changing Vercel environment variables.
+Admin settings groups Games Setting and Users Access beneath an expandable sidebar item. Games Setting is available to internal editors and admins; Users Access remains admin-only. On narrow screens the subsection links appear above the page content.
+
+Internal editors and admins can use **Admin → Games Setting** (`/admin/games`, with `/games` redirecting there) to add a lowercase game key, telemetry app ID, bundle ID, and optional Android/iOS Adjust app tokens. Adding a game persists it immediately; subsequent dashboard loads use the registry without rebuilding or changing Vercel environment variables.
 
 New registrations are insert-only. Duplicate game keys, app IDs and bundle IDs are rejected. Existing games keep their source catalog IDs and environment-based integration mappings. The shared Adjust API credential and Google Play service account stay in server environment configuration.
 

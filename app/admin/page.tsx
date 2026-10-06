@@ -1,5 +1,5 @@
-import { AdminApp } from "@/components/MvpApp";
+import { redirect } from "next/navigation";
 
 export default function AdminPage() {
-  return <AdminApp />;
+  redirect("/admin/games");
 }

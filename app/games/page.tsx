@@ -1,2 +1,5 @@
-import GamesManager from "@/components/GamesManager";
-export default function GamesPage() { return <GamesManager />; }
+import { redirect } from "next/navigation";
+
+export default function GamesPage() {
+  redirect("/admin/games");
+}
