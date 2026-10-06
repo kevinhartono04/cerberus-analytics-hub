@@ -1242,16 +1242,20 @@ export async function getSenseGameReport(cacheKeys: string[], appId: string, sto
   }
   const sql = await ensureTechLaunchCacheTable();
   const [row] = await sql<Record<string, unknown>[]>`
+    WITH selected AS MATERIALIZED (
+      SELECT cache_key, created_at, expires_at, payload FROM tech_launch_readiness_cache
+      WHERE cache_key = ANY(${sql.array(cacheKeys,25)}) AND expires_at > ${now}
+      ORDER BY array_position(${sql.array(cacheKeys,25)},cache_key) LIMIT 1
+    ), report AS MATERIALIZED (
+      SELECT cache_key, created_at, expires_at, (payload::json->'result')::jsonb AS doc FROM selected
+    )
     SELECT cache_key, created_at, expires_at,
       jsonb_build_object('result', jsonb_build_object(
-        'generatedAt', doc #> '{result,generatedAt}',
-        'games', COALESCE((SELECT jsonb_agg(game) FROM jsonb_array_elements(doc #> '{result,games}') game
+        'generatedAt', doc->'generatedAt',
+        'games', COALESCE((SELECT jsonb_agg(game) FROM jsonb_array_elements(doc->'games') game
           WHERE game->>'appId' = ${appId} AND game->>'store' = ${store}), '[]'::jsonb)
       ))::text AS payload
-    FROM (SELECT cache_key, created_at, expires_at, payload::jsonb AS doc
-      FROM tech_launch_readiness_cache
-      WHERE cache_key = ANY(${sql.array(cacheKeys,25)}) AND expires_at > ${now}
-      ORDER BY array_position(${sql.array(cacheKeys,25)},cache_key) LIMIT 1) report
+    FROM report
   `;
   return row ? rowToTechLaunchCacheRecord(row) : null;
 }
