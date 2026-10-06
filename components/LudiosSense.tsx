@@ -78,6 +78,7 @@ export default function LudiosSense() {
   const [collapsed, setCollapsed] = useState(false);
   const [details, setDetails] = useState<Record<string, SenseGame>>({});
   const [detailError, setDetailError] = useState("");
+  const [detailRetry, setDetailRetry] = useState(0);
   const [icons, setIcons] = useState<Record<string, string | null>>({});
   const [iconRequests, setIconRequests] = useState(0);
   const [unifiedIds, setUnifiedIds] = useState<Record<string,string|null>>({});
@@ -178,12 +179,17 @@ export default function LudiosSense() {
     if (!selected || !scan || selectedDetail) return;
     const abort = new AbortController();
     setDetailError("");
+    const timeout = setTimeout(() => {
+      setDetailError("The saved chart request timed out. Retry to load it without a new scan.");
+      abort.abort();
+    },20000);
     void fetch("/api/ludios-sense/game", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jobKey: chartJobKey, appId: selected.appId, store: selected.store, generatedAt: chartGeneratedAt }), signal: abort.signal })
       .then(async r => { if (!r.ok) throw new Error("Could not load this game's download chart. Select another game and try again."); return await r.json() as SenseGame; })
       .then(game => { if (!abort.signal.aborted) setDetails(v => ({ ...v, [detailKey]: game })); })
-      .catch(e => { if (!abort.signal.aborted) setDetailError(e instanceof Error ? e.message : "Chart unavailable"); });
-    return () => abort.abort();
-  }, [detailKey, selectedDetail]);
+      .catch(e => { if (!abort.signal.aborted) setDetailError(e instanceof Error ? e.message : "Chart unavailable"); })
+      .finally(() => clearTimeout(timeout));
+    return () => { clearTimeout(timeout); abort.abort(); };
+  }, [detailKey, selectedDetail, detailRetry]);
   useEffect(() => {
     try {
       const pending = JSON.parse(sessionStorage.getItem(storageKey) ?? "null");
@@ -305,7 +311,7 @@ export default function LudiosSense() {
       {selected ? <SenseDetailDrawer game={selected} members={selectedMembers} onSelect={game => setSelection(`${game.store}:${game.appId}`)} onClose={() => setSelection(null)}>
         <div className="mb-5 grid gap-3 sm:grid-cols-3">{[["Latest 3-day average",number(selected.evaluation.recentAverage)],["Rule baseline",number(selected.evaluation.baseline)],["Trigger",selected.evaluation.variant?.replaceAll("_"," ") ?? labels[selected.evaluation.signal]]].map(([label,value]) => <div key={label} className="rounded-xl border border-line/60 bg-surface-table p-4"><p className="text-xs text-slate-500">{label}</p><p className="mt-1 text-sm font-bold text-ink">{value}</p></div>)}</div>
         {selected.watch?.currentObserved === false ? <p className="mb-3 text-xs text-amber">Not evaluated in this report. The chart below is from the saved report dated {selected.watch.lastDetected}; current downloads are unavailable.</p> : null}
-        {selectedDetail ? <DownloadChart key={detailKey} game={selectedDetail} /> : <div role="status" className="flex h-56 items-center justify-center text-sm text-slate-500">{detailError || "Loading download chart…"}</div>}
+        {selectedDetail ? <DownloadChart key={detailKey} game={selectedDetail} /> : <div role="status" className="flex h-56 flex-col items-center justify-center gap-3 text-sm text-slate-500">{detailError || "Loading download chart…"}{detailError ? <button className="focus-ring rounded-lg border border-line px-3 py-2 font-semibold text-cobalt" onClick={() => setDetailRetry(v => v+1)}>Retry saved chart</button> : null}</div>}
         <div className="mt-5 border-t border-line pt-4 text-xs leading-6 text-slate-500"><p>Observed activity: {selected.evaluation.activityDate ?? "Not established"} · Reported release: {selected.releaseDate ?? "Unknown"}{selected.evaluation.releaseAge !== null ? ` (${selected.evaluation.releaseAge} days before t)` : ""}. Release date does not gate detection.</p><p>Combined countries with observations: {selected.availableCountries.map(c => senseCountries[c]).join(", ") || "None"}.</p>{selected.unavailableCountries.length ? <p>No observations in this lookback: {selected.unavailableCountries.map(c => senseCountries[c]).join(", ")}. These countries are omitted from both the recent period and baseline.</p> : null}<p>Data labels: {selected.evaluation.flags.length ? selected.evaluation.flags.map(f => f.replaceAll("_"," ")).join(" · ") : "No additional data flags"} · Retrieved {new Date(selected.retrievedAt).toLocaleString()}.</p></div>
       </SenseDetailDrawer> : null}
     </> : null}

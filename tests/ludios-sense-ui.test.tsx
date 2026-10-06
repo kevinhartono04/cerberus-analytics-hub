@@ -11,6 +11,28 @@ beforeEach(()=>{
  HTMLDialogElement.prototype.close = function() { this.removeAttribute("open"); };
 });
 describe("Sense page",()=>{
+ it("bounds a stalled chart request and retries saved data without a scan",async()=>{
+  vi.useFakeTimers();
+  const date=senseToday(),generatedAt=new Date().toISOString(),jobKey="sense:v1:"+"a".repeat(64);
+  const game={appId:"rings",store:"ios",name:"Rotate Rings",publisher:"Studio",classification:"included",genre:"Puzzle",iconUrl:"https://example.com/icon.png",unifiedAppId:null,url:"https://example.com",history:[],availableCountries:["US"],unavailableCountries:[],evaluation:{date,signal:"early_warning",latest:2000,recentAverage:1800,baseline:1000,growth:2,added:1000,flags:[]},retrievedAt:generatedAt};
+  let ready=false;
+  const fetch=vi.fn(async(url:string)=>{
+   if(url.endsWith("/game"))return ready?Response.json({...game,history:[{date,downloads:2000}]}):new Promise<Response>(()=>{});
+   return Response.json(url.endsWith("/cache")?{scan:{jobKey,status:"completed",cached:true,requests:0,result:{filters:{date,countries:["AU","CA","DE","GB","JP","RU","US"]},games:[game],generatedAt,watermarks:{ios:date},coverageComplete:true}}}:url.endsWith("/recent")?{games:[]}:{});
+  });
+  vi.stubGlobal("fetch",fetch);const view=render(<LudiosSense/>);
+  try{
+   await act(()=>vi.advanceTimersByTimeAsync(400));
+   fireEvent.click(screen.getByRole("button",{name:"Inspect Rotate Rings, ios"}));
+   await act(()=>vi.advanceTimersByTimeAsync(20000));
+   expect(screen.getByRole("dialog")).toHaveTextContent("timed out");
+   ready=true;fireEvent.click(screen.getByRole("button",{name:"Retry saved chart"}));
+   await act(()=>vi.advanceTimersByTimeAsync(1));
+   expect(screen.getByRole("img",{name:"28-day combined daily downloads for Rotate Rings on ios"})).toBeInTheDocument();
+   expect(fetch.mock.calls.filter(([url])=>url.endsWith("/game"))).toHaveLength(2);
+   expect(fetch.mock.calls.every(([url])=>["/api/ludios-sense/cache","/api/ludios-sense/recent","/api/ludios-sense/usage","/api/ludios-sense/game"].includes(url))).toBe(true);
+  }finally{view.unmount();vi.useRealTimers();}
+ });
  it("shows a saved breakout by default and separates it from current signals",async()=>{
   const date=senseToday(),jobKey="sense:v1:"+"a".repeat(64),generatedAt=new Date().toISOString();
   const game={appId:"rings",store:"ios",name:"Rotate Rings",publisher:"Studio",genre:"Puzzle",classification:"included",releaseDate:null,iconUrl:null,unifiedAppId:null,url:"https://example.com",history:[],availableCountries:["US"],unavailableCountries:[],evaluation:{date,signal:"none",latest:86722,recentAverage:90133,baseline:null,growth:null,added:null,flags:[],releaseAge:null,activityDate:null},retrievedAt:generatedAt};

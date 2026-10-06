@@ -4,6 +4,11 @@ import { senseCountryCodes, type SenseCountry } from "@/lib/ludios-sense-types";
 import { aggregateSenseHistory, evaluateSense, shiftDate } from "@/lib/ludios-sense-detection";
 const { records,leases,upstream }=vi.hoisted(()=>({records:new Map<string,string>(),leases:new Map<string,string>(),upstream:vi.fn()}));
 vi.mock("@/lib/db",()=>({
+ getSenseGameReport:vi.fn(async(keys:string[],appId:string,store:string)=>{
+  const key=keys.find(key=>records.has(key));if(!key)return null;
+  const report=JSON.parse(records.get(key)!);
+  return {payload:JSON.stringify({result:{...report.result,games:report.result?.games.filter((g:{appId:string;store:string})=>g.appId===appId&&g.store===store)}})};
+ }),
  getTechLaunchReadinessCache:vi.fn(async(key:string)=>leases.has(key)?{payload:leases.get(key)}:records.has(key)?{payload:records.get(key)}:null),
  getSenseDetectionReports:vi.fn(async(keys:string[])=>keys.flatMap(key=>records.has(key)?[{cacheKey:key,payload:records.get(key),expiresAt:"2099-01-01"}]:[])),
  saveTechLaunchReadinessCache:vi.fn(async(record:{cacheKey:string;payload:string})=>records.set(record.cacheKey,record.payload)),

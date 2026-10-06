@@ -3,7 +3,7 @@ import { safeSenseIconUrl } from "@/lib/ludios-sense-icons";
 import { createHash, randomUUID } from "node:crypto";
 import { getSenseUsage, reserveSenseRequest, recordSenseOrganizationUsage } from "@/lib/ludios-sense-usage";
 import { sensorTowerRequest } from "@/lib/sensortower-api";
-import { claimSenseLease, getSenseDetectionReports, getTechLaunchReadinessCache, listPendingSenseJobs, releaseSenseLease, saveTechLaunchReadinessCache } from "@/lib/db";
+import { claimSenseLease, getSenseGameReport, getSenseDetectionReports, getTechLaunchReadinessCache, listPendingSenseJobs, releaseSenseLease, saveTechLaunchReadinessCache } from "@/lib/db";
 import { aggregateSenseHistory, classifySense, evaluateSense, senseRuleVersion, shiftDate, validDownloads } from "@/lib/ludios-sense-detection";
 import { senseCountryCodes, senseToday } from "@/lib/ludios-sense-types";
 import { buildSenseWatchlist } from "@/lib/ludios-sense-watchlist";
@@ -176,9 +176,9 @@ export async function getSenseStatus(key: string): Promise<SenseRunResponse> {
 
 export async function getSenseGame(key: string, appId: string, store: SenseStore, generatedAt?: string): Promise<SenseGame> {
   if (!/^sense:v1:[a-f0-9]{64}$/.test(key)) throw new Response("Invalid scan ID", { status: 400 });
-  const snapshot = generatedAt ? await load<{ result: SenseResult }>("sense:result:" + key + ":" + generatedAt) : null;
-  const job = snapshot ? null : await load<Job>(key);
-  const result = snapshot?.result ?? job?.result;
+  const keys = generatedAt ? ["sense:result:" + key + ":" + generatedAt, key] : [key];
+  const record = await getSenseGameReport(keys,appId,store);
+  const result = record ? (JSON.parse(record.payload) as {result:SenseResult}).result : undefined;
   if (generatedAt && result?.generatedAt !== generatedAt) throw new Response("This saved report is unavailable. Run check to refresh it.", { status: 409 });
   const game = result?.games.find(g => g.appId === appId && g.store === store);
   if (!game) throw new Response("Game report not found", { status: 404 });
