@@ -162,7 +162,7 @@ function response(job: Job, cached = false): SenseRunResponse {
 }
 
 async function saveJob(job: Job) {
-  await save(job.jobKey, job);
+  await saveTechLaunchReadinessCache({ cacheKey: job.jobKey, payload: JSON.stringify(job), createdAt: now(), expiresAt: aliveUntil(), senseJobStatus: job.status });
   await save(job.jobKey + ":summary", response(job));
 }
 
@@ -217,11 +217,18 @@ export async function runSenseWorker(key: string, budgetMs = 240000) {
 }
 
 export async function continuePendingSenseJobs() {
-  const pending = await listPendingSenseJobs();
-  const states = await Promise.all(pending.map(key => getSenseStatus(key)));
-  const keys = states.filter(s => s.status === "running" && !s.paused).slice(0,4).map(s => s.jobKey);
-  for (const key of keys) await runSenseWorker(key, Math.floor(240000 / Math.max(1, keys.length)));
-  return keys.length;
+  const token = randomUUID(), leaseKey = "sense:cron:discovery:lease";
+  // Covers the full 300-second invocation, including discovery and cleanup.
+  if (!await claimSenseLease(leaseKey, token, new Date(Date.now() + 360000).toISOString())) return 0;
+  try {
+    const pending = await listPendingSenseJobs();
+    const states = await Promise.all(pending.map(key => getSenseStatus(key)));
+    const keys = states.filter(s => s.status === "running" && !s.paused).slice(0,4).map(s => s.jobKey);
+    for (const key of keys) await runSenseWorker(key, Math.floor(240000 / Math.max(1, keys.length)));
+    return keys.length;
+  } finally {
+    await releaseSenseLease(leaseKey, token);
+  }
 }
 
 export async function startSense(filters: SenseFilters): Promise<SenseRunResponse> {
