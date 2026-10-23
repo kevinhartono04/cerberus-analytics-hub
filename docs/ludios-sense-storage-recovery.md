@@ -55,7 +55,7 @@ If the trial breaches the memory or I/O budget, pause it. Keep the deployed queu
 
 ## Validation recorded on October 23
 
-- Full Vitest suite: 440 tests passed in 64 files; TypeScript passed.
+- Full Vitest suite: 442 tests passed in 64 files; TypeScript passed.
 - Synthetic 100+ MiB observation collection produces a manifest below 1 MiB, with each shard below 256 KiB. This is a storage-shape regression test, not a production peak-RSS measurement.
 - Tests cover immutable observations across restart/revision, missing shards, SQL UTF-8 byte limits, 25-chart resumable finalization, large subset continuation without upstream calls, and migration failure before manifest publication.
 - Live production SQL fixture: LIKE matches the pending marker; the old punctuation range does not. No production scan was restarted for this validation.

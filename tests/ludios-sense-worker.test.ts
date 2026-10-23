@@ -213,6 +213,11 @@ describe("resumable Sense scan",()=>{
     expect(shared.ios.apps["123"].histories.US[t]).toBe(2000);expect(shared.ios.apps["123"].histories.US["2026-08-25"]).toBe(2000);
     calls.length=0;expect((await scan(t)).cached).toBe(true);expect(calls).toHaveLength(0);
   });
+  it("prevents the saved-data-only worker from making upstream requests",async()=>{
+    const run=await startSense({date:t,countries:["US"]});const fetch=vi.fn();vi.stubGlobal("fetch",fetch);
+    await expect(advanceSense(run.jobKey,true)).rejects.toThrow("cannot perform an upstream scan");
+    expect(fetch).not.toHaveBeenCalled();
+  });
   it("pauses oversized legacy checkpoints without an upstream request or rewriting the legacy payload",async()=>{
     const run=await startSense({date:t,countries:["US"]});
     const oversized='{"old":"'+"x".repeat(4*1024*1024)+'"}';records.set(run.jobKey,oversized);

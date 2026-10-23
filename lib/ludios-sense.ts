@@ -265,14 +265,14 @@ export async function setSensePaused(key: string, paused: boolean): Promise<Sens
 }
 
 /** Server work is bounded per invocation; durable jobs resume via the worker cron. */
-export async function runSenseWorker(key: string, budgetMs = 240000) {
+export async function runSenseWorker(key: string, budgetMs = 240000, savedOnly = false) {
   const token = randomUUID(), workerKey = "sense:worker:" + key;
   if (!await claimSenseLease(workerKey, token, new Date(Date.now() + budgetMs + 60000).toISOString())) { trace("worker_busy", { scan: key.slice(-8) }); return; }
   trace("worker_started", { scan: key.slice(-8), budgetMs });
   const deadline = Date.now() + budgetMs;
   try {
     while (Date.now() < deadline - 45000) {
-      const next = await advanceSense(key);
+      const next = await advanceSense(key,savedOnly);
       if (next.status !== "running" || next.paused) return;
       await new Promise(resolve => setTimeout(resolve, 1100));
     }
@@ -357,7 +357,7 @@ export async function startDailySense() {
 }
 
 /** One upstream request per step. State and leases survive serverless restarts. */
-export async function advanceSense(key: string): Promise<SenseRunResponse> {
+export async function advanceSense(key: string, savedOnly = false): Promise<SenseRunResponse> {
   if (!/^sense:v1:[a-f0-9]{64}$/.test(key)) throw new Response("Invalid scan ID", { status: 400 });
   const initial = await getSenseStatus(key);
   if (initial.paused || initial.status !== "running") return initial;
@@ -377,6 +377,7 @@ export async function advanceSense(key: string): Promise<SenseRunResponse> {
     }
     if (!job) return initial;
     if (job.status !== "running") return response(job);
+    if (savedOnly && (!job.finalization || !job.result?.reusedFrom)) throw new Error("Saved-data worker cannot perform an upstream scan.");
     // Existing runs started before subset reuse was available can stop before their next request.
     if (!job.subsetReuseChecked) {
       const subset=await findSubsetJob(job.filters);
