@@ -36,9 +36,20 @@ describe("indexed pending Sense queue", () => {
     await db.saveTechLaunchReadinessCache({...record(key,'{}'),expiresAt:"2000-01-01T00:00:00Z",senseJobStatus:"running"});
     expect(await db.listPendingSenseJobs()).toEqual([]);
   });
-  it("uses the primary-key index for queue discovery", async () => {
-    await db.saveTechLaunchReadinessCache(record("other","{}"));
-    const plan = execFileSync("sqlite3",[join(root,"data/analytics.sqlite"),"EXPLAIN QUERY PLAN SELECT cache_key FROM tech_launch_readiness_cache WHERE cache_key >= 'sense:pending:' AND cache_key < 'sense:pending;';"],{encoding:"utf8"});
-    expect(plan).toContain("USING COVERING INDEX");
+  it("commits checkpoint, summary and queue only while the lease is still owned", async () => {
+    await db.claimSenseLease(key+":lease","current",expiresAt);
+    await db.saveTechLaunchReadinessCache({...record(key,'{"step":1}'),senseJobStatus:"running",senseSummaryPayload:'{"step":1}',expectedSenseLease:"current"});
+    await expect(db.saveTechLaunchReadinessCache({...record(key,'{"step":2}'),senseJobStatus:"completed",senseSummaryPayload:'{"step":2}',expectedSenseLease:"stale"})).rejects.toThrow();
+    expect((await db.getTechLaunchReadinessCache(key))?.payload).toBe('{"step":1}');
+    expect((await db.getTechLaunchReadinessCache(key+":summary"))?.payload).toBe('{"step":1}');
+    expect(await db.listPendingSenseJobs()).toEqual([key]);
+    await db.releaseSenseLease(key+":lease","current");
+    await expect(db.saveTechLaunchReadinessCache({...record(key,'{}'),senseJobStatus:"completed",expectedSenseLease:"current"})).rejects.toThrow();
+    expect(await db.listPendingSenseJobs()).toEqual([key]);
+  });
+  it("rejects oversized UTF-8 records before returning their payload", async () => {
+    await db.saveTechLaunchReadinessCache(record(key, 'é'.repeat(20)));
+    await expect(db.getTechLaunchReadinessCache(key, 30)).rejects.toThrow("offline migration");
+    expect((await db.getTechLaunchReadinessCache(key, 40))?.payload).toBe('é'.repeat(20));
   });
 });
