@@ -7,7 +7,7 @@ vi.mock("@/lib/db", () => ({
     return {payload:JSON.stringify({result:{...report.result,games:report.result?.games.filter((g:{appId:string;store:string})=>g.appId===appId&&g.store===store)}})};
   }),
   getTechLaunchReadinessCache: vi.fn(async(key:string)=>leases.has(key)?{payload:leases.get(key)}:records.has(key)?{payload:records.get(key)}:null),
-  saveTechLaunchReadinessCache: vi.fn(async(r:{cacheKey:string;payload:string})=>{records.set(r.cacheKey,r.payload);}),
+  saveTechLaunchReadinessCache: vi.fn(async(r:{cacheKey:string;payload:string;senseSummaryPayload?:string})=>{records.set(r.cacheKey,r.payload);if(r.senseSummaryPayload)records.set(r.cacheKey+":summary",r.senseSummaryPayload);}),
   claimSenseLease: vi.fn(async(key:string,token:string)=>{if(leases.has(key))return false;leases.set(key,token);return true;}),
   listPendingSenseJobs:vi.fn(async()=>[]),
   releaseSenseLease: vi.fn(async(key:string,token:string)=>{if(leases.get(key)===token)leases.delete(key);}),
@@ -57,7 +57,7 @@ describe("resumable Sense scan",()=>{
     expect((await advanceSense(run.jobKey)).requests).toBe(8);
     expect(JSON.parse(records.get(run.jobKey)!).requests).toBe(8);
   });
-  it("finishes a legacy partial batch before switching to 100 apps, keeping four weeks per app",async()=>{
+  it("finishes a legacy partial batch with bounded 25-app requests, keeping four weeks per app",async()=>{
     const run=await startSense({date:t,countries:["US"]});
     const job=JSON.parse(records.get(run.jobKey)!);
     const ids=Array.from({length:125},(_,i)=>String(i));
@@ -67,11 +67,11 @@ describe("resumable Sense scan",()=>{
     records.set(run.jobKey,JSON.stringify(job));
     const batches:number[]=[];
     vi.stubGlobal("fetch",vi.fn(async(input:URL)=>{batches.push(new URL(input).searchParams.get("app_ids")!.split(",").length);return Response.json([]);}));
-    for(let i=0;i<7;i++) await advanceSense(run.jobKey);
-    expect(batches).toEqual([25,25,25,100,100,100,100]);
+    for(let i=0;i<19;i++) await advanceSense(run.jobKey);
+    expect(batches).toEqual(Array(19).fill(25));
     const saved=JSON.parse(records.get(run.jobKey)!);
     expect(saved.stores.android.historyIndex).toBe(125);
-    expect(saved.stores.android.historyBatchSize).toBe(100);
+    expect(saved.stores.android.historyBatchSize).toBe(25);
     expect(Object.values(saved.stores.android.apps).every((a:any)=>a.backfilled)).toBe(true);
   });
   it("uses combined rankings, normalizes both stores, deduplicates concurrent scans, caches completed scans and refreshes seven days",async()=>{
@@ -150,8 +150,8 @@ describe("resumable Sense scan",()=>{
     const batches:number[]=[];
     vi.stubGlobal("fetch",vi.fn(async(input:URL)=>{batches.push(new URL(input).searchParams.get("app_ids")!.split(",").length);return Response.json([]);}));
     await advanceSense(run.jobKey); // metadata is fresh; partition warm/cold.
-    for(let i=0;i<5;i++) await advanceSense(run.jobKey);
-    expect(batches).toEqual([100,1,1,1,1]);
+    for(let i=0;i<8;i++) await advanceSense(run.jobKey);
+    expect(batches).toEqual([25,25,25,25,1,1,1,1]);
     expect(JSON.parse(records.get(run.jobKey)!).stores.android.historyIndex).toBe(101);
   });
   it("migrates an existing seven-country cache for a narrower selection without new upstream calls",async()=>{
@@ -209,8 +209,41 @@ describe("resumable Sense scan",()=>{
     const detail=await getSenseGame(older.jobKey,"123","ios",older.result?.generatedAt);
     expect(detail.history).toHaveLength(28);expect(detail.history.at(-1)?.date).toBe("2026-09-21");
     const shared=JSON.parse(records.get("sense:history:shared:v2")!);
+    shared.ios.apps["123"].histories=JSON.parse(records.get(shared.ios.apps["123"].historyRef)!);
     expect(shared.ios.apps["123"].histories.US[t]).toBe(2000);expect(shared.ios.apps["123"].histories.US["2026-08-25"]).toBe(2000);
     calls.length=0;expect((await scan(t)).cached).toBe(true);expect(calls).toHaveLength(0);
+  });
+  it("prevents the saved-data-only worker from making upstream requests",async()=>{
+    const run=await startSense({date:t,countries:["US"]});const fetch=vi.fn();vi.stubGlobal("fetch",fetch);
+    await expect(advanceSense(run.jobKey,true)).rejects.toThrow("cannot perform an upstream scan");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it("pauses oversized legacy checkpoints without an upstream request or rewriting the legacy payload",async()=>{
+    const run=await startSense({date:t,countries:["US"]});
+    const oversized='{"old":"'+"x".repeat(4*1024*1024)+'"}';records.set(run.jobKey,oversized);
+    const fetch=vi.fn();vi.stubGlobal("fetch",fetch);
+    const state=await advanceSense(run.jobKey);
+    expect(state.paused).toBe(true);expect(state.error).toContain("offline migration");
+    expect((await getSenseStatus(run.jobKey)).paused).toBe(true);
+    expect(records.get(run.jobKey)).toBe(oversized);expect(fetch).not.toHaveBeenCalled();
+  });
+  it("checkpoints final report generation and resumes with at most 25 charts per step",async()=>{
+    const run=await startSense({date:t,countries:["US"]});
+    const job=JSON.parse(records.get(run.jobKey)!);
+    const ids=Array.from({length:61},(_,i)=>String(i));
+    Object.assign(job.stores.android,{phase:"done",watermark:t,historyIds:ids,historyIndex:ids.length});
+    job.stores.android.apps=Object.fromEntries(ids.map(id=>[id,{appId:id,name:id,publisher:"",categories:["GAME_PUZZLE"],releaseDate:null,discoveredDate:t,histories:{US:{[t]:2000}}}]));
+    Object.assign(job.stores.ios,{phase:"history",watermark:t,historyIds:[],historyIndex:0});job.store="ios";
+    records.set(run.jobKey,JSON.stringify(job));
+    const fetch=vi.fn();vi.stubGlobal("fetch",fetch);
+    let state=await advanceSense(run.jobKey);
+    expect(state.status).toBe("running");expect(state.result?.games).toHaveLength(25);
+    state=await advanceSense(run.jobKey);expect(state.result?.games).toHaveLength(50);
+    state=await advanceSense(run.jobKey);expect(state.status).toBe("completed");expect(state.result?.games).toHaveLength(61);
+    expect((await getSenseGame(run.jobKey,"0","android",state.result?.generatedAt)).history.at(-1)?.downloads).toBe(2000);
+    expect(fetch).not.toHaveBeenCalled();
+    const saved=JSON.parse(records.get(run.jobKey)!);expect(saved.stores.android.apps["0"].histories).toEqual({});
+    expect(saved.result.games.every((game:any)=>game.history.length===0)).toBe(true);
   });
   it("shares the daily job and reads cached results without starting work",async()=>{
     const today=senseToday(),fetch=vi.fn();vi.stubGlobal("fetch",fetch);

@@ -11,7 +11,7 @@ vi.mock("@/lib/db",()=>({
  }),
  getTechLaunchReadinessCache:vi.fn(async(key:string)=>leases.has(key)?{payload:leases.get(key)}:records.has(key)?{payload:records.get(key)}:null),
  getSenseDetectionReports:vi.fn(async(keys:string[])=>keys.flatMap(key=>records.has(key)?[{cacheKey:key,payload:records.get(key),expiresAt:"2099-01-01"}]:[])),
- saveTechLaunchReadinessCache:vi.fn(async(record:{cacheKey:string;payload:string})=>records.set(record.cacheKey,record.payload)),
+ saveTechLaunchReadinessCache:vi.fn(async(record:{cacheKey:string;payload:string;senseSummaryPayload?:string})=>{records.set(record.cacheKey,record.payload);if(record.senseSummaryPayload)records.set(record.cacheKey+":summary",record.senseSummaryPayload);}),
  claimSenseLease:vi.fn(async(key:string,token:string)=>{if(leases.has(key))return false;leases.set(key,token);return true;}),
  releaseSenseLease:vi.fn(async(key:string,token:string)=>{if(leases.get(key)===token)leases.delete(key);}),listPendingSenseJobs:vi.fn(async()=>[]),
 }));
@@ -50,6 +50,23 @@ describe("saved country subsets",()=>{
   expect(records.get(original.jobKey)).toBe(before);
   const run=await startSense({date,countries});expect(run.cached).toBe(true);expect(run.requests).toBe(0);
   const plan=await estimateSense({date,countries});expect(plan.cachedReport).toBe(true);expect(plan.knownHistoryCalls+plan.knownMetadataCalls).toBe(0);
+  expect(upstream).not.toHaveBeenCalled();
+ });
+ it("derives a large subset over multiple checkpoints without upstream requests",async()=>{
+  const original=source();
+  for(let i=0;i<30;i++) {
+    const id=String(i);
+    (original.stores.ios.apps as Record<string,typeof original.stores.ios.apps["123"]>)[id]={...structuredClone(original.stores.ios.apps["123"]),appId:id};
+    original.result.games.push({...structuredClone(original.result.games.find(g=>g.store==="ios")!),appId:id});
+  }
+  records.set(original.jobKey,JSON.stringify(original));
+  records.set(original.jobKey+":summary",JSON.stringify({...original,stores:undefined}));
+  let run=(await getCachedSense({date,countries:["US"]}))!;
+  expect(run.status).toBe("running");
+  run=await advanceSense(run.jobKey);expect(run.result?.games).toHaveLength(25);
+  const repeated=await getCachedSense({date,countries:["US"]});expect(repeated?.result?.games).toHaveLength(25);
+  run=await advanceSense(run.jobKey);expect(run.status).toBe("completed");expect(run.result?.games).toHaveLength(32);
+  expect((await getSenseGame(run.jobKey,"0","ios",run.result?.generatedAt)).history.at(-1)?.downloads).toBe(100);
   expect(upstream).not.toHaveBeenCalled();
  });
  it("handles Run check directly before the cache lookup, even when upstream credentials are unavailable",async()=>{
