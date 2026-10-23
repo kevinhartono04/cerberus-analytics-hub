@@ -11,14 +11,6 @@
     {
       "path": "/api/cron/refund-review",
       "schedule": "* * * * *"
-    },
-    {
-      "path": "/api/cron/ludios-sense",
-      "schedule": "* * * * *"
-    },
-    {
-      "path": "/api/cron/ludios-sense-daily",
-      "schedule": "0 21 * * *"
     }
   ]
 }
