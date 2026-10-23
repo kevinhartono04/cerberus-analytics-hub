@@ -13,7 +13,7 @@ vi.mock("@/lib/db", () => ({
   releaseSenseLease: vi.fn(async(key:string,token:string)=>{if(leases.get(key)===token)leases.delete(key);}),
 }));
 vi.mock("@/lib/sensortower-api",()=>({sensorTowerRequest:async(url:URL)=>{const response=await fetch(url);return {status:response.status,body:await response.text()};}}));
-import { advanceSense, startSense, getSenseStatus, setSensePaused, runSenseWorker, getSenseGame, estimateSense, getCachedSense, startDailySense } from "@/lib/ludios-sense";
+import { advanceSense, startSense, getSenseStatus, setSensePaused, runSenseWorker, getSenseGame, estimateSense, getCachedSense, startDailySense, continuePendingSenseJobs } from "@/lib/ludios-sense";
 import { senseToday } from "@/lib/ludios-sense-types";
 import { shiftDate } from "@/lib/ludios-sense-detection";
 const t="2026-09-28";
@@ -226,5 +226,23 @@ describe("resumable Sense scan",()=>{
     const fetch=vi.fn();vi.stubGlobal("fetch",fetch);
     const run=await startSense({date:t,countries:["US"]});leases.set("sense:upstream:lease","other");
     expect((await advanceSense(run.jobKey)).status).toBe("running");expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("cron discovery lease", () => {
+  it("does not query pending jobs while another cron owns discovery", async () => {
+    const { listPendingSenseJobs } = await import("@/lib/db");
+    vi.mocked(listPendingSenseJobs).mockClear();
+    leases.set("sense:cron:discovery:lease", "other-cron");
+    expect(await continuePendingSenseJobs()).toBe(0);
+    expect(listPendingSenseJobs).not.toHaveBeenCalled();
+  });
+  it("releases discovery lease when listing jobs fails", async () => {
+    const { listPendingSenseJobs } = await import("@/lib/db");
+    vi.mocked(listPendingSenseJobs).mockRejectedValueOnce(new Error("database unavailable"));
+    await expect(continuePendingSenseJobs()).rejects.toThrow("database unavailable");
+    expect(leases.has("sense:cron:discovery:lease")).toBe(false);
+    expect(await continuePendingSenseJobs()).toBe(0);
   });
 });
