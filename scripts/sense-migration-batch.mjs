@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 /** One network exchange, still one bounded transaction and a server-side deadline. */
 export function migrationBatchSql(batch,{write=true,rollback=false}={}) {
-  if(!batch.length || batch.length>256 || batch.reduce((n,r)=>n+Buffer.byteLength(r.payload ?? ""),0)>768*1024)throw new Error("Migration batch exceeds its bounded budget");
+  if(!batch.length || batch.length>256 || (write && batch.reduce((n,r)=>n+Buffer.byteLength(r.payload ?? ""),0)>768*1024))throw new Error("Migration batch exceeds its bounded budget");
   const json=JSON.stringify(write ? batch : batch.map(({cache_key})=>({cache_key})));
   let tag;do{tag='$sense_'+randomUUID().replaceAll('-','')+'$';}while(json.includes(tag));
   const input=`SELECT * FROM jsonb_to_recordset(${tag}${json}${tag}::jsonb) AS r(cache_key text,payload text,created_at text,expires_at text)`;

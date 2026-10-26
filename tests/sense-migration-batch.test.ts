@@ -13,3 +13,9 @@ it('keeps quotes and SQL-looking payload data inside a fresh dollar-quoted JSON 
 it('rejects oversized batches before contacting the database',()=>{
  expect(()=>migrationBatchSql(Array.from({length:257},()=>({payload:''})))).toThrow('bounded budget');
 });
+
+it('verification sends only keys and never uploads the shard bodies',()=>{
+ const sql=migrationBatchSql([{cache_key:'sense:page:v4:key',payload:'private shard body'}],{write:false});
+ expect(sql).not.toContain('private shard body');
+ expect(sql).not.toContain('INSERT INTO');
+});
