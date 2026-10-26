@@ -1,3 +1,4 @@
+import { senseJsonResponse } from "@/lib/ludios-sense-response";
 import { after, NextResponse } from "next/server";
 import { ZodError } from "zod";
 import { assertInternalAppUser, jsonError, requireCurrentAppUser } from "@/lib/auth";
@@ -10,7 +11,7 @@ export async function POST(request: Request) {
     assertInternalAppUser(await requireCurrentAppUser(request));
     const result = await startSense(senseRequestSchema.parse(await request.json()));
     if (result.status === "running") after(() => runSenseWorker(result.jobKey));
-    return NextResponse.json(result);
+    return senseJsonResponse(result);
   } catch (error) {
     if (error instanceof ZodError) return NextResponse.json({ error: error.issues.map(i => i.message).join("; ") }, { status: 400 });
     return jsonError(error);

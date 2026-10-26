@@ -1205,26 +1205,28 @@ function rowToTechLaunchCacheRecord(row: Record<string, unknown>): TechLaunchRea
   };
 }
 
-export async function getTechLaunchReadinessCache(cacheKey: string): Promise<TechLaunchReadinessCacheRecord | null> {
+/** Reject oversized cache records in SQL, before transferring or parsing their payload. */
+export async function getTechLaunchReadinessCache(cacheKey: string, maxBytes = 128 * 1024 * 1024): Promise<TechLaunchReadinessCacheRecord | null> {
+  const map = (row: Record<string, unknown> | undefined) => {
+    if (row && Number(row.payload_bytes) > maxBytes) throw new Error("Saved scan exceeds the safe storage limit; offline migration is required before resuming.");
+    return row ? rowToTechLaunchCacheRecord(row) : null;
+  };
   if (shouldUseLocalSqlite()) {
     ensureSqliteTechLaunchCacheTable();
     const [row] = sqliteJsonRows<Record<string, unknown>>(`
-      SELECT cache_key, payload, created_at, expires_at
-      FROM tech_launch_readiness_cache
-      WHERE cache_key = ${sqliteLiteral(cacheKey)}
-      LIMIT 1
-    `, 1024 * 1024 * 128);
-    return row ? rowToTechLaunchCacheRecord(row) : null;
+      SELECT cache_key, CASE WHEN length(CAST(payload AS BLOB)) <= ${maxBytes} THEN payload ELSE NULL END AS payload,
+        length(CAST(payload AS BLOB)) AS payload_bytes, created_at, expires_at
+      FROM tech_launch_readiness_cache WHERE cache_key = ${sqliteLiteral(cacheKey)} LIMIT 1
+    `, maxBytes * 2 + 1024);
+    return map(row);
   }
-
   const sql = await ensureTechLaunchCacheTable();
   const [row] = await sql<Record<string, unknown>[]>`
-    SELECT cache_key, payload, created_at, expires_at
-    FROM tech_launch_readiness_cache
-    WHERE cache_key = ${cacheKey}
-    LIMIT 1
+    SELECT cache_key, CASE WHEN octet_length(payload) <= ${maxBytes} THEN payload ELSE NULL END AS payload,
+      octet_length(payload) AS payload_bytes, created_at, expires_at
+    FROM tech_launch_readiness_cache WHERE cache_key = ${cacheKey} LIMIT 1
   `;
-  return row ? rowToTechLaunchCacheRecord(row) : null;
+  return map(row);
 }
 
 /** Project one game's saved chart in the database; never transfer the full scan checkpoint. */
@@ -1232,7 +1234,7 @@ export async function getSenseGameReport(cacheKeys: string[], appId: string, sto
   const now = new Date().toISOString();
   if (shouldUseLocalSqlite()) {
     for (const key of cacheKeys) {
-      const record = await getTechLaunchReadinessCache(key);
+      const record = await getTechLaunchReadinessCache(key, 4 * 1024 * 1024);
       if (!record || (record.expiresAt && record.expiresAt <= now)) continue;
       const report = JSON.parse(record.payload);
       const game = report.result?.games.find((g: {appId:string;store:string}) => g.appId === appId && g.store === store);
@@ -1244,7 +1246,7 @@ export async function getSenseGameReport(cacheKeys: string[], appId: string, sto
   const [row] = await sql<Record<string, unknown>[]>`
     WITH selected AS MATERIALIZED (
       SELECT cache_key, created_at, expires_at, payload FROM tech_launch_readiness_cache
-      WHERE cache_key = ANY(${sql.array(cacheKeys,25)}) AND expires_at > ${now}
+      WHERE cache_key = ANY(${sql.array(cacheKeys,25)}) AND expires_at > ${now} AND octet_length(payload) <= 4194304
       ORDER BY array_position(${sql.array(cacheKeys,25)},cache_key) LIMIT 1
     ), report AS MATERIALIZED (
       SELECT cache_key, created_at, expires_at, (payload::json->'result')::jsonb AS doc FROM selected
@@ -1264,7 +1266,7 @@ export async function getSenseGameReport(cacheKeys: string[], appId: string, sto
 export async function getSenseDetectionReports(cacheKeys: string[]): Promise<TechLaunchReadinessCacheRecord[]> {
   if (!cacheKeys.length) return [];
   if (shouldUseLocalSqlite()) {
-    const records = await Promise.all(cacheKeys.map(getTechLaunchReadinessCache));
+    const records = await Promise.all(cacheKeys.map(key => getTechLaunchReadinessCache(key, 4 * 1024 * 1024)));
     return records.flatMap(record => {
       if (!record) return [];
       const report = JSON.parse(record.payload);
@@ -1285,7 +1287,7 @@ export async function getSenseDetectionReports(cacheKeys: string[]): Promise<Tec
       ), '[]'::jsonb))::text AS payload
     FROM (
       SELECT cache_key, created_at, expires_at, payload::jsonb AS doc
-      FROM tech_launch_readiness_cache WHERE cache_key = ANY(${sql.array(cacheKeys,25)})
+      FROM tech_launch_readiness_cache WHERE cache_key = ANY(${sql.array(cacheKeys,25)}) AND octet_length(payload) <= 4194304
     ) reports
     WHERE doc->>'status' = 'completed' AND doc->'result' IS NOT NULL
   `;
@@ -1293,7 +1295,7 @@ export async function getSenseDetectionReports(cacheKeys: string[]): Promise<Tec
 }
 
 /** Checkpoint and tiny queue metadata commit together; discovery never reads job payloads. */
-export async function saveTechLaunchReadinessCache(record: TechLaunchReadinessCacheRecord & { senseJobStatus?: string }) {
+export async function saveTechLaunchReadinessCache(record: TechLaunchReadinessCacheRecord & { senseJobStatus?: string; expectedSenseLease?: string; senseSummaryPayload?: string }) {
   const queueKey = /^sense:v1:[a-f0-9]{64}$/.test(record.cacheKey) && record.senseJobStatus !== undefined
     ? "sense:pending:" + record.cacheKey : null;
   const queueSql = queueKey ? (record.senseJobStatus === "running"
@@ -1301,10 +1303,16 @@ export async function saveTechLaunchReadinessCache(record: TechLaunchReadinessCa
        VALUES (${sqliteLiteral(queueKey)},'',${sqliteLiteral(record.createdAt)},${sqliteLiteral(record.expiresAt)})
        ON CONFLICT(cache_key) DO UPDATE SET created_at=excluded.created_at,expires_at=excluded.expires_at`
     : `DELETE FROM tech_launch_readiness_cache WHERE cache_key=${sqliteLiteral(queueKey)}`) : "";
+  const summarySql = record.senseSummaryPayload === undefined ? "" : `INSERT INTO tech_launch_readiness_cache(cache_key,payload,created_at,expires_at)
+    VALUES(${sqliteLiteral(record.cacheKey+":summary")},${sqliteLiteral(record.senseSummaryPayload)},${sqliteLiteral(record.createdAt)},${sqliteLiteral(record.expiresAt)})
+    ON CONFLICT(cache_key) DO UPDATE SET payload=excluded.payload,created_at=excluded.created_at,expires_at=excluded.expires_at;`;
+  const leaseSql = record.expectedSenseLease === undefined ? "" : `CREATE TEMP TABLE checkpoint_owner(owned INTEGER CHECK(owned=1));
+    INSERT INTO checkpoint_owner SELECT COUNT(*) FROM tech_launch_readiness_cache WHERE cache_key=${sqliteLiteral(record.cacheKey+":lease")} AND payload=${sqliteLiteral(record.expectedSenseLease)} AND expires_at>${sqliteLiteral(new Date().toISOString())};`;
   if (shouldUseLocalSqlite()) {
     ensureSqliteTechLaunchCacheTable();
-    sqliteExec(`
-      BEGIN;
+    sqliteExec(`.bail on
+      BEGIN IMMEDIATE;
+      ${leaseSql}
       INSERT INTO tech_launch_readiness_cache (cache_key, payload, created_at, expires_at)
       VALUES (
         ${sqliteLiteral(record.cacheKey)},
@@ -1317,6 +1325,7 @@ export async function saveTechLaunchReadinessCache(record: TechLaunchReadinessCa
         created_at = excluded.created_at,
         expires_at = excluded.expires_at;
       ${queueSql};
+      ${summarySql}
       COMMIT;
     `);
     return;
@@ -1324,6 +1333,11 @@ export async function saveTechLaunchReadinessCache(record: TechLaunchReadinessCa
 
   const sql = await ensureTechLaunchCacheTable();
   const write = async (connection: postgres.Sql | postgres.TransactionSql) => {
+    if (record.expectedSenseLease !== undefined) {
+      const [owner] = await connection`SELECT payload FROM tech_launch_readiness_cache
+        WHERE cache_key=${record.cacheKey+":lease"} AND expires_at>${new Date().toISOString()} FOR UPDATE`;
+      if (owner?.payload !== record.expectedSenseLease) throw new Error("Scan lease expired; checkpoint not committed.");
+    }
     await connection`
       INSERT INTO tech_launch_readiness_cache (cache_key, payload, created_at, expires_at)
       VALUES (${record.cacheKey}, ${record.payload}, ${record.createdAt}, ${record.expiresAt})
@@ -1332,6 +1346,10 @@ export async function saveTechLaunchReadinessCache(record: TechLaunchReadinessCa
         created_at = excluded.created_at,
         expires_at = excluded.expires_at
     `;
+    if (record.senseSummaryPayload !== undefined) await connection`
+      INSERT INTO tech_launch_readiness_cache(cache_key,payload,created_at,expires_at)
+      VALUES(${record.cacheKey+":summary"},${record.senseSummaryPayload},${record.createdAt},${record.expiresAt})
+      ON CONFLICT(cache_key) DO UPDATE SET payload=excluded.payload,created_at=excluded.created_at,expires_at=excluded.expires_at`;
     if (queueKey) {
       if (record.senseJobStatus === "running") await connection`
         INSERT INTO tech_launch_readiness_cache (cache_key,payload,created_at,expires_at)
@@ -1340,7 +1358,7 @@ export async function saveTechLaunchReadinessCache(record: TechLaunchReadinessCa
       else await connection`DELETE FROM tech_launch_readiness_cache WHERE cache_key=${queueKey}`;
     }
   };
-  if (queueKey) await sql.begin(write);
+  if (queueKey || record.expectedSenseLease !== undefined || record.senseSummaryPayload !== undefined) await sql.begin(write);
   else await write(sql);
 }
 
@@ -1713,14 +1731,14 @@ export async function refundQueueStatus() {
   return { pending: Number(rows[0].pending), deliveryFailed: Number(rows[0].delivery_failed) };
 }
 
-/** Indexed range over tiny queue markers, excluding paused jobs via a primary-key lookup. */
+/** Match queue markers independently of database collation; paused checks use the primary key. */
 export async function listPendingSenseJobs(): Promise<string[]> {
   const now = new Date().toISOString();
   const prefix = "sense:pending:";
   if (shouldUseLocalSqlite()) {
     ensureSqliteTechLaunchCacheTable();
     return sqliteJsonRows<{ cache_key: string }>(`SELECT q.cache_key FROM tech_launch_readiness_cache q
-      WHERE q.cache_key >= 'sense:pending:' AND q.cache_key < 'sense:pending;'
+      WHERE q.cache_key LIKE 'sense:pending:%'
       AND q.expires_at>${sqliteLiteral(now)}
       AND NOT EXISTS (SELECT 1 FROM tech_launch_readiness_cache p
         WHERE p.cache_key=substr(q.cache_key,15)||':paused' AND p.payload='true' AND p.expires_at>${sqliteLiteral(now)})
@@ -1728,7 +1746,7 @@ export async function listPendingSenseJobs(): Promise<string[]> {
   }
   const sql = await ensureTechLaunchCacheTable();
   const rows = await sql<{ cache_key: string }[]>`SELECT q.cache_key FROM tech_launch_readiness_cache q
-    WHERE q.cache_key >= 'sense:pending:' AND q.cache_key < 'sense:pending;'
+    WHERE q.cache_key LIKE 'sense:pending:%'
     AND q.expires_at>${now}
     AND NOT EXISTS (SELECT 1 FROM tech_launch_readiness_cache p
       WHERE p.cache_key=substring(q.cache_key from 15)||':paused' AND p.payload='true' AND p.expires_at>${now})

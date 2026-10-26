@@ -21,4 +21,13 @@ describe("Sensor Tower transport",()=>{
   expect((await sensorTowerRequest(new URL("https://api.sensortower.com/v1/apps"))).usageHeaders).toEqual({"x-api-usage-count":"21","x-api-usage-limit":"10000"});
  });
 
+ it("rejects a response over 4 MiB without retaining or parsing the oversized body",async()=>{
+  const req=Object.assign(new EventEmitter(),{destroy:vi.fn()});
+  get.mockImplementation((_url:URL,_options:unknown,cb:(res:EventEmitter)=>void)=>{
+    const res=Object.assign(new EventEmitter(),{statusCode:200});
+    queueMicrotask(()=>{cb(res);res.emit("data",Buffer.alloc(4*1024*1024+1));res.emit("end");});return req;
+  });
+  await expect(sensorTowerRequest(new URL("https://api.sensortower.com/v1/apps?auth_token=private"))).rejects.toThrow("oversized");
+  expect(req.destroy).toHaveBeenCalledOnce();
+ });
 });

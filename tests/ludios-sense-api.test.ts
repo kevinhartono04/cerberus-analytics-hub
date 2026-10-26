@@ -4,6 +4,8 @@ vi.mock("@/lib/auth",()=>({requireCurrentAppUser:vi.fn(async()=>{if(!user.value)
 vi.mock("next/server", async importOriginal => ({...await importOriginal<typeof import("next/server")>(),after:vi.fn()}));
 vi.mock("@/lib/ludios-sense",()=>({startSense:start,getSenseStatus:advance,getSenseGame:advance,setSensePaused:advance,runSenseWorker:vi.fn(),continuePendingSenseJobs:vi.fn(async()=>0),estimateSense:advance,getCachedSense:advance}));
 vi.mock("@/lib/ludios-sense-icons",()=>({getSenseIcons:vi.fn(async()=>({icons:{},requests:0}))}));
+import { after } from "next/server";
+import { runSenseWorker } from "@/lib/ludios-sense";
 import {POST as icons} from "@/app/api/ludios-sense/icons/route";
 import {POST as cache} from "@/app/api/ludios-sense/cache/route";
 import {POST as usage} from "@/app/api/ludios-sense/usage/route";
@@ -26,6 +28,16 @@ describe("Sense authorization and validation",()=>{
  it("restricts icon retrieval to games in the saved report",async()=>{
   advance.mockResolvedValueOnce({result:{games:[{appId:"1",store:"ios"}],filters:{countries:["US"]}}});
   expect((await icons(request({jobKey:"sense:v1:"+"a".repeat(64),store:"ios",appIds:["2"]}))).status).toBe(400);
+ });
+ it("continues saved subset derivation from cache without starting an ordinary upstream scan",async()=>{
+  const jobKey="sense:v1:"+"a".repeat(64);
+  advance.mockResolvedValueOnce({jobKey,status:"running",result:{reusedFrom:{jobKey:"source"}}});
+  expect((await cache(request({date:"2026-09-28",countries:["US"]}))).status).toBe(200);
+  const callback=vi.mocked(after).mock.calls[0][0] as ()=>Promise<void>;await callback();
+  expect(runSenseWorker).toHaveBeenCalledWith(jobKey,240000,true);
+  vi.mocked(after).mockClear();
+  advance.mockResolvedValueOnce({jobKey,status:"running"});
+  await cache(request({date:"2026-09-28",countries:["US"]}));expect(after).not.toHaveBeenCalled();
  });
  it("normalizes selected countries",async()=>{
   expect((await begin(request({date:"2026-09-28",countries:["US","JP","US"]}))).status).toBe(200);
