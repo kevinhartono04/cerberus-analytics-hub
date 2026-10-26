@@ -100,15 +100,26 @@ async function main() {
       if(!pending.size)return;
       const batch=[...pending.values()];
       if(written-lastReported>=512){console.log(JSON.stringify({progress:written,batch:batch.length}));lastReported=written;}
-      await sql.begin(async tx=>{
+      async function writeBatch(batch,canSplit=true){
+      let phase="begin";
+      try{await sql.begin(async tx=>{
         await tx`SET LOCAL statement_timeout=15000`;
+        phase="write";
       if(!stage) await tx`INSERT INTO cerebral.tech_launch_readiness_cache(cache_key,payload,created_at,expires_at)
         SELECT cache_key,payload,created_at,expires_at FROM jsonb_to_recordset(${tx.json(batch)}) AS r(cache_key text,payload text,created_at text,expires_at text)
         ON CONFLICT(cache_key) DO UPDATE SET expires_at=greatest(tech_launch_readiness_cache.expires_at,excluded.expires_at) WHERE tech_launch_readiness_cache.expires_at<excluded.expires_at`;
+      phase="verify";
       const checks=await tx`SELECT cache_key,encode(sha256(convert_to(payload,'UTF8')),'hex') AS checksum,expires_at FROM cerebral.tech_launch_readiness_cache WHERE cache_key IN ${tx(batch.map(r=>r.cache_key))}`;
       const actual=new Map(checks.map(r=>[r.cache_key,r]));
       for(const item of batch){const found=actual.get(item.cache_key);if(!found || found.checksum!==hash(item.payload) || found.expires_at<item.expires_at)throw new Error("Shard verification failed: "+item.cache_key);}
-      });
+      });}catch(error){
+        if(error.code==="57014" && canSplit && batch.length>1){
+          console.log(JSON.stringify({retrySmallerBatch:true,phase,rows:batch.length}));
+          const middle=Math.ceil(batch.length/2);await writeBatch(batch.slice(0,middle),false);await writeBatch(batch.slice(middle),false);
+        } else throw new Error(`Migration batch ${phase} failed: ${error.message}`,{cause:error});
+      }
+      }
+      await writeBatch(batch);
       written+=batch.length;pending=new Map();pendingBytes=0;
     }
     const converted=await convertSenseRecord(values.key,document,async(key,payload,expiry)=>{
