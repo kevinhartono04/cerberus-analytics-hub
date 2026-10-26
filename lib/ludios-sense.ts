@@ -1,4 +1,4 @@
-import { boundedSenseJson, readSenseRecord, hydrateSenseHistory, persistSenseHistory, senseChartKey, type ShardedHistory } from "@/lib/ludios-sense-storage";
+import { boundedSenseJson, prepareSenseManifest, readSenseRecord, hydrateSenseHistory, persistSenseHistory, senseChartKey, type ShardedHistory } from "@/lib/ludios-sense-storage";
 import { historyWindows, mergeCountryHistory, mergeHistoryWindows, requiredHistoryWeeks } from "@/lib/ludios-sense-history";
 import { safeSenseIconUrl } from "@/lib/ludios-sense-icons";
 import { createHash, randomUUID } from "node:crypto";
@@ -20,7 +20,7 @@ const cacheKey = (filters: SenseFilters) => "sense:v1:" + createHash("sha256").u
 const sharedHistoryKey = "sense:history:shared:v2";
 const historyKey = (filters: SenseFilters) => "sense:history:" + filters.countries.join(",");
 const aliveUntil = () => new Date(Date.now() + 86400000 * 31).toISOString();
-async function save(key: string, value: unknown) { await saveTechLaunchReadinessCache({ cacheKey: key, payload: boundedSenseJson(value), createdAt: now(), expiresAt: key.startsWith("sense:chart:v3:") ? new Date(Date.now()+93*86400000).toISOString() : aliveUntil() }); }
+async function save(key: string, value: unknown) { await saveTechLaunchReadinessCache({ cacheKey: key, payload: boundedSenseJson(await prepareSenseManifest(value)), createdAt: now(), expiresAt: key.startsWith("sense:chart:v3:") ? new Date(Date.now()+93*86400000).toISOString() : aliveUntil() }); }
 const load = readSenseRecord;
 function needsBackfill(app: App, countries: SenseCountry[], t: string) {
   return countries.some(country => {
@@ -208,7 +208,7 @@ async function saveJob(job: Job, lease: string) {
   job.storageVersion = 3;
   // Bounds apply to the compact manifest too; never allow unbounded candidate growth.
   let payload: string;
-  try { payload = boundedSenseJson(job); }
+  try { payload = boundedSenseJson(await prepareSenseManifest(job)); }
   catch (error) {
     await save(job.jobKey+":paused",true);
     const message = "Scan reached the safe storage limit. It has been paused for storage recovery.";
@@ -448,7 +448,7 @@ async function step(job: Job) {
       if (!id || !validDownloads(row.est_mobile_downloads) || row.est_mobile_downloads > s.lastDownloads || seen.has(id)) throw new Error("Unexpected ranking order or duplicate app");
       seen.add(id); s.lastDownloads = row.est_mobile_downloads;
       if (row.est_mobile_downloads < 1000) continue;
-      if (!s.apps[id] && Object.keys(s.apps).length >= 5000) throw new Error("Unexpected candidate limit reached; scan stopped before storage growth.");
+      if (!s.apps[id] && Object.keys(s.apps).length >= 25000) throw new Error("Unexpected candidate limit reached; scan stopped before storage growth.");
       s.apps[id] ??= { appId: id, name: p.entities?.app_id?.[id]?.name ?? id, publisher: "", categories: [], releaseDate: null, discoveredDate: s.rankingDate, histories: {} };
       if (s.candidateIds && !s.candidateIds.includes(id)) s.candidateIds.push(id);
       if (s.rankingDate > s.apps[id].discoveredDate) s.apps[id].discoveredDate = s.rankingDate;

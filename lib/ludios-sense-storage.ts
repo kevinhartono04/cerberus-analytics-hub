@@ -1,7 +1,7 @@
+import { encodeHistory, pageSenseManifest, MANIFEST_PAGE_LIMIT, MANIFEST_TOTAL_LIMIT } from "./ludios-sense-codec.mjs";
 import { createHash } from "node:crypto";
 import { getTechLaunchReadinessCache, saveTechLaunchReadinessCache } from "@/lib/db";
-import { historyWindows, type StoredSenseHistory } from "@/lib/ludios-sense-history";
-import type { SenseCountry } from "@/lib/ludios-sense-types";
+import { type StoredSenseHistory } from "@/lib/ludios-sense-history";
 
 export const SENSE_RECORD_LIMIT = 4 * 1024 * 1024;
 export const SENSE_HISTORY_LIMIT = 256 * 1024;
@@ -17,24 +17,42 @@ export async function readSenseRecord<T>(key: string, maxBytes = SENSE_RECORD_LI
   if (!row || (row.expiresAt && row.expiresAt <= new Date().toISOString())) return null;
   // Defense in depth for alternate adapters; SQL enforces this before transfer in production.
   if (Buffer.byteLength(row.payload) > maxBytes) throw new Error("Saved scan exceeds the safe storage limit; offline migration is required before resuming.");
-  return JSON.parse(row.payload) as T;
+  const document=JSON.parse(row.payload);
+  const states=document?.stores ?? document;
+  let total=0;
+  for(const store of ["android","ios"]) {
+    const state=states?.[store];
+    if(!Array.isArray(state?.appPages)) continue;
+    if(state.appPages.length>512) throw new Error("Scan metadata exceeds the bounded page budget");
+    for(const ref of state.appPages) {
+      if(typeof ref!=="string" || !/^sense:page:v4:[a-f0-9]{64}$/.test(ref)) throw new Error("Invalid scan metadata page");
+      const page=await readSenseRecord<Record<string,unknown>>(ref,MANIFEST_PAGE_LIMIT);
+      if(!page) throw new Error("Saved scan metadata is unavailable");
+      total+=Buffer.byteLength(JSON.stringify(page));
+      if(total>MANIFEST_TOTAL_LIMIT) throw new Error("Scan metadata exceeds the bounded page budget");
+      Object.assign(state.apps,page);
+    }
+  }
+  return document as T;
 }
 export async function hydrateSenseHistory(app: ShardedHistory) {
   if (!app.historyRef || hydrated.has(app)) return;
-  const histories = await readSenseRecord<StoredSenseHistory["histories"]>(app.historyRef, SENSE_HISTORY_LIMIT);
+  const histories = await readSenseRecord<StoredSenseHistory["histories"] | (StoredSenseHistory & {format:4})>(app.historyRef, SENSE_HISTORY_LIMIT);
   if (!histories) throw new Error("Saved game history is unavailable; restart this scan after storage recovery.");
-  app.histories = histories;
+  if ("format" in histories && histories.format===4) {
+    const full=histories as StoredSenseHistory & {format:4};
+    app.histories=full.histories;app.historyWindows=full.historyWindows;app.countryHistory=full.countryHistory;
+  } else app.histories=histories as StoredSenseHistory["histories"];
   hydrated.add(app);
 }
 /** Immutable blobs are committed before their manifest. An interrupted save leaves only an expiring orphan. */
 export async function persistSenseHistory(app: ShardedHistory) {
   if (app.historyRef && !hydrated.has(app) && (app.historyRefExpiresAt ?? "") > new Date(Date.now() + 32 * 86400000).toISOString()) return;
   await hydrateSenseHistory(app);
-  // Preserve coverage for legacy rows before removing inline observations.
-  app.historyWindows ??= {};
-  for (const country of Object.keys(app.histories) as SenseCountry[]) app.historyWindows[country] ??= historyWindows(app, country);
-  const payload = boundedSenseJson(app.histories, SENSE_HISTORY_LIMIT);
-  const ref = "sense:blob:v3:" + createHash("sha256").update(payload).digest("hex");
+  const encoded=encodeHistory(app);
+  if(Buffer.byteLength(encoded.payload)>SENSE_HISTORY_LIMIT) throw new Error("Saved game history exceeds the safe storage limit");
+  const payload=encoded.payload;
+  const ref = "sense:blob:v4:" + createHash("sha256").update(payload).digest("hex");
   const expiresAt = new Date(Date.now() + 93 * 86400000).toISOString();
   if (ref !== app.historyRef || (app.historyRefExpiresAt ?? "") <= new Date(Date.now() + 32 * 86400000).toISOString()) {
     await saveTechLaunchReadinessCache({cacheKey:ref,payload,createdAt:new Date().toISOString(),expiresAt});
@@ -42,8 +60,15 @@ export async function persistSenseHistory(app: ShardedHistory) {
   }
   app.historyRef = ref;
   app.histories = {};
+  app.historyWindows=encoded.coverage; delete app.countryHistory;
   hydrated.delete(app);
 }
 export function senseChartKey(jobKey: string, generatedAt: string, store: string, appId: string) {
   return "sense:chart:v3:" + createHash("sha256").update(JSON.stringify([jobKey,generatedAt,store,appId])).digest("hex");
+}
+
+export async function prepareSenseManifest<T>(document:T):Promise<T> {
+  return pageSenseManifest(document,async(cacheKey,payload,expiresAt)=>{
+    await saveTechLaunchReadinessCache({cacheKey,payload,createdAt:new Date().toISOString(),expiresAt});
+  },new Date(Date.now()+93*86400000).toISOString());
 }

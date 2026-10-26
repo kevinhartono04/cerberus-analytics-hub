@@ -6,7 +6,7 @@ const { records,leases,upstream }=vi.hoisted(()=>({records:new Map<string,string
 vi.mock("@/lib/db",()=>({
  getSenseGameReport:vi.fn(async(keys:string[],appId:string,store:string)=>{
   const key=keys.find(key=>records.has(key));if(!key)return null;
-  const report=JSON.parse(records.get(key)!);
+  const report=stored(key);
   return {payload:JSON.stringify({result:{...report.result,games:report.result?.games.filter((g:{appId:string;store:string})=>g.appId===appId&&g.store===store)}})};
  }),
  getTechLaunchReadinessCache:vi.fn(async(key:string)=>leases.has(key)?{payload:leases.get(key)}:records.has(key)?{payload:records.get(key)}:null),
@@ -17,6 +17,15 @@ vi.mock("@/lib/db",()=>({
 }));
 vi.mock("@/lib/sensortower-api",()=>({sensorTowerRequest:upstream}));
 import { advanceSense, estimateSense, getCachedSense, getSenseGame, getSenseWatchlist, startSense } from "@/lib/ludios-sense";
+function stored(key:string):any {
+ const doc=JSON.parse(records.get(key)!);const states=doc.stores ?? doc;
+ for(const store of ["android","ios"]) {
+  const state=states?.[store];if(!state?.appPages)continue;
+  for(const ref of state.appPages)Object.assign(state.apps,JSON.parse(records.get(ref)!));
+  delete state.appPages;delete state.appPagesExpiresAt;
+ }
+ return doc;
+}
 const date="2026-09-28",generatedAt="2026-09-29T03:00:00Z";
 const key=(countries:SenseCountry[],day=date)=>"sense:v1:"+createHash("sha256").update(JSON.stringify({date:day,countries:[...new Set(countries)].sort()})).digest("hex");
 function source(countries:SenseCountry[]=senseCountryCodes,complete=true) {
@@ -107,7 +116,7 @@ describe("saved country subsets",()=>{
   source();const filters={date,countries:["US"] as SenseCountry[]},jobKey=key(filters.countries);
   const existing={jobKey,filters,status:"running",createdAt:generatedAt,updatedAt:generatedAt,requests:3,progress:"Discovery",stores:{android:{apps:{}},ios:{apps:{}}},store:"android",retry:0,receipts:[{endpoint:"/v1/facets/metrics",parameters:{regions:"US"},retrievedAt:generatedAt}]};
   records.set(jobKey,JSON.stringify(existing));records.set(jobKey+":summary",JSON.stringify({...existing,stores:undefined,requests:4}));
-  const run=await advanceSense(jobKey);expect(run.status).toBe("completed");expect(run.cached).toBe(true);expect(run.requests).toBe(4);expect(JSON.parse(records.get(jobKey)!).receipts).toHaveLength(1);expect(upstream).not.toHaveBeenCalled();
+  const run=await advanceSense(jobKey);expect(run.status).toBe("completed");expect(run.cached).toBe(true);expect(run.requests).toBe(4);expect(stored(jobKey).receipts).toHaveLength(1);expect(upstream).not.toHaveBeenCalled();
  });
  it("respects the target job's lease and leaves a running worker's checkpoint alone",async()=>{
   source();const jobKey=key(["US"]);leases.set(jobKey+":lease","worker");
