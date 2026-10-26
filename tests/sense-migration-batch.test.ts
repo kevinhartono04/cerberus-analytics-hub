@@ -12,10 +12,12 @@ it('keeps quotes and SQL-looking payload data inside a fresh dollar-quoted JSON 
 });
 it('rejects oversized batches before contacting the database',()=>{
  expect(()=>migrationBatchSql(Array.from({length:257},()=>({payload:''})))).toThrow('bounded budget');
+ expect(()=>migrationBatchSql([{payload:'x'.repeat(256*1024+1)}])).toThrow('bounded budget');
+ expect(()=>migrationBatchSql(Array.from({length:1025},()=>({cache_key:'key'})),{write:false})).toThrow('bounded budget');
 });
 
 it('verification sends only keys and never uploads the shard bodies',()=>{
- const sql=migrationBatchSql([{cache_key:'sense:page:v4:key',payload:'private shard body'}],{write:false});
+ const sql=migrationBatchSql(Array.from({length:512},(_,i)=>({cache_key:'sense:page:v4:key'+i,payload:'private shard body'})),{write:false});
  expect(sql).not.toContain('private shard body');
  expect(sql).not.toContain('INSERT INTO');
 });
