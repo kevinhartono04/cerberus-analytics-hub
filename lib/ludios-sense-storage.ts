@@ -18,6 +18,12 @@ export async function readSenseRecord<T>(key: string, maxBytes = SENSE_RECORD_LI
   // Defense in depth for alternate adapters; SQL enforces this before transfer in production.
   if (Buffer.byteLength(row.payload) > maxBytes) throw new Error("Saved scan exceeds the safe storage limit; offline migration is required before resuming.");
   const document=JSON.parse(row.payload);
+  if(key.startsWith("sense:chart:v3:") && document?.format===4 && document.chartRef){
+    if(!/^sense:chart-blob:v4:[a-f0-9]{64}$/.test(document.chartRef))throw new Error("Invalid saved chart reference");
+    const chart=await readSenseRecord<T>(document.chartRef,SENSE_HISTORY_LIMIT);
+    if(!chart)throw new Error("Saved game history is unavailable");
+    return chart;
+  }
   const states=document?.stores ?? document;
   let total=0;
   for(const store of ["android","ios"]) {
@@ -84,4 +90,13 @@ export async function prepareSenseManifest<T>(document:T):Promise<T> {
   return pageSenseManifest(document,async(cacheKey,payload,expiresAt)=>{
     await saveTechLaunchReadinessCache({cacheKey,payload,createdAt:new Date().toISOString(),expiresAt});
   },new Date(Date.now()+93*86400000).toISOString());
+}
+
+/** Timestamp identities point to immutable chart content shared across identical saved snapshots. */
+export async function persistSenseChart(cacheKey:string,chart:unknown){
+  const payload=boundedSenseJson(chart,SENSE_HISTORY_LIMIT);
+  const chartRef="sense:chart-blob:v4:"+createHash("sha256").update(payload).digest("hex");
+  const createdAt=new Date().toISOString(),expiresAt=new Date(Date.now()+93*86400000).toISOString();
+  await saveTechLaunchReadinessCache({cacheKey:chartRef,payload,createdAt,expiresAt});
+  await saveTechLaunchReadinessCache({cacheKey,payload:JSON.stringify({format:4,chartRef}),createdAt,expiresAt});
 }

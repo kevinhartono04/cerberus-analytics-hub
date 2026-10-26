@@ -6,9 +6,11 @@ import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import postgres from "postgres";
 import { encodeHistory, pageSenseManifest } from "../lib/ludios-sense-codec.mjs";
+import { shardMatches } from "./sense-migration-shards.mjs";
 import { migrationBatchSql } from "./sense-migration-batch.mjs";
 import { supabaseCa } from "../lib/supabase-ca.ts";
 const hash = value => createHash("sha256").update(value).digest("hex");
+const converterVersion=5;
 const recordLimit = 4 * 1024 * 1024;
 const historyLimit = 256 * 1024;
 const now = () => new Date().toISOString();
@@ -31,7 +33,9 @@ export async function convertSenseRecord(key, document, emit, expiresAt) {
     for(const game of document.result.games) {
       if(game.historyLoaded===false) continue;
       const ref="sense:chart:v3:"+hash(JSON.stringify([jobKey,document.result.generatedAt,game.store,game.appId]));
-      await emit(ref,check(JSON.stringify(game),historyLimit),expiresAt);
+      const payload=check(JSON.stringify(game),historyLimit),chartRef="sense:chart-blob:v4:"+hash(payload);
+      await emit(chartRef,payload,expiresAt);
+      await emit(ref,JSON.stringify({format:4,chartRef}),expiresAt);
       game.history=[];game.historyLoaded=false;
     }
   }
@@ -68,6 +72,7 @@ async function main() {
       const [existing]=await sql`SELECT payload FROM cerebral.tech_launch_readiness_cache WHERE cache_key=${stageKey}`;
       if(!existing)throw new Error("No staged conversion found");
       stage=JSON.parse(existing.payload);
+      if(stage.converterVersion!==converterVersion)throw new Error("Re-stage this record using the current converter before verification or publication");
       if(stage.sourceKey!==values.key)throw new Error("Staged source identity differs");
       if(stage.sourceCreatedAt!==metadata.created_at){
         const [current]=await sql`SELECT CASE WHEN octet_length(payload)<=${recordLimit} THEN payload ELSE NULL END AS payload FROM cerebral.tech_launch_readiness_cache WHERE cache_key=${values.key}`;
@@ -79,7 +84,7 @@ async function main() {
     }
     if(values.stage) {
       const [existing]=await sql`SELECT payload FROM cerebral.tech_launch_readiness_cache WHERE cache_key=${stageKey}`;
-      if(existing && JSON.parse(existing.payload).sourceCreatedAt===metadata.created_at){console.log(JSON.stringify({alreadyStaged:true,key:values.key}));return;}
+      if(existing && JSON.parse(existing.payload).converterVersion===converterVersion && JSON.parse(existing.payload).sourceCreatedAt===metadata.created_at){console.log(JSON.stringify({alreadyStaged:true,key:values.key}));return;}
     }
     let row;
     const dir=values["backup-dir"] ? resolve(values["backup-dir"]) : null;
@@ -121,7 +126,7 @@ async function main() {
         catch(error){await sql.unsafe('ROLLBACK').simple();throw error;}
         const checks=results.flat().filter(row=>row.cache_key);
         const actual=new Map(checks.map(r=>[r.cache_key,r]));
-        for(const item of batch){const found=actual.get(item.cache_key);if(!found || found.checksum!==hash(item.payload) || found.expires_at<item.expires_at)throw new Error("Shard verification failed: "+item.cache_key);}
+        for(const item of batch){const found=actual.get(item.cache_key);if(!found || !shardMatches(item.cache_key,item.payload,found.checksum) || found.expires_at<item.expires_at)throw new Error("Shard verification failed: "+item.cache_key);}
       }catch(error){
         if(error.code==="57014" && canSplit && batch.length>1){
           console.log(JSON.stringify({retrySmallerBatch:true,phase,rows:batch.length}));
@@ -130,23 +135,23 @@ async function main() {
       }
       }
       await writeBatch(batch);
-      if(cachePath)for(const item of batch)verifiedCache[item.cache_key]={checksum:hash(item.payload),expiresAt:item.expires_at};
+      if(cachePath)for(const item of batch)if(!item.cache_key.startsWith("sense:chart:v3:"))verifiedCache[item.cache_key]={checksum:hash(item.payload),expiresAt:item.expires_at};
       written+=batch.length;pending=new Map();pendingBytes=0;
     }
     const converted=await convertSenseRecord(values.key,document,async(key,payload,expiry)=>{
       emitted++;shardBytes+=Buffer.byteLength(payload);
       const cached=verifiedCache[key];
-      if(cachePath && cached?.checksum===hash(payload) && cached.expiresAt>=expiry)return;
+      if(cachePath && cached && shardMatches(key,payload,cached.checksum) && cached.expiresAt>=expiry)return;
       if((values.apply || values.verify) && !seen.has(key)) {
         seen.add(key);pending.set(key,{cache_key:key,payload,created_at:now(),expires_at:expiry});pendingBytes+=Buffer.byteLength(payload);
-        if(pending.size>=(stage ? 1024 : 256) || pendingBytes>=(stage ? 4*1024*1024 : 512*1024))await flush();
+        if(pending.size>=1024 || pendingBytes>=(stage ? 4*1024*1024 : 512*1024))await flush();
       }
     },expiresAt);
     if(values.apply || values.verify)await flush();
     if(stage && converted!==stage.payload)throw new Error("Staged manifest differs from verified conversion");
     if(values.verify){console.log(JSON.stringify({verified:true,key:values.key,shards:written}));return;}
     if(values.apply && values.stage) {
-      const staged=JSON.stringify({sourceKey:values.key,sourceCreatedAt:row.created_at,sourceSha256:hash(row.payload),sourceExpiresAt:row.expires_at,shardExpiresAt:expiresAt,payload:converted});
+      const staged=JSON.stringify({converterVersion,sourceKey:values.key,sourceCreatedAt:row.created_at,sourceSha256:hash(row.payload),sourceExpiresAt:row.expires_at,shardExpiresAt:expiresAt,payload:converted});
       await sql.begin(async tx=>{
         await tx`SET LOCAL statement_timeout=15000`;
         await tx`INSERT INTO cerebral.tech_launch_readiness_cache(cache_key,payload,created_at,expires_at) VALUES(${stageKey},${staged},${now()},${expiresAt}) ON CONFLICT(cache_key) DO UPDATE SET payload=excluded.payload,created_at=excluded.created_at,expires_at=excluded.expires_at`;

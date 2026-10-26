@@ -14,7 +14,8 @@ describe("offline Sense migration",()=>{
   expect(app.histories).toEqual({});expect(JSON.parse(records.get(app.historyRef)!).histories).toEqual(history);
   expect(requiredHistoryWeeks(app,["US"],"2026-10-21",false)).toEqual([]);
   expect(requiredHistoryWeeks(app,["JP"],"2026-10-21",false)).toEqual([0,1,2,3]);
-  const chart=JSON.parse(records.get(senseChartKey(key,original.result.generatedAt,"android","a"))!);
+  const reference=JSON.parse(records.get(senseChartKey(key,original.result.generatedAt,"android","a"))!);
+  const chart=JSON.parse(records.get(reference.chartRef)!);
   expect(chart.history).toEqual(original.result.games[0].history);
   expect(converted.result.games[0].history).toEqual([]);
  });
@@ -36,4 +37,17 @@ describe("bounded revision metadata",()=>{
   expect(JSON.parse(records.get(app.historyRef)!).historyWindows.US).toEqual(windows);
   expect([...records.values()].every(p=>Buffer.byteLength(p)<=256*1024)).toBe(true);
  });
+});
+
+it("accepts an existing inline chart only when its exact content matches the new reference",async()=>{
+  const {shardMatches}=await import("../scripts/sense-migration-shards.mjs");
+  const {createHash}=await import("node:crypto");
+  const digest=(s:string)=>createHash("sha256").update(s).digest("hex");
+  const chart=JSON.stringify({history:[1,2,3]}),checksum=digest(chart);
+  const payload=JSON.stringify({format:4,chartRef:"sense:chart-blob:v4:"+checksum});
+  const alias="sense:chart:v3:"+"a".repeat(64);
+  expect(shardMatches(alias,payload,checksum)).toBe(true);
+  expect(shardMatches(alias,payload,digest(payload))).toBe(true);
+  expect(shardMatches(alias,payload,digest("different"))).toBe(false);
+  expect(shardMatches("sense:blob:v4:"+"a".repeat(64),payload,checksum)).toBe(false);
 });

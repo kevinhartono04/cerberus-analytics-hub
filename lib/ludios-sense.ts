@@ -1,4 +1,4 @@
-import { boundedSenseJson, prepareSenseManifest, readSenseRecord, hydrateSenseHistory, persistSenseHistory, senseChartKey, type ShardedHistory } from "@/lib/ludios-sense-storage";
+import { boundedSenseJson, prepareSenseManifest, readSenseRecord, hydrateSenseHistory, persistSenseHistory, persistSenseChart, senseChartKey, type ShardedHistory } from "@/lib/ludios-sense-storage";
 import { historyWindows, mergeCountryHistory, mergeHistoryWindows, requiredHistoryWeeks } from "@/lib/ludios-sense-history";
 import { safeSenseIconUrl } from "@/lib/ludios-sense-icons";
 import { createHash, randomUUID } from "node:crypto";
@@ -20,7 +20,7 @@ const cacheKey = (filters: SenseFilters) => "sense:v1:" + createHash("sha256").u
 const sharedHistoryKey = "sense:history:shared:v2";
 const historyKey = (filters: SenseFilters) => "sense:history:" + filters.countries.join(",");
 const aliveUntil = () => new Date(Date.now() + 86400000 * 31).toISOString();
-async function save(key: string, value: unknown) { await saveTechLaunchReadinessCache({ cacheKey: key, payload: boundedSenseJson(await prepareSenseManifest(value)), createdAt: now(), expiresAt: key.startsWith("sense:chart:v3:") ? new Date(Date.now()+93*86400000).toISOString() : aliveUntil() }); }
+async function save(key: string, value: unknown) { if(key.startsWith("sense:chart:v3:"))return persistSenseChart(key,value); await saveTechLaunchReadinessCache({ cacheKey: key, payload: boundedSenseJson(await prepareSenseManifest(value)), createdAt: now(), expiresAt: key.startsWith("sense:chart:v3:") ? new Date(Date.now()+93*86400000).toISOString() : aliveUntil() }); }
 const load = readSenseRecord;
 function needsBackfill(app: App, countries: SenseCountry[], t: string) {
   return countries.some(country => {
