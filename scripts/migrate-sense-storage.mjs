@@ -43,9 +43,10 @@ async function main() {
   if(!values.key || !/^(sense:v1:[a-f0-9]{64}|sense:history:(shared:v2|[A-Z,]+)|sense:result:sense:v1:[a-f0-9]{64}:.+)$/.test(values.key)) throw new Error("Pass --key with exactly one checkpoint, history index, or saved report key.");
   if(!process.env.CEREBRAL_DATABASE_URL) throw new Error("Run in an authorized environment with CEREBRAL_DATABASE_URL already configured; do not paste credentials into commands.");
   if(values.apply && !values["backup-dir"]) throw new Error("--apply requires --backup-dir on a private local disk.");
+  if(values.apply && !values.stage && !values.publish)throw new Error("Choose --stage or --publish explicitly with --apply");
   if(values.publish && !values.apply)throw new Error("--publish requires --apply");
   if(values.stage && (values.verify || values.publish))throw new Error("Choose stage or verify/publish, not both");
-  const sql=postgres(process.env.CEREBRAL_DATABASE_URL,{max:1,prepare:false,ssl:{ca:supabaseCa,rejectUnauthorized:true},connect_timeout:10,idle_timeout:0,connection:{application_name:"sense-offline-storage-migration",statement_timeout:15000,search_path:"cerebral,public"}});
+  const sql=postgres(process.env.CEREBRAL_DATABASE_URL,{max:1,prepare:false,ssl:{ca:supabaseCa,rejectUnauthorized:true},connect_timeout:10,idle_timeout:0});
   const lease="sense:upstream:lease",token=crypto.randomUUID();
   let locked=false;
   try {
@@ -91,19 +92,23 @@ async function main() {
     let emitted=0,shardBytes=0;
     if(stage && stage.sourceSha256!==hash(row.payload))throw new Error("Source checksum differs from staged backup");
     const stagedDocument=stage ? JSON.parse(stage.payload) : null;
-    const expiresAt=stage?.shardExpiresAt ?? stagedDocument?.android?.appPagesExpiresAt ?? stagedDocument?.stores?.android?.appPagesExpiresAt ?? new Date(Math.max(Date.now()+93*86400000,Date.parse(row.expires_at))).toISOString();
+    const expiresAt=stage?.shardExpiresAt ?? stagedDocument?.android?.appPagesExpiresAt ?? stagedDocument?.stores?.android?.appPagesExpiresAt ?? new Date(Math.max((Math.floor(Date.now()/86400000)+94)*86400000,Date.parse(row.expires_at))).toISOString();
     const states=document.stores ?? (values.key.startsWith("sense:history:") ? document : null);
     if(states) console.log(JSON.stringify({apps:Object.fromEntries(["android","ios"].map(store=>[store,Object.keys(states[store]?.apps ?? {}).length]))}));
-    let pending=new Map(),pendingBytes=0;const seen=new Set();let written=0;
+    let pending=new Map(),pendingBytes=0;const seen=new Set();let written=0,lastReported=-512;
     async function flush(){
       if(!pending.size)return;
       const batch=[...pending.values()];
-      if(written%1024===0)console.log(JSON.stringify({progress:written,batch:batch.length}));
-      if(!stage) await sql`INSERT INTO cerebral.tech_launch_readiness_cache AS target ${sql(batch,"cache_key","payload","created_at","expires_at")}
-        ON CONFLICT(cache_key) DO UPDATE SET expires_at=greatest(target.expires_at,excluded.expires_at) WHERE target.expires_at<excluded.expires_at`;
-      const checks=await sql`SELECT cache_key,encode(sha256(convert_to(payload,'UTF8')),'hex') AS checksum,expires_at FROM cerebral.tech_launch_readiness_cache WHERE cache_key IN ${sql(batch.map(r=>r.cache_key))}`;
+      if(written-lastReported>=512){console.log(JSON.stringify({progress:written,batch:batch.length}));lastReported=written;}
+      await sql.begin(async tx=>{
+        await tx`SET LOCAL statement_timeout=15000`;
+      if(!stage) await tx`INSERT INTO cerebral.tech_launch_readiness_cache(cache_key,payload,created_at,expires_at)
+        SELECT cache_key,payload,created_at,expires_at FROM jsonb_to_recordset(${tx.json(batch)}) AS r(cache_key text,payload text,created_at text,expires_at text)
+        ON CONFLICT(cache_key) DO UPDATE SET expires_at=greatest(tech_launch_readiness_cache.expires_at,excluded.expires_at) WHERE tech_launch_readiness_cache.expires_at<excluded.expires_at`;
+      const checks=await tx`SELECT cache_key,encode(sha256(convert_to(payload,'UTF8')),'hex') AS checksum,expires_at FROM cerebral.tech_launch_readiness_cache WHERE cache_key IN ${tx(batch.map(r=>r.cache_key))}`;
       const actual=new Map(checks.map(r=>[r.cache_key,r]));
       for(const item of batch){const found=actual.get(item.cache_key);if(!found || found.checksum!==hash(item.payload) || found.expires_at<item.expires_at)throw new Error("Shard verification failed: "+item.cache_key);}
+      });
       written+=batch.length;pending=new Map();pendingBytes=0;
     }
     const converted=await convertSenseRecord(values.key,document,async(key,payload,expiry)=>{
@@ -133,9 +138,9 @@ async function main() {
       }
     });
     console.log(JSON.stringify({applied:values.apply,sourceBytes:Buffer.byteLength(row.payload),manifestBytes:Buffer.byteLength(converted),shards:emitted,shardBytes}));
-  } finally {
+  } catch(error) {console.error("Migration stopped:",error.message);throw error;} finally {
     if(locked) await sql`UPDATE cerebral.tech_launch_readiness_cache SET expires_at=${now()} WHERE cache_key=${lease} AND payload=${token}`;
-    await sql.end();
+    await sql.end({timeout:5});
   }
 }
 if(process.argv[1] && import.meta.url===pathToFileURL(resolve(process.argv[1])).href) main().catch(error=>{console.error(error instanceof Error ? error.message : "Migration failed");process.exitCode=1;});
