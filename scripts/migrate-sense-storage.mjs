@@ -67,7 +67,12 @@ async function main() {
       const [existing]=await sql`SELECT payload FROM cerebral.tech_launch_readiness_cache WHERE cache_key=${stageKey}`;
       if(!existing)throw new Error("No staged conversion found");
       stage=JSON.parse(existing.payload);
-      if(stage.sourceKey!==values.key || stage.sourceCreatedAt!==metadata.created_at)throw new Error("Source changed since staging");
+      if(stage.sourceKey!==values.key)throw new Error("Staged source identity differs");
+      if(stage.sourceCreatedAt!==metadata.created_at){
+        const [current]=await sql`SELECT CASE WHEN octet_length(payload)<=${recordLimit} THEN payload ELSE NULL END AS payload FROM cerebral.tech_launch_readiness_cache WHERE cache_key=${values.key}`;
+        if(current?.payload===stage.payload){console.log(JSON.stringify({alreadyPublished:true,key:values.key}));return;}
+        throw new Error("Source changed since staging");
+      }
     }
     if(values.stage) {
       const [existing]=await sql`SELECT payload FROM cerebral.tech_launch_readiness_cache WHERE cache_key=${stageKey}`;
