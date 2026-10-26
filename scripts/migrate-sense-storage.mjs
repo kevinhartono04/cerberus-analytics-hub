@@ -97,6 +97,28 @@ async function main() {
         row={...metadata,payload};
       } catch(error){if(error.code!=="ENOENT")throw error;}
     }
+    // Repeated snapshots often differ only by report timestamp. Reconstruct locally,
+    // but accept the candidate only after an exact checksum against the live source.
+    if(!row && dir && values.key.startsWith("sense:result:sense:v1:")) {
+      try {
+        const priorName=await readFile(resolve(dir,".snapshot-template"),"utf8");
+        if(/^[a-f0-9]{64}\.json$/.test(priorName)) {
+          const prior=JSON.parse(await readFile(resolve(dir,priorName),"utf8"));
+          const timestamp=values.key.slice("sense:result:sense:v1:".length+64+1);
+          if(prior.result?.generatedAt) {
+            prior.result.generatedAt=timestamp;
+            const candidate=JSON.stringify(prior);
+            if(Buffer.byteLength(candidate)===metadata.bytes) {
+              const check=await sql.begin(async tx=>{
+                await tx`SET LOCAL statement_timeout=15000`;
+                return tx`SELECT encode(sha256(convert_to(payload,'UTF8')),'hex') AS checksum FROM cerebral.tech_launch_readiness_cache WHERE cache_key=${values.key} AND created_at=${metadata.created_at}`;
+              });
+              if(check[0]?.checksum===hash(candidate))row={...metadata,payload:candidate};
+            }
+          }
+        }
+      } catch(error){if(error.code!=="ENOENT")throw error;}
+    }
     row ??= (await sql`SELECT cache_key,payload,created_at,expires_at FROM cerebral.tech_launch_readiness_cache WHERE cache_key=${values.key}`)[0];
     if(!row) throw new Error("Source record not found.");
     const document=JSON.parse(row.payload);
@@ -107,6 +129,7 @@ async function main() {
         try{await writeFile(resolve(dir,file),content,{mode:0o600,flag:"wx"});}catch(error){if(error.code!=="EEXIST")throw error;}
       }
     }
+    if(dir && values.key.startsWith("sense:result:sense:v1:"))await writeFile(resolve(dir,".snapshot-template"),stem+".json",{mode:0o600});
     let emitted=0,shardBytes=0;
     if(stage && stage.sourceSha256!==hash(row.payload))throw new Error("Source checksum differs from staged backup");
     const stagedDocument=stage ? JSON.parse(stage.payload) : null;
