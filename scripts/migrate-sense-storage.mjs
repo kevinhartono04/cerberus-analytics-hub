@@ -46,6 +46,7 @@ async function main() {
   if(values.apply && !values["backup-dir"]) throw new Error("--apply requires --backup-dir on a private local disk.");
   if(values.apply && !values.stage && !values.publish)throw new Error("Choose --stage or --publish explicitly with --apply");
   if(values.publish && !values.apply)throw new Error("--publish requires --apply");
+  if(values.verify && values.publish)throw new Error("Choose verify or publish, not both");
   if(values.stage && (values.verify || values.publish))throw new Error("Choose stage or verify/publish, not both");
   const sql=postgres(process.env.CEREBRAL_DATABASE_URL,{max:1,prepare:false,ssl:{ca:supabaseCa,rejectUnauthorized:true},connect_timeout:10,idle_timeout:0});
   const lease="sense:upstream:lease",token=crypto.randomUUID();
@@ -70,8 +71,10 @@ async function main() {
       if(stage.sourceKey!==values.key)throw new Error("Staged source identity differs");
       if(stage.sourceCreatedAt!==metadata.created_at){
         const [current]=await sql`SELECT CASE WHEN octet_length(payload)<=${recordLimit} THEN payload ELSE NULL END AS payload FROM cerebral.tech_launch_readiness_cache WHERE cache_key=${values.key}`;
-        if(current?.payload===stage.payload){console.log(JSON.stringify({alreadyPublished:true,key:values.key}));return;}
-        throw new Error("Source changed since staging");
+        if(current?.payload!==stage.payload)throw new Error("Source changed since staging");
+        if(values.publish){console.log(JSON.stringify({alreadyPublished:true,key:values.key}));return;}
+        if(!values["backup-dir"])throw new Error("Verifying a published record requires its original --backup-dir");
+        metadata.created_at=stage.sourceCreatedAt;metadata.expires_at=stage.sourceExpiresAt;
       }
     }
     if(values.stage) {
@@ -159,6 +162,7 @@ async function main() {
         // Keep migrated runs explicitly paused. Resumption is a separate, monitored action.
         await tx`INSERT INTO cerebral.tech_launch_readiness_cache(cache_key,payload,created_at,expires_at) VALUES(${values.key+":paused"},'true',${now()},${row.expires_at}) ON CONFLICT(cache_key) DO UPDATE SET payload='true',expires_at=excluded.expires_at`;
         if(document.status==="running") await tx`INSERT INTO cerebral.tech_launch_readiness_cache(cache_key,payload,created_at,expires_at) VALUES(${"sense:pending:"+values.key},'',${now()},${row.expires_at}) ON CONFLICT(cache_key) DO NOTHING`;
+        else await tx`DELETE FROM cerebral.tech_launch_readiness_cache WHERE cache_key=${"sense:pending:"+values.key}`;
       }
     });
     console.log(JSON.stringify({applied:values.apply,sourceBytes:Buffer.byteLength(row.payload),manifestBytes:Buffer.byteLength(converted),shards:emitted,shardBytes}));
