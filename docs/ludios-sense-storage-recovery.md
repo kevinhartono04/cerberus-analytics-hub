@@ -1,6 +1,6 @@
 # Ludios Sense storage recovery
 
-The October 23 incident involved successful Sensor Tower responses followed by process termination and database failures. The old worker repeatedly read and serialized entire scan histories; the largest checkpoint was 111 MB of JSON. All 26 existing production checkpoints exceed the new 4 MiB read limit. The exact allocation that triggered the original termination was not profiled.
+The October 23 incident involved successful Sensor Tower responses followed by process termination and database failures. The old worker repeatedly read and serialized entire scan histories; the largest checkpoint was 111 MB of JSON. The October 23 inventory found 26 production checkpoints above the new 4 MiB read limit. The exact allocation that triggered the original termination was not profiled.
 
 ## Changes
 
@@ -77,3 +77,5 @@ If the trial breaches the memory or I/O budget, pause it. Keep the deployed queu
 - A real 6,038-game checkpoint still had a 5,996,607-byte root after history extraction. Report-row pagination reduces that root to 1,125,136 bytes with 19 report pages, preserving row order. Status summaries must be migrated too; metadata inventory found 405 total source records including 27 summaries.
 - Streamed JSON response tests preserve Unicode in payloads above 4.5 MiB. Vercel documents streaming as the supported alternative to its buffered-response limit: https://vercel.com/kb/guide/how-to-bypass-vercel-body-size-limit-serverless-functions
 - Live rollback probes verified fresh and existing row checksums, no persisted probe records, and read-only verification for the single-exchange batch implementation.
+
+- Final October 26 inventory: 3 history indexes, 27 checkpoints, 27 status summaries, and 348 saved snapshots (405 records; 6,622,024,578 source bytes). Publication verifies chunks again using key-only requests, checks source timestamp and SHA-256 under the lease, and leaves every migrated checkpoint paused. Completed checkpoints have stale pending markers removed.

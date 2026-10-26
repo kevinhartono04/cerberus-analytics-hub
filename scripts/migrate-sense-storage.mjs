@@ -154,6 +154,7 @@ async function main() {
       console.log(JSON.stringify({staged:true,key:values.key,sourceBytes:Buffer.byteLength(row.payload),manifestBytes:Buffer.byteLength(converted),shards:emitted,written,shardBytes}));return;
     }
     if(values.apply) await sql.begin(async tx=>{
+      await tx`SET LOCAL statement_timeout=15000`;
       const [owner]=await tx`SELECT payload FROM cerebral.tech_launch_readiness_cache WHERE cache_key=${lease} AND expires_at>${now()} FOR UPDATE`;
       if(owner?.payload!==token) throw new Error("Migration lease expired; source will not be replaced.");
       const rows=await tx`UPDATE cerebral.tech_launch_readiness_cache SET payload=${converted},created_at=${now()} WHERE cache_key=${values.key} AND created_at=${row.created_at} AND encode(sha256(convert_to(payload,'UTF8')),'hex')=${hash(row.payload)} RETURNING cache_key`;
