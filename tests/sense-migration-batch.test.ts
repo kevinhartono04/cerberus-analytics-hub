@@ -11,5 +11,5 @@ it('keeps quotes and SQL-looking payload data inside a fresh dollar-quoted JSON 
  expect(sql.endsWith('COMMIT;')).toBe(true);
 });
 it('rejects oversized batches before contacting the database',()=>{
- expect(()=>migrationBatchSql(Array.from({length:65},()=>({payload:''})))).toThrow('bounded budget');
+ expect(()=>migrationBatchSql(Array.from({length:257},()=>({payload:''})))).toThrow('bounded budget');
 });
