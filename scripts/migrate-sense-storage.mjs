@@ -6,6 +6,7 @@ import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 import postgres from "postgres";
 import { encodeHistory, pageSenseManifest } from "../lib/ludios-sense-codec.mjs";
+import { migrationBatchSql } from "./sense-migration-batch.mjs";
 import { supabaseCa } from "../lib/supabase-ca.ts";
 const hash = value => createHash("sha256").update(value).digest("hex");
 const recordLimit = 4 * 1024 * 1024;
@@ -40,7 +41,7 @@ export async function convertSenseRecord(key, document, emit, expiresAt) {
 
 async function main() {
   const {values}=parseArgs({options:{key:{type:"string"},"backup-dir":{type:"string"},"verified-cache":{type:"string"},apply:{type:"boolean",default:false},stage:{type:"boolean",default:false},verify:{type:"boolean",default:false},publish:{type:"boolean",default:false}}});
-  if(!values.key || !/^(sense:v1:[a-f0-9]{64}|sense:history:(shared:v2|[A-Z,]+)|sense:result:sense:v1:[a-f0-9]{64}:.+)$/.test(values.key)) throw new Error("Pass --key with exactly one checkpoint, history index, or saved report key.");
+  if(!values.key || !/^(sense:v1:[a-f0-9]{64}(?::summary)?|sense:history:(shared:v2|[A-Z,]+)|sense:result:sense:v1:[a-f0-9]{64}:.+)$/.test(values.key)) throw new Error("Pass --key with exactly one checkpoint, history index, or saved report key.");
   if(!process.env.CEREBRAL_DATABASE_URL) throw new Error("Run in an authorized environment with CEREBRAL_DATABASE_URL already configured; do not paste credentials into commands.");
   if(values.apply && !values["backup-dir"]) throw new Error("--apply requires --backup-dir on a private local disk.");
   if(values.apply && !values.stage && !values.publish)throw new Error("Choose --stage or --publish explicitly with --apply");
@@ -105,18 +106,15 @@ async function main() {
       const batch=[...pending.values()];
       if(written-lastReported>=512){console.log(JSON.stringify({progress:written,batch:batch.length}));lastReported=written;}
       async function writeBatch(batch,canSplit=true){
-      let phase="begin";
-      try{await sql.begin(async tx=>{
-        await tx`SET LOCAL statement_timeout=15000`;
-        phase="write";
-      if(!stage) await tx`INSERT INTO cerebral.tech_launch_readiness_cache(cache_key,payload,created_at,expires_at)
-        SELECT cache_key,payload,created_at,expires_at FROM jsonb_to_recordset(${tx.json(batch)}) AS r(cache_key text,payload text,created_at text,expires_at text)
-        ON CONFLICT(cache_key) DO UPDATE SET expires_at=greatest(tech_launch_readiness_cache.expires_at,excluded.expires_at) WHERE tech_launch_readiness_cache.expires_at<excluded.expires_at`;
-      phase="verify";
-      const checks=await tx`SELECT cache_key,encode(sha256(convert_to(payload,'UTF8')),'hex') AS checksum,expires_at FROM cerebral.tech_launch_readiness_cache WHERE cache_key IN ${tx(batch.map(r=>r.cache_key))}`;
-      const actual=new Map(checks.map(r=>[r.cache_key,r]));
-      for(const item of batch){const found=actual.get(item.cache_key);if(!found || found.checksum!==hash(item.payload) || found.expires_at<item.expires_at)throw new Error("Shard verification failed: "+item.cache_key);}
-      });}catch(error){
+      const phase="write/checksum";
+      try{
+        let results;
+        try{results=await sql.unsafe(migrationBatchSql(batch,{write:!stage})).simple();}
+        catch(error){await sql.unsafe('ROLLBACK').simple();throw error;}
+        const checks=results.flat().filter(row=>row.cache_key);
+        const actual=new Map(checks.map(r=>[r.cache_key,r]));
+        for(const item of batch){const found=actual.get(item.cache_key);if(!found || found.checksum!==hash(item.payload) || found.expires_at<item.expires_at)throw new Error("Shard verification failed: "+item.cache_key);}
+      }catch(error){
         if(error.code==="57014" && canSplit && batch.length>1){
           console.log(JSON.stringify({retrySmallerBatch:true,phase,rows:batch.length}));
           const middle=Math.ceil(batch.length/2);await writeBatch(batch.slice(0,middle),false);await writeBatch(batch.slice(middle),false);

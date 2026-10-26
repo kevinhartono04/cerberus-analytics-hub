@@ -215,7 +215,7 @@ async function saveJob(job: Job, lease: string) {
     await save(job.jobKey+":summary",{jobKey:job.jobKey,status:"error",requests:job.requests,progress:message,error:message,paused:true});
     throw error;
   }
-  await saveTechLaunchReadinessCache({ cacheKey: job.jobKey, payload, createdAt: now(), expiresAt: aliveUntil(), senseJobStatus: job.status, expectedSenseLease:lease, senseSummaryPayload:boundedSenseJson(response(job)) });
+  await saveTechLaunchReadinessCache({ cacheKey: job.jobKey, payload, createdAt: now(), expiresAt: aliveUntil(), senseJobStatus: job.status, expectedSenseLease:lease, senseSummaryPayload:boundedSenseJson(await prepareSenseManifest(response(job))) });
 }
 
 export async function getSenseStatus(key: string): Promise<SenseRunResponse> {
@@ -254,8 +254,18 @@ export async function getSenseWatchlist(key: string) {
   const filters = current.result.filters;
   const previous = await getSenseDetectionReports(Array.from({ length: 7 }, (_, i) =>
     cacheKey({ ...filters, date: shiftDate(filters.date, -i - 1) }) + ":summary"));
-  return buildSenseWatchlist(current, previous.filter(record => !record.expiresAt || record.expiresAt > now())
-    .map(record => JSON.parse(record.payload) as SenseRunResponse));
+  const reports: SenseRunResponse[]=[];
+  for(const record of previous){
+    if(record.expiresAt && record.expiresAt<=now())continue;
+    const report=JSON.parse(record.payload);
+    if(report.result?.gamePages){
+      const full=await load<SenseRunResponse>(record.cacheKey);
+      if(!full?.result)continue;
+      report.result.games=full.result.games.filter(game=>game.classification==="included" && ["confirmed_momentum","early_warning"].includes(game.evaluation.signal));
+    }
+    reports.push(report);
+  }
+  return buildSenseWatchlist(current,reports);
 }
 
 export async function setSensePaused(key: string, paused: boolean): Promise<SenseRunResponse> {

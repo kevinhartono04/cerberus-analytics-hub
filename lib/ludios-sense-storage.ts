@@ -33,6 +33,19 @@ export async function readSenseRecord<T>(key: string, maxBytes = SENSE_RECORD_LI
       Object.assign(state.apps,page);
     }
   }
+  if(Array.isArray(document?.result?.gamePages)) {
+    if(document.result.gamePages.length>512)throw new Error("Scan metadata exceeds the bounded page budget");
+    const games=[];
+    for(const ref of document.result.gamePages){
+      if(typeof ref!=="string" || !/^sense:games:v4:[a-f0-9]{64}$/.test(ref))throw new Error("Invalid saved report page");
+      const page=await readSenseRecord<unknown[]>(ref,MANIFEST_PAGE_LIMIT);
+      if(!Array.isArray(page))throw new Error("Saved report page is unavailable");
+      total+=Buffer.byteLength(JSON.stringify(page));
+      if(total>MANIFEST_TOTAL_LIMIT)throw new Error("Scan metadata exceeds the bounded page budget");
+      games.push(...page);
+    }
+    document.result.games=games;
+  }
   return document as T;
 }
 export async function hydrateSenseHistory(app: ShardedHistory) {

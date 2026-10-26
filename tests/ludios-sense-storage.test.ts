@@ -4,7 +4,7 @@ vi.mock("@/lib/db",()=>({
   getTechLaunchReadinessCache:vi.fn(async(key:string)=>records.get(key) ?? null),
   saveTechLaunchReadinessCache:async(record:{cacheKey:string;payload:string;expiresAt:string})=>{writes(record);records.set(record.cacheKey,record);},
 }));
-import { hydrateSenseHistory, persistSenseHistory, readSenseRecord, type ShardedHistory } from "@/lib/ludios-sense-storage";
+import { hydrateSenseHistory, persistSenseHistory, readSenseRecord, prepareSenseManifest, type ShardedHistory } from "@/lib/ludios-sense-storage";
 import { requiredHistoryWeeks } from "@/lib/ludios-sense-history";
 beforeEach(()=>{records.clear();writes.mockClear();});
 describe("immutable per-game storage",()=>{
@@ -41,4 +41,13 @@ describe("immutable per-game storage",()=>{
     expect(Buffer.byteLength(JSON.stringify(apps))).toBeLessThan(1024*1024);
     expect(Math.max(...[...records.values()].map(r=>Buffer.byteLength(r.payload)))).toBeLessThan(256*1024);
   });
+});
+
+it("restores paged report rows in order and rejects a missing page",async()=>{
+  const games=Array.from({length:1200},(_,i)=>({appId:String(i),title:"x".repeat(900)}));
+  const root:any=await prepareSenseManifest({result:{games}});
+  records.set("report",{payload:JSON.stringify(root),expiresAt:"2099-01-01"});
+  expect((await readSenseRecord<any>("report")).result.games).toEqual(games);
+  records.delete(root.result.gamePages[0]);
+  await expect(readSenseRecord("report")).rejects.toThrow("page is unavailable");
 });
