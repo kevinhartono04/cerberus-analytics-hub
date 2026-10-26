@@ -167,7 +167,7 @@ async function main() {
       if(cachePath && cached && shardMatches(key,payload,cached.checksum) && cached.expiresAt>=expiry)return;
       if((values.apply || values.verify) && !seen.has(key)) {
         seen.add(key);pending.set(key,{cache_key:key,payload,created_at:now(),expires_at:expiry});pendingBytes+=Buffer.byteLength(payload);
-        if(pending.size>=1024 || pendingBytes>=(stage ? 4*1024*1024 : 512*1024))await flush();
+        if(pending.size>=4096 || pendingBytes>=(stage ? 4*1024*1024 : 512*1024))await flush();
       }
     },expiresAt);
     if(values.apply || values.verify)await flush();
