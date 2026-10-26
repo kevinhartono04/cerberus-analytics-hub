@@ -1,6 +1,6 @@
 /** Offline migration: one legacy row at a time, never run inside a Vercel Function. */
 import { createHash } from "node:crypto";
-import { mkdir, writeFile, readFile } from "node:fs/promises";
+import { mkdir, writeFile, readFile, rename } from "node:fs/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
@@ -39,7 +39,7 @@ export async function convertSenseRecord(key, document, emit, expiresAt) {
 }
 
 async function main() {
-  const {values}=parseArgs({options:{key:{type:"string"},"backup-dir":{type:"string"},apply:{type:"boolean",default:false},stage:{type:"boolean",default:false},verify:{type:"boolean",default:false},publish:{type:"boolean",default:false}}});
+  const {values}=parseArgs({options:{key:{type:"string"},"backup-dir":{type:"string"},"verified-cache":{type:"string"},apply:{type:"boolean",default:false},stage:{type:"boolean",default:false},verify:{type:"boolean",default:false},publish:{type:"boolean",default:false}}});
   if(!values.key || !/^(sense:v1:[a-f0-9]{64}|sense:history:(shared:v2|[A-Z,]+)|sense:result:sense:v1:[a-f0-9]{64}:.+)$/.test(values.key)) throw new Error("Pass --key with exactly one checkpoint, history index, or saved report key.");
   if(!process.env.CEREBRAL_DATABASE_URL) throw new Error("Run in an authorized environment with CEREBRAL_DATABASE_URL already configured; do not paste credentials into commands.");
   if(values.apply && !values["backup-dir"]) throw new Error("--apply requires --backup-dir on a private local disk.");
@@ -49,6 +49,10 @@ async function main() {
   const sql=postgres(process.env.CEREBRAL_DATABASE_URL,{max:1,prepare:false,ssl:{ca:supabaseCa,rejectUnauthorized:true},connect_timeout:10,idle_timeout:0});
   const lease="sense:upstream:lease",token=crypto.randomUUID();
   let locked=false;
+  const cachePath=values.stage && values["verified-cache"] ? resolve(values["verified-cache"]) : null;
+  let verifiedCache={};
+  if(cachePath)try{verifiedCache=JSON.parse(await readFile(cachePath,"utf8"));}catch(error){if(error.code!=="ENOENT")throw error;}
+
   try {
     if(values.apply) {
       const rows=await sql`INSERT INTO cerebral.tech_launch_readiness_cache(cache_key,payload,created_at,expires_at) VALUES(${lease},${token},${now()},${new Date(Date.now()+3600000).toISOString()}) ON CONFLICT(cache_key) DO UPDATE SET payload=excluded.payload,created_at=excluded.created_at,expires_at=excluded.expires_at WHERE cerebral.tech_launch_readiness_cache.expires_at <= ${now()} RETURNING cache_key`;
@@ -120,10 +124,13 @@ async function main() {
       }
       }
       await writeBatch(batch);
+      if(cachePath)for(const item of batch)verifiedCache[item.cache_key]={checksum:hash(item.payload),expiresAt:item.expires_at};
       written+=batch.length;pending=new Map();pendingBytes=0;
     }
     const converted=await convertSenseRecord(values.key,document,async(key,payload,expiry)=>{
       emitted++;shardBytes+=Buffer.byteLength(payload);
+      const cached=verifiedCache[key];
+      if(cachePath && cached?.checksum===hash(payload) && cached.expiresAt>=expiry)return;
       if((values.apply || values.verify) && !seen.has(key)) {
         seen.add(key);pending.set(key,{cache_key:key,payload,created_at:now(),expires_at:expiry});pendingBytes+=Buffer.byteLength(payload);
         if(pending.size>=64 || pendingBytes>=512*1024)await flush();
@@ -134,7 +141,10 @@ async function main() {
     if(values.verify){console.log(JSON.stringify({verified:true,key:values.key,shards:written}));return;}
     if(values.apply && values.stage) {
       const staged=JSON.stringify({sourceKey:values.key,sourceCreatedAt:row.created_at,sourceSha256:hash(row.payload),sourceExpiresAt:row.expires_at,shardExpiresAt:expiresAt,payload:converted});
-      await sql`INSERT INTO cerebral.tech_launch_readiness_cache(cache_key,payload,created_at,expires_at) VALUES(${stageKey},${staged},${now()},${expiresAt}) ON CONFLICT(cache_key) DO UPDATE SET payload=excluded.payload,created_at=excluded.created_at,expires_at=excluded.expires_at`;
+      await sql.begin(async tx=>{
+        await tx`SET LOCAL statement_timeout=15000`;
+        await tx`INSERT INTO cerebral.tech_launch_readiness_cache(cache_key,payload,created_at,expires_at) VALUES(${stageKey},${staged},${now()},${expiresAt}) ON CONFLICT(cache_key) DO UPDATE SET payload=excluded.payload,created_at=excluded.created_at,expires_at=excluded.expires_at`;
+      });
       console.log(JSON.stringify({staged:true,key:values.key,sourceBytes:Buffer.byteLength(row.payload),manifestBytes:Buffer.byteLength(converted),shards:emitted,written,shardBytes}));return;
     }
     if(values.apply) await sql.begin(async tx=>{
@@ -150,8 +160,11 @@ async function main() {
     });
     console.log(JSON.stringify({applied:values.apply,sourceBytes:Buffer.byteLength(row.payload),manifestBytes:Buffer.byteLength(converted),shards:emitted,shardBytes}));
   } catch(error) {console.error("Migration stopped:",error.message);throw error;} finally {
+
     if(locked) await sql`UPDATE cerebral.tech_launch_readiness_cache SET expires_at=${now()} WHERE cache_key=${lease} AND payload=${token}`;
     await sql.end({timeout:5});
+    if(cachePath){await writeFile(cachePath+".tmp",JSON.stringify(verifiedCache),{mode:0o600});await rename(cachePath+".tmp",cachePath);}
+
   }
 }
 if(process.argv[1] && import.meta.url===pathToFileURL(resolve(process.argv[1])).href) main().catch(error=>{console.error(error instanceof Error ? error.message : "Migration failed");process.exitCode=1;});
