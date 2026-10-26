@@ -1731,14 +1731,16 @@ export async function refundQueueStatus() {
   return { pending: Number(rows[0].pending), deliveryFailed: Number(rows[0].delivery_failed) };
 }
 
-/** Match queue markers independently of database collation; paused checks use the primary key. */
+/** The coarse alphabetic range uses the primary key under both C and en_US collations.
+ * Keep LIKE as the exact prefix check: punctuation-only bounds are not ordered reliably. */
 export async function listPendingSenseJobs(): Promise<string[]> {
   const now = new Date().toISOString();
   const prefix = "sense:pending:";
   if (shouldUseLocalSqlite()) {
     ensureSqliteTechLaunchCacheTable();
     return sqliteJsonRows<{ cache_key: string }>(`SELECT q.cache_key FROM tech_launch_readiness_cache q
-      WHERE q.cache_key LIKE 'sense:pending:%'
+      WHERE q.cache_key >= 'sense:pending' AND q.cache_key < 'sense:pendinh'
+    AND q.cache_key LIKE 'sense:pending:%'
       AND q.expires_at>${sqliteLiteral(now)}
       AND NOT EXISTS (SELECT 1 FROM tech_launch_readiness_cache p
         WHERE p.cache_key=substr(q.cache_key,15)||':paused' AND p.payload='true' AND p.expires_at>${sqliteLiteral(now)})
@@ -1746,7 +1748,8 @@ export async function listPendingSenseJobs(): Promise<string[]> {
   }
   const sql = await ensureTechLaunchCacheTable();
   const rows = await sql<{ cache_key: string }[]>`SELECT q.cache_key FROM tech_launch_readiness_cache q
-    WHERE q.cache_key LIKE 'sense:pending:%'
+    WHERE q.cache_key >= 'sense:pending' AND q.cache_key < 'sense:pendinh'
+    AND q.cache_key LIKE 'sense:pending:%'
     AND q.expires_at>${now}
     AND NOT EXISTS (SELECT 1 FROM tech_launch_readiness_cache p
       WHERE p.cache_key=substring(q.cache_key from 15)||':paused' AND p.payload='true' AND p.expires_at>${now})

@@ -53,3 +53,11 @@ describe("indexed pending Sense queue", () => {
     expect((await db.getTechLaunchReadinessCache(key, 40))?.payload).toBe('é'.repeat(20));
   });
 });
+
+it("keeps exact queue prefixes and boundary IDs inside the indexed range",async()=>{
+  const keys=["0","f"].map(c=>"sense:v1:"+c.repeat(64));
+  for(const k of keys)await db.saveTechLaunchReadinessCache({...record(k,'{}'),senseJobStatus:"running"});
+  for(const prefix of ["sense:pending-other:","sense:pendingx:","sense:pending;","sense:pendinh:"])
+    await db.saveTechLaunchReadinessCache(record(prefix+key,''));
+  expect((await db.listPendingSenseJobs()).sort()).toEqual(keys);
+});
