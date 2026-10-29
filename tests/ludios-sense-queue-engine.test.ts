@@ -36,6 +36,10 @@ describe("database-backed Sense queue",()=>{
   const expected=Array.from({length:28},(_,i)=>({date:shiftDate(filters.date,i-27),downloads:i>=25?1200:400}));
   expect(chart.history).toEqual(expected);expect(chart.evaluation).toEqual(evaluateSense(expected,filters.date,null));
   expect(fixture.calls.filter(c=>c.endpoint.endsWith("metrics"))).toHaveLength(6);
+  expect(await fixture.store.detections(run.jobKey)).toHaveLength(2);
+  await fixture.pg.query("UPDATE cerebral.sense_queue_candidates SET result=jsonb_set(result,'{evaluation,signal}','\"none\"') WHERE job_key=$1 AND store='ios'",[run.jobKey]);
+  expect((await fixture.store.detections(run.jobKey)).map(game=>game.store)).toEqual(["android"]);
+  expect((await fixture.store.observations(run.jobKey,[{store:"ios",appId:"123"},{store:"ios",appId:"123"},{store:"android",appId:"absent"}])).map(game=>game.evaluation.signal)).toEqual(["none"]);
   const saved=await fixture.store.get(run.jobKey);
   expect(JSON.stringify(saved!.state)).not.toContain("historyRef");expect(JSON.stringify(saved!.state)).not.toContain('"apps"');
   expect(Buffer.byteLength(JSON.stringify(saved!.state))).toBeLessThan(4096);

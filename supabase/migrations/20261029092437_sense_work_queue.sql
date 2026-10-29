@@ -47,6 +47,8 @@ CREATE TABLE cerebral.sense_queue_candidates (
 CREATE INDEX sense_queue_candidates_work ON cerebral.sense_queue_candidates(job_key,store,stage,app_id COLLATE "C");
 CREATE INDEX sense_queue_candidates_history ON cerebral.sense_queue_candidates(job_key,store,stage,week_index,(jsonb_array_length(weeks)),(weeks::text),app_id COLLATE "C") WHERE stage='history';
 CREATE INDEX sense_queue_candidates_reports ON cerebral.sense_queue_candidates(job_key,sort_rank,sort_added DESC,sort_growth DESC,app_id COLLATE "C",store) WHERE result IS NOT NULL;
+CREATE INDEX sense_queue_candidates_detections ON cerebral.sense_queue_candidates(job_key,store,app_id)
+  WHERE result->>'classification'='included' AND result #>> '{evaluation,signal}' IN ('confirmed_momentum','early_warning');
 CREATE TABLE cerebral.sense_queue_attempts (
   request_id text PRIMARY KEY,
   job_key text NOT NULL REFERENCES cerebral.sense_queue_jobs(job_key),

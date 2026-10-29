@@ -6,9 +6,11 @@ The discovery bottleneck was repeated transfer of the shared metadata catalogue 
 
 - Real Postgres semantics via PGlite, using the exact migration and adoption SQL.
 - Cold two-store scan, weekly history, detector/chart parity, country subset with zero new provider calls, partial allowance coverage, crash recovery, leases, in-flight pause and persistent safety stops.
-- Warm 20,000-candidate/seven-country replay through all phases: 4,000 included reports, every evaluation checked. The fixture simulates provider responses; it does not contact Sensor Tower.
-- Optional real cached discovery prefix: set `SENSE_QUEUE_REPLAY_FIXTURE` to a local exported fixture, then run `npx vitest run tests/ludios-sense-production-replay.test.ts`. Raw licensed data is excluded from the repository. The Oct 29 replay includes 72 exact cached responses and one empty Oct 28 response inferred from the saved cursor and receipt. It reproduces the paused Android/iOS candidate sets (11,544 / 9,842) and cursor with zero provider calls. This is a prefix replay, not a complete live scan.
+- Warm 20,000-candidate/seven-country replay through all phases: 4,000 included reports, every evaluation checked. The fixture simulates provider responses; it does not contact Sensor Tower. Measured application payload reads were 1,269,872 bytes for discovery and 70,582,348 bytes overall (1,426 steps).
+- Optional real cached discovery prefix: set `SENSE_QUEUE_REPLAY_FIXTURE` to a local exported fixture, then run `npx vitest run tests/ludios-sense-production-replay.test.ts`. Raw licensed data is excluded from the repository. The Oct 29 replay includes 72 exact cached responses and one empty Oct 28 response inferred from the saved cursor and receipt. It uses approximately 1.6 MB of application payload reads and reproduces the paused Android/iOS candidate sets (11,544 / 9,842) and cursor with zero provider calls. This is a prefix replay, not a complete live scan.
 - Read counters estimate JSON payload bytes transferred to the application, not Supabase billed wire bytes. Cache expiry, database protocol overhead, future response sizes and missing history can change live usage.
+
+Recent detections use a partial index and selected observation rows; viewing the shortlist does not retrieve every game from seven prior reports.
 
 ## Controlled activation
 

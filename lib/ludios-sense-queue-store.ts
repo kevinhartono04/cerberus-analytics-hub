@@ -161,6 +161,21 @@ export class SenseQueueStore {
       return {result:{...meta,requests:current.requests,games:rows.map(r=>r.result as SenseGame)},page,pageCount:pages,revision:current.updatedAt};
     });
   }
+  async detections(key:string):Promise<SenseGame[]>{
+    const rows=await this.database.query(`SELECT result FROM cerebral.sense_queue_candidates WHERE job_key=$1
+      AND result->>'classification'='included' AND result #>> '{evaluation,signal}' IN ('confirmed_momentum','early_warning')`,[key]);
+    return rows.map(row=>row.result as SenseGame);
+  }
+  async observations(key:string,ids:{store:SenseStore;appId:string}[]):Promise<SenseGame[]>{
+    const unique=[...new Map(ids.map(id=>[id.store+":"+id.appId,id])).values()],games:SenseGame[]=[];
+    for(let offset=0;offset<unique.length;offset+=100){
+      const rows=await this.database.query(`SELECT c.result FROM cerebral.sense_queue_candidates c JOIN
+        jsonb_to_recordset($2::jsonb) AS input(store text,app_id text) ON c.store=input.store AND c.app_id=input.app_id
+        WHERE c.job_key=$1 AND c.result IS NOT NULL`,[key,JSON.stringify(unique.slice(offset,offset+100).map(id=>({store:id.store,app_id:id.appId})))]);
+      games.push(...rows.map(row=>row.result as SenseGame));
+    }
+    return games;
+  }
   async subsetSource(filters:QueueState["filters"],ruleVersion:string):Promise<QueueJob|null>{
     const [row]=await this.database.query(`SELECT ${columns} FROM cerebral.sense_queue_jobs WHERE report_date=$1 AND countries @> $2::text[] AND rule_version=$3
       AND state->>'status'='completed' AND expires_at>now() ORDER BY coalesce((state #>> '{result,coverageComplete}')::boolean,false) DESC,cardinality(countries),updated_at DESC LIMIT 1`,[filters.date,filters.countries,ruleVersion]);

@@ -312,7 +312,8 @@ export async function getSenseGame(key: string, appId: string, store: SenseStore
 }
 
 export async function getSenseWatchlist(key: string) {
-  const current = await getSenseStatus(key);
+  const header=await getSenseProgress(key);
+  const current=header.queueEngine===1?{...header,result:header.result?{...header.result,games:await (await queueRuntime()).store.detections(key)}:undefined}:await getSenseStatus(key);
   if (!current.result) return [];
   const filters = current.result.filters;
   const previous = await getSenseDetectionReports(Array.from({length:7},(_,i)=>{
@@ -329,12 +330,18 @@ export async function getSenseWatchlist(key: string) {
   for(const record of selectedReports.values()){
     if(record.expiresAt && record.expiresAt<=now())continue;
     const report=JSON.parse(record.payload);
-    if(report.queueEngine===1 || report.result?.gamePages){
-      const full=report.queueEngine===1?await getSenseStatus(record.cacheKey.slice(0,-8)):await load<SenseRunResponse>(record.cacheKey);
+    if(report.queueEngine===1){
+      report.result.games=await (await queueRuntime()).store.detections(record.cacheKey.slice(0,-8));
+    }else if(report.result?.gamePages){
+      const full=await load<SenseRunResponse>(record.cacheKey);
       if(!full?.result)continue;
       report.result.games=full.result.games.filter(game=>game.classification==="included" && ["confirmed_momentum","early_warning"].includes(game.evaluation.signal));
     }
     reports.push(report);
+  }
+  if(header.queueEngine===1){
+    const observed=await (await queueRuntime()).store.observations(key,reports.flatMap(report=>report.result?.games ?? []).map(game=>({store:game.store,appId:game.appId})));
+    current.result.games=[...new Map([...current.result.games,...observed].map(game=>[game.store+":"+game.appId,game])).values()];
   }
   return buildSenseWatchlist(current,reports);
 }
