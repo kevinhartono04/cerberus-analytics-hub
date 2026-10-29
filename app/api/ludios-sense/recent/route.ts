@@ -1,3 +1,4 @@
+import { measureSenseTransfer } from "@/lib/ludios-sense-transfer";
 import { senseJsonResponse } from "@/lib/ludios-sense-response";
 import { NextResponse } from "next/server";
 import { z, ZodError } from "zod";
@@ -6,6 +7,10 @@ import { getSenseWatchlist } from "@/lib/ludios-sense";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 export async function POST(request: Request) {
+  return measureSenseTransfer("recent",()=>handle(request));
+}
+
+async function handle(request: Request) {
   try {
     assertInternalAppUser(await requireCurrentAppUser(request));
     const { jobKey } = z.object({ jobKey: z.string().regex(/^sense:v1:[a-f0-9]{64}$/) }).parse(await request.json());

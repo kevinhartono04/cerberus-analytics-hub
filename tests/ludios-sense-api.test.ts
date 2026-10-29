@@ -2,10 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const { user, start, advance } = vi.hoisted(()=>({user:{value:{id:"local-admin",email:"admin@tripledotstudios.com"} as {id:string;email:string}|null},start:vi.fn(),advance:vi.fn()}));
 vi.mock("@/lib/auth",()=>({requireCurrentAppUser:vi.fn(async()=>{if(!user.value)throw Response.json({error:"Sign in required"},{status:401});return user.value;}),assertInternalAppUser:vi.fn((u:{email:string})=>{if(!u.email.endsWith("@tripledotstudios.com"))throw Response.json({error:"Internal accounts only"},{status:403});}),jsonError:(e:unknown)=>e instanceof Response?e:Response.json({error:"Unexpected error"},{status:500})}));
 vi.mock("next/server", async importOriginal => ({...await importOriginal<typeof import("next/server")>(),after:vi.fn()}));
-vi.mock("@/lib/ludios-sense",()=>({startSense:start,getSenseStatus:advance,getSenseGame:advance,setSensePaused:advance,runSenseWorker:vi.fn(),continuePendingSenseJobs:vi.fn(async()=>0),estimateSense:advance,getCachedSense:advance}));
+vi.mock("@/lib/ludios-sense",()=>({startSense:start,getSenseStatus:advance,getSenseProgress:vi.fn(async(jobKey:string)=>({jobKey,status:"running",requests:0,progress:"Running"})),getSenseReportPage:advance,getSenseGame:advance,setSensePaused:advance,runSenseWorker:vi.fn(),continuePendingSenseJobs:vi.fn(async()=>0),estimateSense:advance,getCachedSense:advance}));
 vi.mock("@/lib/ludios-sense-icons",()=>({getSenseIcons:vi.fn(async()=>({icons:{},requests:0}))}));
 import { after } from "next/server";
-import { runSenseWorker } from "@/lib/ludios-sense";
+import { getSenseProgress, runSenseWorker } from "@/lib/ludios-sense";
 import {POST as icons} from "@/app/api/ludios-sense/icons/route";
 import {POST as cache} from "@/app/api/ludios-sense/cache/route";
 import {POST as usage} from "@/app/api/ludios-sense/usage/route";
@@ -13,7 +13,7 @@ import {POST as begin} from "@/app/api/ludios-sense/route";
 import {POST as game} from "@/app/api/ludios-sense/game/route";
 import {POST as status} from "@/app/api/ludios-sense/status/route";
 const request=(body:unknown)=>new Request("http://localhost/api/ludios-sense",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
-beforeEach(()=>{vi.clearAllMocks();user.value={id:"local-admin",email:"admin@tripledotstudios.com"};start.mockResolvedValue({status:"running"});});
+beforeEach(()=>{vi.clearAllMocks();advance.mockReset();user.value={id:"local-admin",email:"admin@tripledotstudios.com"};start.mockResolvedValue({status:"running"});});
 describe("Sense authorization and validation",()=>{
  it("requires sign-in and internal access on both endpoints",async()=>{
   user.value=null;expect((await cache(request({}))).status).toBe(401);expect((await icons(request({}))).status).toBe(401);expect((await usage(request({}))).status).toBe(401);expect((await game(request({}))).status).toBe(401);expect((await begin(request({}))).status).toBe(401);expect((await status(request({}))).status).toBe(401);
@@ -26,7 +26,7 @@ describe("Sense authorization and validation",()=>{
   expect(start).not.toHaveBeenCalled();expect(advance).not.toHaveBeenCalled();
  });
  it("restricts icon retrieval to games in the saved report",async()=>{
-  advance.mockResolvedValueOnce({result:{games:[{appId:"1",store:"ios"}],filters:{countries:["US"]}}});
+  vi.mocked(getSenseProgress).mockResolvedValueOnce({result:{games:[],filters:{countries:["US"]},generatedAt:"2026-10-27T09:21:16.228Z"}} as any);advance.mockResolvedValueOnce(null);
   expect((await icons(request({jobKey:"sense:v1:"+"a".repeat(64),store:"ios",appIds:["2"]}))).status).toBe(400);
  });
  it("continues saved subset derivation from cache without starting an ordinary upstream scan",async()=>{

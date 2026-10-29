@@ -1,3 +1,4 @@
+import { measureSenseTransfer } from "@/lib/ludios-sense-transfer";
 import { NextResponse } from "next/server";
 import { z, ZodError } from "zod";
 import { assertInternalAppUser, jsonError, requireCurrentAppUser } from "@/lib/auth";
@@ -5,6 +6,10 @@ import { getSenseGame } from "@/lib/ludios-sense";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 export async function POST(request: Request) {
+  return measureSenseTransfer("game",()=>handle(request));
+}
+
+async function handle(request: Request) {
   try {
     assertInternalAppUser(await requireCurrentAppUser(request));
     const { jobKey, appId, store, generatedAt } = z.object({ jobKey: z.string().regex(/^sense:v1:[a-f0-9]{64}$/), appId: z.string().min(1).max(200), store: z.enum(["android", "ios"]), generatedAt: z.string().datetime().optional() }).parse(await request.json());

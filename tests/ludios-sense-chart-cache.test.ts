@@ -26,3 +26,14 @@ describe("saved game chart projection",()=>{
   expect(JSON.parse((await db.getSenseGameReport(["snapshot","job"],"unknown","ios"))!.payload).result.games).toEqual([]);
  });
 });
+
+it("projects progress inside SQLite before returning a legacy inline report",async()=>{
+ const key="sense:v1:"+"e".repeat(64);
+ const result={generatedAt:"2026-10-27T03:00:00.000Z",games:Array.from({length:2000},(_,i)=>({appId:String(i),name:"x".repeat(900)})),filters:{countries:["US"]}};
+ await db.saveTechLaunchReadinessCache({cacheKey:key+":summary",payload:JSON.stringify({jobKey:key,status:"completed",requests:1,progress:"Done",result}),createdAt:new Date().toISOString(),expiresAt:"2099-01-01T00:00:00Z"});
+ const row=await db.getTechLaunchReadinessCache(key+":summary",4*1024*1024,{senseProgress:true});
+ expect(Buffer.byteLength(row!.payload)).toBeLessThan(1024);
+ const progress=JSON.parse(row!.payload);
+ expect(progress.reportPageCount).toBe(1);expect(progress.result.generatedAt).toBe(result.generatedAt);
+ expect(progress.result.games).toBeUndefined();
+});

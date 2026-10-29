@@ -3,6 +3,7 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import postgres from "postgres";
 import { supabaseCa } from "@/lib/supabase-ca";
+import { countSenseRead } from "@/lib/ludios-sense-transfer";
 
 import type {
   AppUser,
@@ -1197,30 +1198,47 @@ export type TechLaunchReadinessCacheRecord = {
 };
 
 function rowToTechLaunchCacheRecord(row: Record<string, unknown>): TechLaunchReadinessCacheRecord {
-  return {
+  const record = {
     cacheKey: asString(row.cache_key),
     payload: asString(row.payload),
     createdAt: asString(row.created_at),
     expiresAt: asString(row.expires_at),
   };
+  if(record.cacheKey.startsWith("sense:"))countSenseRead(record.payload);
+  return record;
 }
 
 /** Reject oversized cache records in SQL, before transferring or parsing their payload. */
-export async function getTechLaunchReadinessCache(cacheKey: string, maxBytes = 128 * 1024 * 1024): Promise<TechLaunchReadinessCacheRecord | null> {
+export async function getTechLaunchReadinessCache(cacheKey: string, maxBytes = 128 * 1024 * 1024, options?: { senseProgress?: boolean }): Promise<TechLaunchReadinessCacheRecord | null> {
   const map = (row: Record<string, unknown> | undefined) => {
     if (row && Number(row.payload_bytes) > maxBytes) throw new Error("Saved scan exceeds the safe storage limit; offline migration is required before resuming.");
-    return row ? rowToTechLaunchCacheRecord(row) : null;
+    const record = row ? rowToTechLaunchCacheRecord(row) : null;
+    return record;
   };
   if (shouldUseLocalSqlite()) {
     ensureSqliteTechLaunchCacheTable();
+    const projection = options?.senseProgress ? `json_set(json_remove(payload,'$.stores','$.receipts','$.result.games','$.result.gamePages'), '$.reportPageCount', CASE WHEN json_type(payload,'$.result')='object' THEN max(1,coalesce(json_array_length(payload,'$.result.gamePages'),0)) ELSE 0 END)` : "payload";
     const [row] = sqliteJsonRows<Record<string, unknown>>(`
-      SELECT cache_key, CASE WHEN length(CAST(payload AS BLOB)) <= ${maxBytes} THEN payload ELSE NULL END AS payload,
+      SELECT cache_key, CASE WHEN length(CAST(payload AS BLOB)) <= ${maxBytes} THEN ${projection} ELSE NULL END AS payload,
         length(CAST(payload AS BLOB)) AS payload_bytes, created_at, expires_at
       FROM tech_launch_readiness_cache WHERE cache_key = ${sqliteLiteral(cacheKey)} LIMIT 1
     `, maxBytes * 2 + 1024);
     return map(row);
   }
   const sql = await ensureTechLaunchCacheTable();
+  if (options?.senseProgress) {
+    const [row] = await sql<Record<string, unknown>[]>`
+      SELECT cache_key, CASE WHEN octet_length(payload) <= ${maxBytes} THEN
+        ((payload::jsonb - 'stores' - 'receipts' - 'result') ||
+          jsonb_build_object('result', CASE WHEN jsonb_typeof(payload::jsonb->'result') = 'object' THEN
+            (payload::jsonb->'result') - 'games' - 'gamePages' ELSE NULL END,
+            'reportPageCount', CASE WHEN jsonb_typeof(payload::jsonb->'result') = 'object' THEN
+              greatest(1,coalesce(jsonb_array_length(payload::jsonb #> '{result,gamePages}'),0)) ELSE 0 END))::text
+        ELSE NULL END AS payload, octet_length(payload) AS payload_bytes, created_at, expires_at
+      FROM tech_launch_readiness_cache WHERE cache_key = ${cacheKey} LIMIT 1
+    `;
+    return map(row);
+  }
   const [row] = await sql<Record<string, unknown>[]>`
     SELECT cache_key, CASE WHEN octet_length(payload) <= ${maxBytes} THEN payload ELSE NULL END AS payload,
       octet_length(payload) AS payload_bytes, created_at, expires_at
