@@ -5,6 +5,7 @@ import { z, ZodError } from "zod";
 import { assertInternalAppUser, jsonError, requireCurrentAppUser } from "@/lib/auth";
 import { getSenseProgress, setSensePaused, runSenseWorker } from "@/lib/ludios-sense";
 export const runtime = "nodejs";
+export const preferredRegion = "iad1";
 export const maxDuration = 300;
 export async function POST(request: Request) {
   return measureSenseTransfer("status",()=>handle(request));

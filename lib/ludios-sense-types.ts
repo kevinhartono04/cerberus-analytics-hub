@@ -33,4 +33,4 @@ export type SenseResult = {
   watermarks: Partial<Record<SenseStore, string>>;
   games: SenseGame[]; errors: string[]; requests: number; coverageComplete: boolean; ruleVersion: string;
 };
-export type SenseRunResponse = { reportRevision?: string; reportPageCount?: number; reportLoaded?: boolean; jobKey: string; status: "running" | "completed" | "error"; progress: string; requests: number; result?: SenseResult; error?: string; cached?: boolean; paused?: boolean };
+export type SenseRunResponse = { queueEngine?: 1; workerActive?: boolean; reportRevision?: string; reportPageCount?: number; reportLoaded?: boolean; jobKey: string; status: "running" | "completed" | "error"; progress: string; requests: number; result?: SenseResult; error?: string; cached?: boolean; paused?: boolean };

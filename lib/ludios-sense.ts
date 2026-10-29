@@ -1,3 +1,4 @@
+import {queueEnabled,queueKey} from "./ludios-sense-queue-types";
 import { boundedSenseJson, prepareSenseManifest, readSenseRecord, readSenseDocument, hydrateSenseApps, hydrateSenseHistory, persistSenseHistory, persistSenseChart, senseChartKey, type ShardedHistory } from "@/lib/ludios-sense-storage";
 import { historyWindows, mergeCountryHistory, mergeHistoryWindows, requiredHistoryWeeks } from "@/lib/ludios-sense-history";
 import { safeSenseIconUrl } from "@/lib/ludios-sense-icons";
@@ -23,6 +24,7 @@ const historyKey = (filters: SenseFilters) => "sense:history:" + filters.countri
 const aliveUntil = () => new Date(Date.now() + 86400000 * 31).toISOString();
 async function save(key: string, value: unknown) { if(key.startsWith("sense:chart:v3:"))return persistSenseChart(key,value); await saveTechLaunchReadinessCache({ cacheKey: key, payload: boundedSenseJson(await prepareSenseManifest(value)), createdAt: now(), expiresAt: key.startsWith("sense:chart:v3:") ? new Date(Date.now()+93*86400000).toISOString() : aliveUntil() }); }
 const load = readSenseRecord;
+const queueRuntime=async()=>(await import("./ludios-sense-queue-runtime")).senseQueueRuntime();
 function needsBackfill(app: App, countries: SenseCountry[], t: string) {
   return countries.some(country => {
     const coverage = app.countryHistory?.[country] ?? (app.countryHistory === undefined && app.backfilled && app.histories[country] !== undefined && app.historyStart && app.historyEnd ? { start: app.historyStart, end: app.historyEnd } : null);
@@ -226,7 +228,7 @@ async function readProgress(key: string): Promise<SenseRunResponse | null> {
   // Strip inline legacy rows too (the database projection does this before network transfer).
   const {games: _games, gamePages: _pages, ...metadata} = result ?? {};
   const progress: SenseRunResponse = {
-    jobKey:key, status:document.status, requests:document.requests, progress:document.progress,
+    queueEngine:document.queueEngine,jobKey:key, status:document.status, requests:document.requests, progress:document.progress,
     error:document.error, reportRevision:record.createdAt, reportPageCount:document.reportPageCount ?? (result ? Math.max(1,result.gamePages?.length ?? 0) : 0),
     ...(result ? {result:{...metadata,games:[]},reportLoaded:false} : {}),
   };
@@ -238,6 +240,10 @@ export async function getSenseProgress(key: string): Promise<SenseRunResponse> {
   if (!/^sense:v1:[a-f0-9]{64}$/.test(key)) throw new Response("Invalid scan ID", {status:400});
   const progress = await readProgress(key);
   if (!progress) throw new Response("Scan not found", {status:404});
+  if(progress.queueEngine===1){
+    const worker=await getTechLaunchReadinessCache("sense:worker:"+key,1024);
+    return {...await (await queueRuntime()).progress(key),workerActive:Boolean(worker && worker.expiresAt>now())};
+  }
   return {...progress, paused:Boolean(await load<boolean>(key+":paused"))};
 }
 
@@ -249,6 +255,7 @@ export async function getSenseReportPage(key: string, generatedAt: string, page 
   if(!record || record.expiresAt && record.expiresAt<=now())throw new Response("Report unavailable",{status:404});
   if(revision && record.createdAt!==revision)throw new Response("Report changed; reload it",{status:409});
   const summary=JSON.parse(record.payload) as SenseRunResponse & {result?:SenseResult & {gamePages?:string[]}};
+  if(summary.queueEngine===1)return (await queueRuntime()).store.report(key,page,revision,generatedAt);
   if (!summary?.result || summary.result.generatedAt !== generatedAt) throw new Response("Report changed; reload it", {status:409});
   const {gamePages, ...metadata} = summary.result;
   const pageCount = gamePages?.length || 1;
@@ -265,6 +272,18 @@ export async function getSenseReportPage(key: string, generatedAt: string, page 
 export async function getSenseStatus(key: string): Promise<SenseRunResponse> {
   if (!/^sense:v1:[a-f0-9]{64}$/.test(key)) throw new Response("Invalid scan ID", { status: 400 });
   const summary = await load<SenseRunResponse>(key + ":summary");
+  if(summary?.queueEngine===1){
+    const engine=await queueRuntime(),progress=await engine.progress(key);
+    if(!progress.result)return progress;
+    const games:SenseGame[]=[];let pages=1,bytes=0;
+    for(let page=0;page<pages;page++){
+      const report=await engine.store.report(key,page,progress.reportRevision,progress.result.generatedAt);pages=report.pageCount;
+      bytes+=Buffer.byteLength(JSON.stringify(report.result.games));
+      if(bytes>24*1024*1024)throw new Error("Saved report exceeds its read budget");
+      games.push(...report.result.games);
+    }
+    return {...progress,reportLoaded:true,result:{...progress.result,games}};
+  }
   const job = summary ? null : await load<Job>(key);
   if (!summary && !job) throw new Response("Scan not found", { status: 404 });
   return { ...(summary ?? response(job!)), paused: Boolean(await load<boolean>(key + ":paused")) };
@@ -296,14 +315,22 @@ export async function getSenseWatchlist(key: string) {
   const current = await getSenseStatus(key);
   if (!current.result) return [];
   const filters = current.result.filters;
-  const previous = await getSenseDetectionReports(Array.from({ length: 7 }, (_, i) =>
-    cacheKey({ ...filters, date: shiftDate(filters.date, -i - 1) }) + ":summary"));
-  const reports: SenseRunResponse[]=[];
+  const previous = await getSenseDetectionReports(Array.from({length:7},(_,i)=>{
+    const selected={...filters,date:shiftDate(filters.date,-i-1)};
+    return [queueKey(selected)+":summary",cacheKey(selected)+":summary"];
+  }).flat());
+  const selectedReports=new Map<string,typeof previous[number]>();
   for(const record of previous){
+    const report=JSON.parse(record.payload),date=report.result?.filters?.date ?? record.cacheKey;
+    const existing=selectedReports.get(date);
+    if(!existing || report.queueEngine===1)selectedReports.set(date,record);
+  }
+  const reports: SenseRunResponse[]=[];
+  for(const record of selectedReports.values()){
     if(record.expiresAt && record.expiresAt<=now())continue;
     const report=JSON.parse(record.payload);
-    if(report.result?.gamePages){
-      const full=await load<SenseRunResponse>(record.cacheKey);
+    if(report.queueEngine===1 || report.result?.gamePages){
+      const full=report.queueEngine===1?await getSenseStatus(record.cacheKey.slice(0,-8)):await load<SenseRunResponse>(record.cacheKey);
       if(!full?.result)continue;
       report.result.games=full.result.games.filter(game=>game.classification==="included" && ["confirmed_momentum","early_warning"].includes(game.evaluation.signal));
     }
@@ -313,6 +340,14 @@ export async function getSenseWatchlist(key: string) {
 }
 
 export async function setSensePaused(key: string, paused: boolean): Promise<SenseRunResponse> {
+  const header=await readProgress(key);
+  if(header?.queueEngine===1){
+    if(!paused && !queueEnabled())throw Response.json({error:"Queue collection is disabled; saved reports remain available"},{status:409});
+    return (await import("./ludios-sense-queue-store")).queueProgress(await (await queueRuntime()).store.pause(key,paused));
+  }
+  if(queueEnabled()){
+    if(!paused)throw Response.json({error:"Legacy scan remains paused; migrate it before continuing."},{status:409});
+  }
   await getSenseProgress(key);
   await save(key + ":paused", paused);
   return getSenseProgress(key);
@@ -320,7 +355,7 @@ export async function setSensePaused(key: string, paused: boolean): Promise<Sens
 
 /** Server work is bounded per invocation; durable jobs resume via the worker cron. */
 export async function runSenseWorker(key: string, budgetMs = 240000, savedOnly = false) {
-  return measureSenseTransfer("worker", () => runMeasuredWorker(key,budgetMs,savedOnly));
+  return measureSenseTransfer("worker", () => runMeasuredWorker(key,budgetMs,savedOnly),{isolated:true});
 }
 
 async function runMeasuredWorker(key: string, budgetMs: number, savedOnly: boolean) {
@@ -328,11 +363,14 @@ async function runMeasuredWorker(key: string, budgetMs: number, savedOnly: boole
   if (!await claimSenseLease(workerKey, token, new Date(Date.now() + budgetMs + 60000).toISOString())) { trace("worker_busy", { scan: key.slice(-8) }); return; }
   trace("worker_started", { scan: key.slice(-8), budgetMs });
   const deadline = Date.now() + budgetMs;
+  let previousRequests:number|undefined;
   try {
     while (Date.now() < deadline - 45000) {
       const next = await advanceSense(key,savedOnly);
       if (next.status !== "running" || next.paused) return;
-      await new Promise(resolve => setTimeout(resolve, 1100));
+      const delay=next.queueEngine===1 && previousRequests===next.requests?100:1100;
+      previousRequests=next.requests;
+      await new Promise(resolve => setTimeout(resolve,delay));
     }
   } catch(error) {
     if (!(error instanceof Error) || !error.message.includes("transfer budget")) throw error;
@@ -357,6 +395,22 @@ export async function continuePendingSenseJobs() {
 }
 
 export async function startSense(filters: SenseFilters): Promise<SenseRunResponse> {
+  if(!queueEnabled()){
+    const saved=await readProgress(queueKey(filters));
+    if(saved?.queueEngine===1){
+      if(saved.status!=="completed")throw Response.json({error:"Queue collection is disabled; this scan remains stopped"},{status:409});
+      return {...await getSenseProgress(saved.jobKey),cached:true};
+    }
+  }
+  if(queueEnabled()){
+    await (await import("./ludios-sense-queue-runtime")).requireSenseQueueBootstrap();
+    const engine=await queueRuntime();
+    if(await engine.store.get(queueKey(filters)))return (await engine.start(filters))!;
+    const legacy=await readProgress(cacheKey(filters));
+    if(legacy?.status==="completed" && legacy.result?.ruleVersion===senseRuleVersion)return {...await getSenseProgress(legacy.jobKey),cached:true};
+    if(legacy?.status==="running")throw Response.json({error:"This legacy scan remains paused. Prepare its queue migration before resuming."},{status:409});
+    return (await engine.start(filters))!;
+  }
   const key = cacheKey(filters), token = randomUUID();
   await save(key + ":paused", false);
   if (!await claimSenseLease(key + ":lease", token, new Date(Date.now() + 60000).toISOString())) {
@@ -393,6 +447,15 @@ export async function startSense(filters: SenseFilters): Promise<SenseRunRespons
 
 /** Cache-only: may save a recalculated subset, but never starts upstream work. */
 export async function getCachedSense(filters: SenseFilters): Promise<SenseRunResponse | null> {
+  const exact=await readProgress(queueKey(filters));
+  if(exact?.queueEngine===1)return {...await getSenseProgress(exact.jobKey),cached:exact.status==="completed"};
+  if(queueEnabled()){
+    await (await import("./ludios-sense-queue-runtime")).requireSenseQueueBootstrap();
+    const saved=await (await queueRuntime()).cached(filters);
+    if(saved)return saved;
+    const legacy=await readProgress(cacheKey(filters));
+    return legacy ? {...await getSenseProgress(legacy.jobKey),cached:legacy.status==="completed"} : null;
+  }
   const key=cacheKey(filters);
   const summary=await readProgress(key);
   if (summary?.status === "completed" && summary.result?.ruleVersion === senseRuleVersion) return {...await getSenseProgress(key),cached:true};
@@ -420,6 +483,11 @@ export async function startDailySense() {
 
 /** One upstream request per step. State and leases survive serverless restarts. */
 export async function advanceSense(key: string, savedOnly = false): Promise<SenseRunResponse> {
+  if(queueEnabled()){
+    const engine=await queueRuntime();
+    if(!await engine.store.get(key))throw Response.json({error:"Legacy scan remains paused; migrate it before continuing."},{status:409});
+    return engine.advance(key,savedOnly);
+  }
   return measureSenseTransfer("step",()=>advanceMeasuredSense(key,savedOnly));
 }
 

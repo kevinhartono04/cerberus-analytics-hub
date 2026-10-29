@@ -262,3 +262,33 @@ it("loads a completed report once in pinned pages and keeps incomplete pages out
  expect(fetch.mock.calls.filter(([url])=>url.endsWith("/report"))).toHaveLength(4);
  expect(fetch.mock.calls.some(([url])=>url==="/api/ludios-sense")).toBe(false);
 });
+
+it("opening another user's inactive queue is read-only; Resume explicitly continues it",async()=>{
+ const scan={queueEngine:1,jobKey:"sense:v1:"+"c".repeat(64),status:"running",requests:71,progress:"Discovering games",paused:false,workerActive:false};
+ const fetch=vi.fn(async(url:string)=>Response.json(url.endsWith("/cache")?{scan}:url.endsWith("/continue")?{accepted:true,scan:{...scan,workerActive:true}}:url.endsWith("/status")?scan:{}));
+ vi.stubGlobal("fetch",fetch);const view=render(<LudiosSense/>);
+ await waitFor(()=>expect(screen.getByText(/Check waiting/)).toBeInTheDocument());
+ expect(fetch.mock.calls.some(([url])=>url.endsWith("/continue"))).toBe(false);
+ fireEvent.click(screen.getByRole("button",{name:"Resume check"}));
+ await waitFor(()=>expect(fetch.mock.calls.filter(([url])=>url.endsWith("/continue"))).toHaveLength(1));
+ expect(fetch.mock.calls.some(([url])=>url==="/api/ludios-sense")).toBe(false);view.unmount();
+});
+it("shows the persistent safety stop and keeps it paused after a rejected Resume",async()=>{
+ const scan={queueEngine:1,jobKey:"sense:v1:"+"d".repeat(64),status:"running",requests:71,progress:"Scan paused at its database transfer budget. Review before resuming.",paused:true,workerActive:false};
+ const fetch=vi.fn(async(url:string)=>url.endsWith("/cache")?Response.json({scan}):url.endsWith("/status")?Response.json({error:"This scan has a safety stop. Review its budget before resuming."},{status:409}):Response.json({}));
+ vi.stubGlobal("fetch",fetch);const view=render(<LudiosSense/>);
+ await waitFor(()=>expect(screen.getByRole("status")).toHaveTextContent("database transfer budget"));
+ fireEvent.click(screen.getByRole("button",{name:"Resume check"}));
+ await waitFor(()=>expect(screen.getByRole("alert")).toHaveTextContent("safety stop"));
+ expect(screen.getByRole("status")).toHaveTextContent("database transfer budget");
+ expect(fetch.mock.calls.some(([url])=>url.endsWith("/continue")||url==="/api/ludios-sense")).toBe(false);view.unmount();
+});
+
+it("does not transfer continuation ownership from a previous job to another shared queue",async()=>{
+ sessionStorage.setItem("cerberus.ludios-sense.job.v1",JSON.stringify({jobKey:"sense:v1:"+"a".repeat(64),date:senseToday(),countries:["US","JP","CA","RU","DE","AU","GB"],continue:true}));
+ const scan={queueEngine:1,jobKey:"sense:v1:"+"b".repeat(64),status:"running",requests:71,progress:"Waiting",paused:false,workerActive:false};
+ const fetch=vi.fn(async(url:string)=>Response.json(url.endsWith("/cache")?{scan}:{}));
+ vi.stubGlobal("fetch",fetch);const view=render(<LudiosSense/>);
+ await waitFor(()=>expect(screen.getByText(/Check waiting/)).toBeInTheDocument());
+ expect(fetch.mock.calls.some(([url])=>url.endsWith("/continue"))).toBe(false);view.unmount();
+});

@@ -8,22 +8,27 @@ export const SENSE_RUN_READ_LIMIT = 1024 * 1024 * 1024;
 export function senseReadBytes() { return context.getStore()?.readBytes ?? 0; }
 
 /** Per invocation only: mutable checkpoints and controls are never cached. */
-export async function measureSenseTransfer<T>(operation: string, work: () => Promise<T>): Promise<T> {
-  if (context.getStore()) return work();
+export async function measureSenseTransfer<T>(operation: string, work: () => Promise<T>, options?:{isolated?:boolean}): Promise<T> {
+  const existing=context.getStore();
+  if(existing && !options?.isolated){
+    const bytes=existing.readBytes,reads=existing.reads;
+    try{return await work();}
+    finally{console.info("[ludios-sense]",JSON.stringify({event:"database_transfer",operation,scope:"operation",readBytes:existing.readBytes-bytes,reads:existing.reads-reads}));}
+  }
   const transfer: Transfer = { operation, readBytes: 0, reads: 0, immutable: new Map(), cacheBytes: 0 };
   return context.run(transfer, async () => {
     try { return await work(); }
-    finally { console.info("[ludios-sense]", JSON.stringify({event:"database_transfer", operation, readBytes:transfer.readBytes, reads:transfer.reads})); }
+    finally { console.info("[ludios-sense]", JSON.stringify({event:"database_transfer", operation, scope:"invocation", readBytes:transfer.readBytes, reads:transfer.reads})); }
   });
 }
 
-export function countSenseRead(payload: string) {
+export function countSenseRead(payload: string, enforce = true) {
   const transfer = context.getStore();
   if (!transfer) return;
   transfer.readBytes += Buffer.byteLength(payload);
   transfer.reads++;
   // Bounds subsequent application reads; this is payload accounting, not billed wire bytes.
-  if (transfer.readBytes > READ_LIMIT) throw new Error("Sense database transfer budget reached; pause and review this run.");
+  if (enforce && transfer.readBytes > READ_LIMIT) throw new Error("Sense database transfer budget reached; pause and review this run.");
 }
 
 export function cachedSensePage(key: string) {

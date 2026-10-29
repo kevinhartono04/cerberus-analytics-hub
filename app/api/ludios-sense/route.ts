@@ -6,6 +6,7 @@ import { assertInternalAppUser, jsonError, requireCurrentAppUser } from "@/lib/a
 import { getSenseProgress, runSenseWorker, startSense } from "@/lib/ludios-sense";
 import { senseRequestSchema } from "@/lib/ludios-sense-types";
 export const runtime = "nodejs";
+export const preferredRegion = "iad1";
 export const maxDuration = 300;
 export async function POST(request: Request) {
   return measureSenseTransfer("start",()=>handle(request));
@@ -15,7 +16,7 @@ async function handle(request: Request) {
   try {
     assertInternalAppUser(await requireCurrentAppUser(request));
     const result = await startSense(senseRequestSchema.parse(await request.json()));
-    if (result.status === "running") after(() => runSenseWorker(result.jobKey));
+    if (result.status === "running" && !result.paused) after(() => runSenseWorker(result.jobKey));
     return senseJsonResponse({...await getSenseProgress(result.jobKey),cached:result.cached});
   } catch (error) {
     if (error instanceof ZodError) return NextResponse.json({ error: error.issues.map(i => i.message).join("; ") }, { status: 400 });

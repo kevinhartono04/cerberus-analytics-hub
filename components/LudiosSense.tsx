@@ -65,6 +65,7 @@ export default function LudiosSense() {
   }, []);
   const [countries, setCountries] = useState<SenseCountry[]>(senseCountryCodes);
   const [scan, setScan] = useState<SenseRunResponse | null>(null);
+  const [ownedJobKey,setOwnedJobKey] = useState<string|null>(null);
   const [reportError,setReportError] = useState("");
   const [reportRetry,setReportRetry] = useState(0);
   const [pageVisible,setPageVisible] = useState(true);
@@ -96,7 +97,7 @@ export default function LudiosSense() {
   const [iconRequests, setIconRequests] = useState(0);
   const [unifiedIds, setUnifiedIds] = useState<Record<string,string|null>>({});
   const controller = useRef<AbortController | null>(null);
-  const busy = submitting || scan?.status === "running" && !paused;
+  const busy = submitting || scan?.status === "running" && !paused && scan.workerActive !== false;
   const result = scan?.result;
   const currentGames = result?.games ?? [];
   // Fetch a completed immutable report version once, in bounded pages. Polling never fetches rows.
@@ -241,6 +242,7 @@ export default function LudiosSense() {
       const pending = JSON.parse(sessionStorage.getItem(storageKey) ?? "null");
       if (pending && /^sense:v1:[a-f0-9]{64}$/.test(pending.jobKey)) {
         setScan({ jobKey: pending.jobKey, status: "running", progress: "Resuming saved check…", requests: 0 });
+        setOwnedJobKey(pending.continue===true?pending.jobKey:null);
         if (typeof pending.date === "string") setDate(pending.date);
         if (Array.isArray(pending.countries) && pending.countries.length && pending.countries.every((c: string) => c in senseCountries)) setCountries(pending.countries);
       }
@@ -272,6 +274,15 @@ export default function LudiosSense() {
     }, 5000);
     return () => { stopped = true; clearTimeout(timer); abort.abort(); };
   }, [scan, paused,pageVisible]);
+  useEffect(()=>{
+    if(scan?.queueEngine!==1 || scan.status!=="running" || paused || scan.workerActive!==false || ownedJobKey!==scan.jobKey || !pageVisible)return;
+    const abort=new AbortController(),jobKey=scan.jobKey;
+    void fetch("/api/ludios-sense/continue",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({jobKey}),signal:abort.signal})
+      .then(async res=>{const value=await res.json();if(!res.ok)throw new Error(value.error ?? "Could not continue this check");return value;})
+      .then(value=>{if(!abort.signal.aborted && value.scan)setScan(previous=>previous?.jobKey===jobKey?mergeProgress(previous,value.scan):previous);})
+      .catch(error=>{if(!abort.signal.aborted){setOwnedJobKey(null);setError(error instanceof Error?error.message:"Could not continue this check");}});
+    return ()=>abort.abort();
+  },[scan?.queueEngine,scan?.jobKey,scan?.status,scan?.workerActive,paused,ownedJobKey,pageVisible]);
   useEffect(() => {
     if (!date || !countries.length) return;
     const abort = new AbortController();
@@ -288,17 +299,30 @@ export default function LudiosSense() {
     setSubmitting(true); setError(""); setPaused(false); setSelection(null);
     try {
       const next = await call("/api/ludios-sense", { date, countries });
-      setScan(next);
-      try { sessionStorage.setItem(storageKey, JSON.stringify({ jobKey: next.jobKey, date, countries })); } catch { /* optional */ }
+      setScan(next);setOwnedJobKey(next.paused?null:next.jobKey);
+      try { sessionStorage.setItem(storageKey, JSON.stringify({ jobKey: next.jobKey, date, countries,continue:!next.paused })); } catch { /* optional */ }
     } catch (e) { setError(e instanceof Error ? e.message : "Check failed"); }
     finally { setSubmitting(false); }
   }
+  async function continueCheck(){
+    if(!scan)return;
+    setError("");
+    try{
+      const res=await fetch("/api/ludios-sense/continue",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({jobKey:scan.jobKey})});
+      const value=await res.json();if(!res.ok)throw new Error(value.error ?? "Could not continue this check");
+      if(value.scan){setScan(previous=>mergeProgress(previous,value.scan));setPaused(Boolean(value.scan.paused));}
+      setOwnedJobKey(value.accepted?scan.jobKey:null);
+      try{sessionStorage.setItem(storageKey,JSON.stringify({jobKey:scan.jobKey,date,countries,continue:Boolean(value.accepted)}));}catch{/* optional */}
+    }catch(error){setOwnedJobKey(null);setError(error instanceof Error?error.message:"Could not continue this check");}
+  }
   async function togglePaused() {
     if (!scan) return;
+    if(scan.queueEngine===1 && scan.workerActive===false && !paused){await continueCheck();return;}
     const nextPaused = !paused;
-    setPaused(nextPaused); setError("");
-    try { const next=await call("/api/ludios-sense/status", { jobKey: scan.jobKey, action: nextPaused ? "pause" : "resume" });setScan(previous=>mergeProgress(previous,next)); }
-    catch (e) { setPaused(!nextPaused); setError(e instanceof Error ? e.message : "Could not change the scan state"); }
+    if(nextPaused){setPaused(true);setOwnedJobKey(null);} setError("");
+    try { const next=await call("/api/ludios-sense/status", { jobKey: scan.jobKey, action: nextPaused ? "pause" : "resume" });setScan(previous=>mergeProgress(previous,next));setPaused(Boolean(next.paused));setOwnedJobKey(next.paused?null:next.jobKey);
+      try{sessionStorage.setItem(storageKey,JSON.stringify({jobKey:scan.jobKey,date,countries,continue:!nextPaused}));}catch{/* optional */}
+    } catch (e) { setPaused(!nextPaused);setOwnedJobKey(null); setError(e instanceof Error ? e.message : "Could not change the scan state"); }
   }
   const changed = result && (date !== result.filters.date || [...countries].sort().join(",") !== result.filters.countries.join(","));
   return <CerberusShell currentProduct="ludios-sense" collapsed={collapsed} onToggleCollapsed={() => setCollapsed(v => !v)}>
@@ -312,7 +336,7 @@ export default function LudiosSense() {
           <fieldset disabled={Boolean(busy)} className="absolute right-0 top-full z-20 mt-2 w-64 max-w-[calc(100vw-32px)] rounded-xl border border-line bg-surface-card p-4 shadow-xl"><legend className="sr-only">Countries</legend><p className="mb-3 text-xs text-slate-500">Downloads combined across your selection</p><div className="flex flex-col gap-3">{senseCountryCodes.map(c => <label key={c} className="flex cursor-pointer items-center gap-2 text-xs text-ink"><input type="checkbox" checked={countries.includes(c)} onChange={e => setCountries(v => e.target.checked ? [...v,c] : v.filter(x => x!==c))} className="accent-cobalt" />{senseCountries[c]}</label>)}</div></fieldset>
         </details>
         <button onClick={run} disabled={Boolean(busy) || !countries.length || !date} className="focus-ring col-span-2 inline-flex h-[42px] justify-center items-center gap-2 rounded-lg bg-cobalt px-5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-cobalt/90 disabled:opacity-50">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />} {busy ? "Checking…" : "Run check"}</button>
-        {scan?.status === "running" ? <button className={`${inputClass} text-cobalt`} onClick={togglePaused}>{paused ? "Resume check" : "Pause check"}</button> : null}
+        {scan?.status === "running" ? <button className={`${inputClass} text-cobalt`} onClick={togglePaused}>{paused || scan.workerActive===false ? "Resume check" : "Pause check"}</button> : null}
         {result ? <span className="ml-auto hidden pb-3 text-[11px] sm:block text-slate-500">{result.reusedFrom ? "Saved country data · 0 new calls" : result.coverageComplete ? "Saved report" : "Partial report"} · {result.filters.date}</span> : null}
       </div>
     </section>
@@ -328,7 +352,7 @@ export default function LudiosSense() {
       </div>
     </details>
     {error ? <div role="alert" className="mt-4 rounded-lg border border-rose-400/40 bg-rose-400/10 p-4 text-sm text-ink">{error}</div> : null}
-    {scan?.status === "running" || scan?.status === "error" ? <div role="status" className="mt-4 flex items-center gap-3 rounded-xl border border-cobalt/20 bg-cobalt/5 p-4 text-sm text-ink">{busy ? <Loader2 className="h-4 w-4 animate-spin text-cobalt" /> : <Activity className="h-4 w-4 text-cobalt" />}<span>{paused ? "Check paused. Resume to continue from the saved step." : scan.progress}</span></div> : null}
+    {scan?.status === "running" || scan?.status === "error" ? <div role="status" className="mt-4 flex items-center gap-3 rounded-xl border border-cobalt/20 bg-cobalt/5 p-4 text-sm text-ink">{busy ? <Loader2 className="h-4 w-4 animate-spin text-cobalt" /> : <Activity className="h-4 w-4 text-cobalt" />}<span>{paused ? scan.queueEngine===1 || scan.progress.includes("budget") ? scan.progress : "Check paused. Resume to continue from the saved step." : scan.workerActive===false ? "Check waiting. Resume to continue from the saved step." : scan.progress}</span></div> : null}
     {!scan ? <div className="sense-panel my-8 rounded-2xl border border-dashed border-cobalt/20 surface-card-gradient px-6 py-14 text-center"><Radar className="mx-auto mb-4 h-10 w-10 text-cobalt/60" /><h2 className="text-lg font-bold text-ink">Find the next game to investigate</h2><p className="mt-2 text-sm text-slate-500">Choose a date and markets, then run a check. Both stores are included.</p></div> : null}
     {scan?.reportLoaded === false && result && (scan.status !== "running" || paused) ? <div className="mt-4 rounded-lg border border-line p-4 text-sm">{reportError ? <div role="alert">{reportError}<button className="focus-ring ml-3 underline" onClick={()=>setReportRetry(value=>value+1)}>Retry saved report</button></div> : <p role="status">Loading saved report…</p>}</div> : null}
     {result && scan?.reportLoaded !== false ? <>

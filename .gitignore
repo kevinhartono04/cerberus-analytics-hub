@@ -11,3 +11,6 @@ playwright-report
 .vercel
 
 .next-sense-wip
+
+# Supabase CLI local state
+supabase/.temp/
