@@ -163,13 +163,13 @@ describe("resumable Sense scan",()=>{
     expect(batches).toEqual([25,25,25,25,1,1,1,1]);
     expect(stored(run.jobKey).stores.android.historyIndex).toBe(101);
   });
-  it("migrates an existing seven-country cache for a narrower selection without new upstream calls",async()=>{
+  it("does not reconstruct seven-country history just to display the allowance",async()=>{
     const countries=["AU","CA","DE","GB","JP","RU","US"] as any;
     const run=await startSense({date:t,countries}),job=stored(run.jobKey);
     for(const store of ["android","ios"])job.stores[store].apps={"123":{appId:"123",name:"Game",publisher:"Studio",categories:store==="ios"?["7012"]:["GAME_PUZZLE"],releaseDate:null,metadataAt:new Date().toISOString(),discoveredDate:t,histories:Object.fromEntries(countries.map((c:string)=>[c,{}])),backfilled:true,historyStart:shiftDate(t,-27),historyEnd:t}};
     records.set("sense:history:AU,CA,DE,GB,JP,RU,US",JSON.stringify(job.stores));
     const plan=await estimateSense({date:t,countries:["US"]});
-    expect(plan.knownGames).toBe(2);expect(plan.knownHistoryCalls).toBe(2);expect(plan.knownMetadataCalls).toBe(0);
+    expect(plan.knownGames).toBe(0);expect(plan.knownHistoryCalls).toBe(0);expect(plan.note).toContain("No pre-scan call estimate");
   });
   it("does not mistake a partially retrieved newly selected country for complete coverage",async()=>{
     const run=await startSense({date:t,countries:["JP","US"]}),job=stored(run.jobKey);
@@ -245,10 +245,14 @@ describe("resumable Sense scan",()=>{
     Object.assign(job.stores.ios,{phase:"history",watermark:t,historyIds:[],historyIndex:0});job.store="ios";
     records.set(run.jobKey,JSON.stringify(job));
     const fetch=vi.fn();vi.stubGlobal("fetch",fetch);
+    const {getTechLaunchReadinessCache}=await import("@/lib/db");
+    vi.mocked(getTechLaunchReadinessCache).mockClear();
     let state=await advanceSense(run.jobKey);
+    expect(vi.mocked(getTechLaunchReadinessCache).mock.calls.some(([key])=>key==="sense:history:shared:v2")).toBe(false);
     expect(state.status).toBe("running");expect(state.result?.games).toHaveLength(25);
     state=await advanceSense(run.jobKey);expect(state.result?.games).toHaveLength(50);
     state=await advanceSense(run.jobKey);expect(state.status).toBe("completed");expect(state.result?.games).toHaveLength(61);
+    expect(vi.mocked(getTechLaunchReadinessCache).mock.calls.filter(([key])=>key==="sense:history:shared:v2")).toHaveLength(1);
     expect((await getSenseGame(run.jobKey,"0","android",state.result?.generatedAt)).history.at(-1)?.downloads).toBe(2000);
     expect(fetch).not.toHaveBeenCalled();
     const saved=stored(run.jobKey);expect(saved.stores.android.apps["0"].histories).toEqual({});

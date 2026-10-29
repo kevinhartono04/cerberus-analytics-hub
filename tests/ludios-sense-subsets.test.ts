@@ -73,7 +73,7 @@ describe("saved country subsets",()=>{
   let run=(await getCachedSense({date,countries:["US"]}))!;
   expect(run.status).toBe("running");
   run=await advanceSense(run.jobKey);expect(run.result?.games).toHaveLength(25);
-  const repeated=await getCachedSense({date,countries:["US"]});expect(repeated?.result?.games).toHaveLength(25);
+  const repeated=await getCachedSense({date,countries:["US"]});expect(repeated?.result?.games).toHaveLength(0);expect(repeated?.reportLoaded).toBe(false);
   run=await advanceSense(run.jobKey);expect(run.status).toBe("completed");expect(run.result?.games).toHaveLength(32);
   expect((await getSenseGame(run.jobKey,"0","ios",run.result?.generatedAt)).history.at(-1)?.downloads).toBe(100);
   expect(upstream).not.toHaveBeenCalled();

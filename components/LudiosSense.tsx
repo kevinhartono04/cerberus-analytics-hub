@@ -13,6 +13,11 @@ const number = (v: number | null) => v === null ? "—" : new Intl.NumberFormat(
 const active = (game: SenseGame) => game.evaluation.signal === "confirmed_momentum" || game.evaluation.signal === "early_warning";
 const storageKey = "cerberus.ludios-sense.job.v1";
 const inputClass = "focus-ring rounded-lg border border-line/70 bg-surface-panel px-3 py-2.5 text-sm text-ink shadow-sm transition-colors hover:border-cobalt/40";
+function mergeProgress(previous: SenseRunResponse | null, next: SenseRunResponse) {
+  return previous?.reportLoaded === true && next.reportLoaded === false && previous.jobKey === next.jobKey && previous.status === next.status && previous.reportRevision === next.reportRevision &&
+    previous.result?.generatedAt === next.result?.generatedAt
+    ? {...next,result:previous.result,reportLoaded:true} : next;
+}
 async function call(path: string, body: unknown, signal?: AbortSignal): Promise<SenseRunResponse> {
   const res = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal });
   const value = await res.json();
@@ -60,6 +65,14 @@ export default function LudiosSense() {
   }, []);
   const [countries, setCountries] = useState<SenseCountry[]>(senseCountryCodes);
   const [scan, setScan] = useState<SenseRunResponse | null>(null);
+  const [reportError,setReportError] = useState("");
+  const [reportRetry,setReportRetry] = useState(0);
+  const [pageVisible,setPageVisible] = useState(true);
+  useEffect(()=>{
+    const update=()=>setPageVisible(document.visibilityState!=="hidden");
+    update(); document.addEventListener("visibilitychange",update);
+    return ()=>document.removeEventListener("visibilitychange",update);
+  },[]);
   const [error, setError] = useState("");
   const [usagePlan, setUsagePlan] = useState<{ usage: SenseUsage; knownGames: number; knownHistoryCalls: number; knownMetadataCalls: number; cachedReport?: boolean; note: string } | null>(null);
   const [usageError, setUsageError] = useState("");
@@ -86,6 +99,39 @@ export default function LudiosSense() {
   const busy = submitting || scan?.status === "running" && !paused;
   const result = scan?.result;
   const currentGames = result?.games ?? [];
+  // Fetch a completed immutable report version once, in bounded pages. Polling never fetches rows.
+  useEffect(()=>{
+    if (!scan?.result || scan.reportLoaded !== false || scan.status === "running" && !paused) return;
+    const abort=new AbortController();
+    const jobKey=scan.jobKey,generatedAt=scan.result.generatedAt;
+    setReportError("");
+    void (async()=>{
+      if(reportRetry>0){
+        const fresh=await call("/api/ludios-sense/status",{jobKey},abort.signal);
+        if(fresh.jobKey===jobKey && fresh.reportRevision!==scan.reportRevision){
+          if(!abort.signal.aborted)setScan(previous=>mergeProgress(previous,fresh));
+          return;
+        }
+      }
+      const games:SenseGame[]=[];
+      let pageCount=scan.reportPageCount ?? 1,bytes=0;
+      for(let page=0;page<pageCount;page++) {
+        if(pageCount>512)throw new Error("Saved report exceeds its page budget");
+        const res=await fetch("/api/ludios-sense/report",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({jobKey,generatedAt,page,revision:scan.reportRevision}),signal:abort.signal});
+        if(!res.ok)throw new Error(res.status===409 ? "Saved report changed. Retry to load its current version." : "Saved report could not be loaded. Retry to restore all games.");
+        const value=await res.json();
+        if(value.result?.generatedAt!==generatedAt || !Array.isArray(value.result?.games) || value.page!==page || !Number.isInteger(value.pageCount) || value.pageCount<1)
+          throw new Error("Saved report changed. Reload the selected report.");
+        pageCount=value.pageCount;
+        bytes+=new TextEncoder().encode(JSON.stringify(value.result.games)).byteLength;
+        if(bytes>24*1024*1024)throw new Error("Saved report exceeds its page budget");
+        games.push(...value.result.games);
+      }
+      if(!abort.signal.aborted)setScan(current=>current?.jobKey===jobKey && current.result?.generatedAt===generatedAt
+        ? {...current,reportLoaded:true,result:{...current.result,games}} : current);
+    })().catch(e=>{if(!abort.signal.aborted)setReportError(e instanceof Error?e.message:"Saved report unavailable");});
+    return ()=>abort.abort();
+  },[scan?.jobKey,scan?.result?.generatedAt,scan?.reportRevision,scan?.reportLoaded,scan?.status,paused,reportRetry]);
   const games = useMemo(() => {
     const map = new Map(currentGames.map(g => [`${g.store}:${g.appId}`, g]));
     for (const game of recent) map.set(`${game.store}:${game.appId}`, game);
@@ -93,7 +139,7 @@ export default function LudiosSense() {
   }, [currentGames, recent]);
   useEffect(() => {
     setRecent([]); setRecentError("");
-    if (!scan?.jobKey || !result) { setRecentLoading(false); return; }
+    if (!scan?.jobKey || !result || scan.reportLoaded === false) { setRecentLoading(false); return; }
     const abort = new AbortController();
     setRecentLoading(true);
     const jobKey = scan.jobKey;
@@ -123,7 +169,7 @@ export default function LudiosSense() {
       .catch(e => {if (!abort.signal.aborted) setRecentError(e instanceof Error ? e.message : "Recent detections unavailable");})
       .finally(() => {if (!abort.signal.aborted) setRecentLoading(false);});
     return () => abort.abort();
-  }, [scan?.jobKey, result?.generatedAt, recentAttempt]);
+  }, [scan?.jobKey, result?.generatedAt,scan?.reportLoaded, recentAttempt]);
   const storeGroups = useMemo(() => sortSenseGroups(groupSenseGames(games.filter(game => store === "all" || game.store === store),unifiedIds)),[games,store,unifiedIds]);
   const publisherNames = useMemo(() => [...new Set(storeGroups.flatMap(item => item.members.map(game => game.publisher).filter(Boolean)))].sort((a,b)=>a.localeCompare(b)),[storeGroups]);
   const publisherGroups = useMemo(() => storeGroups.filter(item => item.members.some(game => (game.publisher ?? "").toLowerCase().includes(publisher.trim().toLowerCase()))),[storeGroups,publisher]);
@@ -213,19 +259,19 @@ export default function LudiosSense() {
     return ()=>{clearTimeout(timer);abort.abort();};
   },[date,countries]);
   useEffect(() => {
-    if (scan?.status !== "running" || paused) return;
+    if (scan?.status !== "running" || paused || !pageVisible) return;
     const abort = new AbortController(); controller.current = abort;
     let stopped = false;
     const timer = window.setTimeout(async () => {
       try {
         const next = await call("/api/ludios-sense/status", { jobKey: scan.jobKey }, abort.signal);
-        if (!stopped) { setScan(next); setPaused(Boolean(next.paused)); if (next.status === "error") setError(next.error ?? "Check failed"); }
+        if (!stopped) { setScan(previous=>mergeProgress(previous,next)); setPaused(Boolean(next.paused)); if (next.status === "error") setError(next.error ?? "Check failed"); }
       } catch (e) {
         if (!stopped && !abort.signal.aborted) { setError(e instanceof Error ? e.message : "Connection lost. Resume the check to continue."); setPaused(true); }
       }
-    }, 1000);
+    }, 5000);
     return () => { stopped = true; clearTimeout(timer); abort.abort(); };
-  }, [scan, paused]);
+  }, [scan, paused,pageVisible]);
   useEffect(() => {
     if (!date || !countries.length) return;
     const abort = new AbortController();
@@ -251,7 +297,7 @@ export default function LudiosSense() {
     if (!scan) return;
     const nextPaused = !paused;
     setPaused(nextPaused); setError("");
-    try { setScan(await call("/api/ludios-sense/status", { jobKey: scan.jobKey, action: nextPaused ? "pause" : "resume" })); }
+    try { const next=await call("/api/ludios-sense/status", { jobKey: scan.jobKey, action: nextPaused ? "pause" : "resume" });setScan(previous=>mergeProgress(previous,next)); }
     catch (e) { setPaused(!nextPaused); setError(e instanceof Error ? e.message : "Could not change the scan state"); }
   }
   const changed = result && (date !== result.filters.date || [...countries].sort().join(",") !== result.filters.countries.join(","));
@@ -275,7 +321,7 @@ export default function LudiosSense() {
       <div className="mt-2 rounded-lg bg-surface-table p-3">
       {usagePlan ? <>
         <p>Ludios Sense · {usagePlan.usage.month}: {number(usagePlan.usage.used)} / {number(usagePlan.usage.limit)} calls · {number(usagePlan.usage.remaining)} remaining</p>
-        <p>{usagePlan.cachedReport ? "Saved report ready. No new Sensor Tower calls needed for this selection." : usagePlan.knownGames ? `Saved candidates: about ${usagePlan.knownHistoryCalls + usagePlan.knownMetadataCalls} calls for history and app details, plus discovery, new games and retries.` : "First scan: call estimate unavailable until candidates are discovered."}</p>
+        <p>{usagePlan.note || (usagePlan.cachedReport ? "Saved report ready. No new Sensor Tower calls needed for this selection." : "A call estimate is unavailable until collection starts.")}</p>
         <p>Tracking since {new Date(usagePlan.usage.trackingStartedAt).toLocaleString()}; earlier calls are excluded. At the allowance, the scan stops with incomplete coverage.</p>
         {usagePlan.usage.organizationUsed !== undefined ? <p>Sensor Tower organization usage: {number(usagePlan.usage.organizationUsed)} / {number(usagePlan.usage.organizationLimit ?? null)} · includes other teams · last observed {new Date(usagePlan.usage.organizationObservedAt!).toLocaleString()}.</p> : <p>Shared organization usage appears after Sensor Tower returns its usage headers.</p>}
       </> : <p>{usageError || "Loading API call allowance…"}</p>}
@@ -284,12 +330,13 @@ export default function LudiosSense() {
     {error ? <div role="alert" className="mt-4 rounded-lg border border-rose-400/40 bg-rose-400/10 p-4 text-sm text-ink">{error}</div> : null}
     {scan?.status === "running" || scan?.status === "error" ? <div role="status" className="mt-4 flex items-center gap-3 rounded-xl border border-cobalt/20 bg-cobalt/5 p-4 text-sm text-ink">{busy ? <Loader2 className="h-4 w-4 animate-spin text-cobalt" /> : <Activity className="h-4 w-4 text-cobalt" />}<span>{paused ? "Check paused. Resume to continue from the saved step." : scan.progress}</span></div> : null}
     {!scan ? <div className="sense-panel my-8 rounded-2xl border border-dashed border-cobalt/20 surface-card-gradient px-6 py-14 text-center"><Radar className="mx-auto mb-4 h-10 w-10 text-cobalt/60" /><h2 className="text-lg font-bold text-ink">Find the next game to investigate</h2><p className="mt-2 text-sm text-slate-500">Choose a date and markets, then run a check. Both stores are included.</p></div> : null}
-    {result ? <>
+    {scan?.reportLoaded === false && result && (scan.status !== "running" || paused) ? <div className="mt-4 rounded-lg border border-line p-4 text-sm">{reportError ? <div role="alert">{reportError}<button className="focus-ring ml-3 underline" onClick={()=>setReportRetry(value=>value+1)}>Retry saved report</button></div> : <p role="status">Loading saved report…</p>}</div> : null}
+    {result && scan?.reportLoaded !== false ? <>
       {!result.coverageComplete ? <div role="alert" className="mt-4 rounded-lg border border-amber-400/40 p-4 text-sm text-ink">Partial coverage: {result.errors.join(" ")} Results include only games whose history finished loading. Other games may have been missed.</div> : null}
       <details className="my-3 text-xs text-slate-500"><summary className="focus-ring w-fit cursor-pointer rounded text-[11px]">Report details</summary><div className="mt-2 space-y-2 rounded-xl border border-line/60 bg-surface-table p-4">
         <p>Requested t: {result.filters.date} · Evaluated: Android {result.watermarks.android ?? "unavailable"}, iOS {result.watermarks.ios ?? "unavailable"} · Retrieved {new Date(result.generatedAt).toLocaleString()}.</p>
         <p>Countries: {result.filters.countries.map(c => senseCountries[c]).join(", ")} · {currentGames.length} game/store records evaluated. Latest Android estimates are provisional.</p>
-        <p>{result.reusedFrom ? `Recalculated from saved ${result.reusedFrom.countries.join(", ")} data · source retrieved ${new Date(result.reusedFrom.generatedAt).toLocaleString()} · No new Sensor Tower calls.` : scan?.cached ? `Shared saved report · ${scan.requests} API requests in the original scan · No new scan started.` : `${scan?.requests ?? 0} API requests.`} Shared seven-market reports run at 04:00 WIB. Actual reporting dates may be earlier.</p>
+        <p>{result.reusedFrom ? `Recalculated from saved ${result.reusedFrom.countries.join(", ")} data · source retrieved ${new Date(result.reusedFrom.generatedAt).toLocaleString()} · No new Sensor Tower calls.` : scan?.cached ? `Shared saved report · ${scan.requests} API requests in the original scan · No new scan started.` : `${scan?.requests ?? 0} API requests.`} Actual reporting dates may be earlier.</p>
         <p>Recent detections are retained for seven reporting days using saved reports for the same markets. Holding scale requires at least 1,000 latest-day downloads and a three-day average of at least 80% of the last detected average.</p>
         <p>Download growth does not establish organic demand, retention, or commercial success. Investigate gameplay, differentiation, and updates. A single-market breakout may be diluted by flat volume elsewhere.</p>
       </div></details>

@@ -164,7 +164,7 @@ describe("Sense page",()=>{
   render(<LudiosSense/>);
   await waitFor(()=>expect(screen.getByText(/9,980 remaining/)).toBeInTheDocument());
   expect(screen.getByText("API usage").closest("details")).not.toHaveAttribute("open");
-  expect(screen.getByText(/Saved candidates: about 2 calls/)).toBeInTheDocument();
+  expect(screen.getByText("Discovery and new games add calls")).toBeInTheDocument();
   expect(screen.getByText(/includes other teams/)).toBeInTheDocument();
   expect(fetch.mock.calls.every((call:any)=>["/api/ludios-sense/usage","/api/ludios-sense/cache"].includes(call[0]))).toBe(true);
  });
@@ -233,4 +233,32 @@ describe("Sense page",()=>{
   expect(fetch.mock.calls.some(([url])=>url.endsWith("/icons"))).toBe(false);
  });
 
+});
+
+it("loads a completed report once in pinned pages and keeps incomplete pages out of the shortlist",async()=>{
+ const date=senseToday(),generatedAt=new Date().toISOString(),jobKey="sense:v1:"+"a".repeat(64);
+ const game={appId:"rings",store:"ios",name:"Rotate Rings",publisher:"Studio",genre:"Puzzle",classification:"included",releaseDate:null,iconUrl:null,unifiedAppId:null,url:"https://example.com",history:[],availableCountries:["US"],unavailableCountries:[],evaluation:{date,signal:"early_warning",latest:2000,recentAverage:1800,baseline:1000,growth:2,added:1000,flags:[]},retrievedAt:generatedAt};
+ const result={filters:{date,countries:["AU","CA","DE","GB","JP","RU","US"]},games:[],generatedAt,watermarks:{ios:date},coverageComplete:true};
+ let fail=true;
+ const fetch=vi.fn(async(url:string,init:RequestInit)=>{
+  if(url.endsWith("/cache"))return Response.json({scan:{jobKey,status:"completed",requests:0,reportLoaded:false,reportPageCount:2,result}});
+  if(url.endsWith("/report")){
+   const input=JSON.parse(init.body as string);expect(input.generatedAt).toBe(generatedAt);
+   if(input.page===1 && fail)return new Response("unavailable",{status:503});
+   return Response.json({page:input.page,pageCount:2,result:{...result,games:input.page===0?[game]:[{...game,appId:"second",name:"Second game"}]}});
+  }
+  if(url.endsWith("/recent"))return Response.json({games:[]});
+  return Response.json({});
+ });
+ vi.stubGlobal("fetch",fetch);render(<LudiosSense/>);
+ await waitFor(()=>expect(screen.getByRole("button",{name:"Retry saved report"})).toBeInTheDocument());
+ expect(screen.queryByRole("button",{name:"Inspect Rotate Rings, ios"})).toBeNull();
+ expect(fetch.mock.calls.some(([url])=>url.endsWith("/recent"))).toBe(false);
+ fail=false;fireEvent.click(screen.getByRole("button",{name:"Retry saved report"}));
+ await waitFor(()=>expect(screen.getByRole("button",{name:"Inspect Rotate Rings, ios"})).toBeInTheDocument());
+ expect(screen.getByRole("button",{name:"Inspect Second game, ios"})).toBeInTheDocument();
+ fireEvent.change(screen.getByLabelText("Search games"),{target:{value:"Second"}});
+ expect(screen.queryByRole("button",{name:"Inspect Rotate Rings, ios"})).toBeNull();
+ expect(fetch.mock.calls.filter(([url])=>url.endsWith("/report"))).toHaveLength(4);
+ expect(fetch.mock.calls.some(([url])=>url==="/api/ludios-sense")).toBe(false);
 });
