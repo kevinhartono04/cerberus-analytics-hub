@@ -3,6 +3,8 @@ import type {QueueApp,QueueCandidate,QueueChange,QueueJob,QueueState,SharedChang
 import {QUEUE_PAGE_SIZE} from "./ludios-sense-queue-types";
 import {senseReadBytes} from "./ludios-sense-transfer";
 
+// JSON is pre-encoded by this store. Bind as text before casting so postgres.js
+// does not JSON-encode the string a second time after parameter type discovery.
 type Row=Record<string,unknown>;
 export interface QueueDatabase {
   query<T extends Row=Row>(statement:string,parameters?:unknown[],options?:{safetyControl?:boolean}):Promise<T[]>;
@@ -43,7 +45,7 @@ export class SenseQueueStore {
         await db.query("DELETE FROM cerebral.sense_queue_jobs WHERE job_key=$1",[key]);
       }
       const [created]=await db.query(`INSERT INTO cerebral.sense_queue_jobs(job_key,report_date,countries,rule_version,state,expires_at)
-        VALUES($1,$2,$3,$4,$5::jsonb,now()+interval '31 days') ON CONFLICT(job_key) DO NOTHING RETURNING job_key`,
+        VALUES($1,$2,$3,$4,$5::text::jsonb,now()+interval '31 days') ON CONFLICT(job_key) DO NOTHING RETURNING job_key`,
         [key,state.filters.date,state.filters.countries,state.result?.ruleVersion ?? "1.4-aggregate",JSON.stringify(state)]);
       if(created){
         if(source){
@@ -57,7 +59,7 @@ export class SenseQueueStore {
         }
         const counts=await db.query(`SELECT store,count(*)::integer AS count FROM cerebral.sense_queue_candidates WHERE job_key=$1 GROUP BY store`,[key]);
         for(const row of counts)state.stores[row.store as SenseStore].candidates=Number(row.count);
-        await db.query(`UPDATE cerebral.sense_queue_jobs SET state=$2::jsonb WHERE job_key=$1`,[key,JSON.stringify(state)]);
+        await db.query(`UPDATE cerebral.sense_queue_jobs SET state=$2::text::jsonb WHERE job_key=$1`,[key,JSON.stringify(state)]);
       }
       const [row]=await db.query(`SELECT ${columns} FROM cerebral.sense_queue_jobs WHERE job_key=$1`,[key]);
       const current=job(row);await summary(db,current);return current;
@@ -100,14 +102,14 @@ export class SenseQueueStore {
   async shared(batch:QueueCandidate[]):Promise<SharedChange[]>{
     if(!batch.length)return [];
     const rows=await this.database.query(`SELECT a.store,a.app_id,a.payload,a.version FROM cerebral.sense_queue_apps a JOIN
-      jsonb_to_recordset($1::jsonb) AS input(store text,app_id text) ON a.store=input.store AND a.app_id=input.app_id `,[JSON.stringify(batch.map(c=>({store:c.store,app_id:c.appId})))]);
+      jsonb_to_recordset($1::text::jsonb) AS input(store text,app_id text) ON a.store=input.store AND a.app_id=input.app_id `,[JSON.stringify(batch.map(c=>({store:c.store,app_id:c.appId})))]);
     return batch.map(c=>{const found=rows.find(r=>r.store===c.store&&r.app_id===c.appId);return {store:c.store,appId:c.appId,app:found?found.payload as QueueApp:c.app,version:found?Number(found.version):null};});
   }
   async recordAttempt(current:QueueJob,requestId:string,endpoint:string,parameters:Record<string,string|number>){
     return this.database.transaction(async db=>{
       const fresh=await this.owned(db,current);
       if(fresh.requests>=1000)throw new Error("Sensor Tower request budget reached; coverage is incomplete.");
-      await db.query(`INSERT INTO cerebral.sense_queue_attempts(request_id,job_key,endpoint,parameters) VALUES($1,$2,$3,$4::jsonb)`,[requestId,current.key,endpoint,JSON.stringify(parameters)]);
+      await db.query(`INSERT INTO cerebral.sense_queue_attempts(request_id,job_key,endpoint,parameters) VALUES($1,$2,$3,$4::text::jsonb)`,[requestId,current.key,endpoint,JSON.stringify(parameters)]);
       const [row]=await db.query(`UPDATE cerebral.sense_queue_jobs SET requests=requests+1 WHERE job_key=$1 RETURNING ${columns}`,[current.key]);
       const updated=job(row);await summary(db,updated);return updated.requests;
     });
@@ -119,31 +121,31 @@ export class SenseQueueStore {
         const input=JSON.stringify(options.ranking.map(r=>({app_id:r.appId,name:r.name,discovered_date:r.date})));
         const [added]=await db.query(`WITH inserted AS (INSERT INTO cerebral.sense_queue_candidates(job_key,store,app_id,discovered_date,payload)
           SELECT $1,$2,r.app_id,r.discovered_date::date,coalesce(a.payload,jsonb_build_object('appId',r.app_id,'name',r.name,'publisher','','categories','[]'::jsonb,'releaseDate',NULL,'histories','{}'::jsonb,'discoveredDate',r.discovered_date))
-          FROM jsonb_to_recordset($3::jsonb) AS r(app_id text,name text,discovered_date text)
+          FROM jsonb_to_recordset($3::text::jsonb) AS r(app_id text,name text,discovered_date text)
           LEFT JOIN cerebral.sense_queue_apps a ON a.store=$2 AND a.app_id=r.app_id AND a.expires_at>now()
           ON CONFLICT(job_key,store,app_id) DO NOTHING RETURNING app_id) SELECT count(*)::integer AS count FROM inserted`,[current.key,current.state.store,input]);
         next.stores[current.state.store].candidates+=Number(added.count);
         if(next.stores[current.state.store].candidates>25000)throw new Error("Unexpected candidate limit reached");
         await db.query(`UPDATE cerebral.sense_queue_candidates c SET discovered_date=greatest(c.discovered_date,r.discovered_date::date),
           payload=jsonb_set(c.payload,'{discoveredDate}',to_jsonb(greatest(c.payload->>'discoveredDate',r.discovered_date)))
-          FROM jsonb_to_recordset($3::jsonb) AS r(app_id text,name text,discovered_date text) WHERE c.job_key=$1 AND c.store=$2 AND c.app_id=r.app_id`,[current.key,current.state.store,input]);
+          FROM jsonb_to_recordset($3::text::jsonb) AS r(app_id text,name text,discovered_date text) WHERE c.job_key=$1 AND c.store=$2 AND c.app_id=r.app_id`,[current.key,current.state.store,input]);
       }
       if(changes.length){
         const rows=await db.query(`UPDATE cerebral.sense_queue_candidates c SET payload=r.payload,stage=r.stage,weeks=r.weeks,week_index=r.week_index,
           result=coalesce(r.result,c.result),sort_rank=coalesce(r.sort_rank,c.sort_rank),sort_added=coalesce(r.sort_added,c.sort_added),sort_growth=coalesce(r.sort_growth,c.sort_growth)
-          FROM jsonb_to_recordset($2::jsonb) AS r(store text,app_id text,payload jsonb,stage text,weeks jsonb,week_index integer,result jsonb,sort_rank integer,sort_added double precision,sort_growth double precision)
+          FROM jsonb_to_recordset($2::text::jsonb) AS r(store text,app_id text,payload jsonb,stage text,weeks jsonb,week_index integer,result jsonb,sort_rank integer,sort_added double precision,sort_growth double precision)
           WHERE c.job_key=$1 AND c.store=r.store AND c.app_id=r.app_id RETURNING c.app_id`,[current.key,JSON.stringify(changes.map(c=>({store:c.store,app_id:c.appId,payload:c.app,stage:c.stage,weeks:c.weeks,week_index:c.weekIndex,...(c.result?{result:c.result,sort_rank:({confirmed_momentum:0,early_warning:1,launch_traction:2,none:3,insufficient_data:4})[c.result.evaluation.signal],sort_added:c.result.evaluation.added ?? -1,sort_growth:c.result.evaluation.growth ?? -1}:{})})))]);
         if(rows.length!==changes.length)throw new Error("Queue candidate disappeared during checkpoint");
       }
       for(const app of options?.shared ?? []){
         const rows=app.version===null ? await db.query(`INSERT INTO cerebral.sense_queue_apps(store,app_id,discovered_date,payload,expires_at)
-          VALUES($1,$2,$3,$4::jsonb,least(now()+interval '93 days',coalesce($5::timestamptz,now()+interval '93 days'))) ON CONFLICT(store,app_id) DO NOTHING RETURNING app_id`,[app.store,app.appId,app.app.discoveredDate,JSON.stringify(app.app),app.app.historyRefExpiresAt ?? null]) :
-          await db.query(`UPDATE cerebral.sense_queue_apps SET payload=$4::jsonb,discovered_date=$3,version=version+1,expires_at=least(now()+interval '93 days',coalesce($6::timestamptz,now()+interval '93 days'))
+          VALUES($1,$2,$3,$4::text::jsonb,least(now()+interval '93 days',coalesce($5::timestamptz,now()+interval '93 days'))) ON CONFLICT(store,app_id) DO NOTHING RETURNING app_id`,[app.store,app.appId,app.app.discoveredDate,JSON.stringify(app.app),app.app.historyRefExpiresAt ?? null]) :
+          await db.query(`UPDATE cerebral.sense_queue_apps SET payload=$4::text::jsonb,discovered_date=$3,version=version+1,expires_at=least(now()+interval '93 days',coalesce($6::timestamptz,now()+interval '93 days'))
             WHERE store=$1 AND app_id=$2 AND version=$5 RETURNING app_id`,[app.store,app.appId,app.app.discoveredDate,JSON.stringify(app.app),app.version,app.app.historyRefExpiresAt ?? null]);
         if(rows.length!==1)throw new Error("Shared app changed; retry this checkpoint");
       }
       const delta=Math.max(0,senseReadBytes()-readStart),discovery=current.state.stores[current.state.store].phase==="discovery"?delta:0;
-      const [row]=await db.query(`UPDATE cerebral.sense_queue_jobs SET state=$2::jsonb,revision=revision+1,read_bytes=read_bytes+$3,discovery_read_bytes=discovery_read_bytes+$4,
+      const [row]=await db.query(`UPDATE cerebral.sense_queue_jobs SET state=$2::text::jsonb,revision=revision+1,read_bytes=read_bytes+$3,discovery_read_bytes=discovery_read_bytes+$4,
         updated_at=greatest(clock_timestamp(),updated_at+interval '1 millisecond') WHERE job_key=$1 RETURNING ${columns}`,[current.key,JSON.stringify(next),delta,discovery]);
       const updated=job(row);await summary(db,updated);return updated;
     });
@@ -170,7 +172,7 @@ export class SenseQueueStore {
     const unique=[...new Map(ids.map(id=>[id.store+":"+id.appId,id])).values()],games:SenseGame[]=[];
     for(let offset=0;offset<unique.length;offset+=100){
       const rows=await this.database.query(`SELECT c.result FROM cerebral.sense_queue_candidates c JOIN
-        jsonb_to_recordset($2::jsonb) AS input(store text,app_id text) ON c.store=input.store AND c.app_id=input.app_id
+        jsonb_to_recordset($2::text::jsonb) AS input(store text,app_id text) ON c.store=input.store AND c.app_id=input.app_id
         WHERE c.job_key=$1 AND c.result IS NOT NULL`,[key,JSON.stringify(unique.slice(offset,offset+100).map(id=>({store:id.store,app_id:id.appId})))]);
       games.push(...rows.map(row=>row.result as SenseGame));
     }
