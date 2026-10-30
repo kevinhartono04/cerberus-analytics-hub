@@ -1209,7 +1209,7 @@ function rowToTechLaunchCacheRecord(row: Record<string, unknown>): TechLaunchRea
 }
 
 /** Reject oversized cache records in SQL, before transferring or parsing their payload. */
-export async function getTechLaunchReadinessCache(cacheKey: string, maxBytes = 128 * 1024 * 1024, options?: { senseProgress?: boolean }): Promise<TechLaunchReadinessCacheRecord | null> {
+export async function getTechLaunchReadinessCache(cacheKey: string, maxBytes = 128 * 1024 * 1024, options?: { senseProgress?: boolean; senseRanking?:boolean }): Promise<TechLaunchReadinessCacheRecord | null> {
   const map = (row: Record<string, unknown> | undefined) => {
     if (row && Number(row.payload_bytes) > maxBytes) throw new Error("Saved scan exceeds the safe storage limit; offline migration is required before resuming.");
     const record = row ? rowToTechLaunchCacheRecord(row) : null;
@@ -1217,7 +1217,7 @@ export async function getTechLaunchReadinessCache(cacheKey: string, maxBytes = 1
   };
   if (shouldUseLocalSqlite()) {
     ensureSqliteTechLaunchCacheTable();
-    const projection = options?.senseProgress ? `json_set(json_remove(payload,'$.stores','$.receipts','$.result.games','$.result.gamePages'), '$.reportPageCount', CASE WHEN json_type(payload,'$.result')='object' THEN max(1,coalesce(json_array_length(payload,'$.result.gamePages'),0)) ELSE 0 END)` : "payload";
+    const projection = options?.senseProgress ? `json_set(json_remove(payload,'$.stores','$.receipts','$.result.games','$.result.gamePages'), '$.reportPageCount', coalesce(json_extract(payload,'$.reportPageCount'),CASE WHEN json_type(payload,'$.result')='object' THEN max(1,coalesce(json_array_length(payload,'$.result.gamePages'),0)) ELSE 0 END))` : "payload";
     const [row] = sqliteJsonRows<Record<string, unknown>>(`
       SELECT cache_key, CASE WHEN length(CAST(payload AS BLOB)) <= ${maxBytes} THEN ${projection} ELSE NULL END AS payload,
         length(CAST(payload AS BLOB)) AS payload_bytes, created_at, expires_at
@@ -1226,6 +1226,17 @@ export async function getTechLaunchReadinessCache(cacheKey: string, maxBytes = 1
     return map(row);
   }
   const sql = await ensureTechLaunchCacheTable();
+  if(options?.senseRanking){
+    const [row]=await sql<Record<string,unknown>[]>`
+      SELECT cache_key,CASE WHEN octet_length(payload)<=${maxBytes} THEN CASE WHEN jsonb_typeof(payload::jsonb #> '{payload,data}')='array' THEN
+        jsonb_build_object('retrievedAt',payload::jsonb->'retrievedAt','payload',jsonb_build_object('meta',payload::jsonb #> '{payload,meta}',
+          'data',coalesce((SELECT jsonb_agg(jsonb_build_object('app_id',r.value->'app_id','est_mobile_downloads',r.value->'est_mobile_downloads',
+            'name',coalesce(r.value->'name',payload::jsonb #> ARRAY['payload','entities','app_id',r.value->>'app_id','name'])) ORDER BY r.ordinality)
+            FROM jsonb_array_elements(payload::jsonb #> '{payload,data}') WITH ORDINALITY r(value,ordinality)),'[]'::jsonb)))::text
+        ELSE payload END ELSE NULL END AS payload,octet_length(payload) AS payload_bytes,created_at,expires_at
+      FROM tech_launch_readiness_cache WHERE cache_key=${cacheKey} LIMIT 1`;
+    return map(row);
+  }
   if (options?.senseProgress) {
     const [row] = await sql<Record<string, unknown>[]>`
       SELECT cache_key, CASE WHEN octet_length(payload) <= ${maxBytes} THEN
@@ -1233,7 +1244,7 @@ export async function getTechLaunchReadinessCache(cacheKey: string, maxBytes = 1
           jsonb_build_object('result', CASE WHEN jsonb_typeof(payload::jsonb->'result') = 'object' THEN
             (payload::jsonb->'result') - 'games' - 'gamePages' ELSE NULL END,
             'reportPageCount', CASE WHEN jsonb_typeof(payload::jsonb->'result') = 'object' THEN
-              greatest(1,coalesce(jsonb_array_length(payload::jsonb #> '{result,gamePages}'),0)) ELSE 0 END))::text
+              coalesce((payload::jsonb->>'reportPageCount')::integer,greatest(1,coalesce(jsonb_array_length(payload::jsonb #> '{result,gamePages}'),0))) ELSE 0 END))::text
         ELSE NULL END AS payload, octet_length(payload) AS payload_bytes, created_at, expires_at
       FROM tech_launch_readiness_cache WHERE cache_key = ${cacheKey} LIMIT 1
     `;
@@ -1811,4 +1822,21 @@ export async function insertStoredGame(game: StoredGame): Promise<void> {
   } else {
     sqliteExec(`INSERT INTO game_registry (name, app_id, bundle_id, adjust_android, adjust_ios, created_at, created_by) VALUES (${sqliteLiteral(game.name)}, ${game.appId}, ${sqliteLiteral(game.bundleId)}, ${sqliteLiteral(game.adjustAndroid)}, ${sqliteLiteral(game.adjustIos)}, ${sqliteLiteral(game.createdAt)}, ${sqliteLiteral(game.createdBy)})`);
   }
+}
+
+
+/** Private queue adapter. Statements and transactions are defined by the server store, never client input. */
+export function senseQueueDatabase(): import("./ludios-sense-queue-store").QueueDatabase {
+  const wrap=(connection:postgres.Sql | postgres.TransactionSql):import("./ludios-sense-queue-store").QueueDatabase=>({
+    async query<T extends Record<string,unknown>>(statement:string,parameters:unknown[]=[],options?:{safetyControl?:boolean}):Promise<T[]>{
+      const rows=await connection.unsafe<T[]>(statement,parameters as never[]);
+      if(rows.length)countSenseRead(JSON.stringify(rows),!options?.safetyControl);
+      return Array.from(rows);
+    },
+    async transaction<T>(work:(database:import("./ludios-sense-queue-store").QueueDatabase)=>Promise<T>):Promise<T>{
+      if("begin" in connection)return (connection as postgres.Sql).begin(tx=>work(wrap(tx))) as Promise<T>;
+      return work(wrap(connection));
+    },
+  });
+  return wrap(getSql());
 }
