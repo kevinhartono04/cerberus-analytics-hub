@@ -224,7 +224,7 @@ function placementExampleFor(intake: GameIntake, adFamily: string) {
   return [...new Set(values)].join(", ");
 }
 
-function payloadsForEvent(snapshot: LibrarySnapshot, eventName: string, intake: GameIntake) {
+export function payloadsForEvent(snapshot: LibrarySnapshot, eventName: string, intake: GameIntake) {
   const seen = new Set<string>();
   const slugs = powerupSlugs(intake);
   const itemExamples = itemTransactionExamples(intake);
@@ -279,7 +279,7 @@ function payloadsForEvent(snapshot: LibrarySnapshot, eventName: string, intake: 
   return payloads;
 }
 
-function triggerFor(intake: GameIntake, eventName: string, fallback: string) {
+export function triggerFor(intake: GameIntake, eventName: string, fallback: string) {
   const title = intake.gameTitle || "the game";
   if (eventName === "Game_Start") {
     return `Fire when a player starts or resumes a playable round/session in ${title}.`;

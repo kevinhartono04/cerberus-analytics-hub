@@ -79,6 +79,7 @@ const appIconDataUrlSchema = z
 export const generatedSpecSchema = z.object({
   id: z.string(),
   generatedAt: z.string(),
+  generationTemplateVersion: z.number().int().nonnegative().optional(),
   appIconDataUrl: appIconDataUrlSchema.optional(),
   intake: intakeSchema,
   selectedFeaturePacks: z.array(z.string()),
