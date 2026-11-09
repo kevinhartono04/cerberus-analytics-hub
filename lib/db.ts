@@ -1824,6 +1824,22 @@ export async function insertStoredGame(game: StoredGame): Promise<void> {
   }
 }
 
+export async function updateStoredGame(name: string, update: import("@/lib/game-catalog").GameUpdate): Promise<StoredGame | undefined> {
+  const sql = await ensureGamesTable();
+  // Preserve tokens in the UPDATE itself so a concurrent edit with blank fields
+  // cannot overwrite a token another editor has just replaced.
+  const rows = sql
+    ? await sql`UPDATE game_registry SET app_id=${update.appId}, bundle_id=${update.bundleId},
+        adjust_android=CASE WHEN ${update.clearAdjustAndroid} THEN '' WHEN ${update.adjustAndroid}<>'' THEN ${update.adjustAndroid} ELSE adjust_android END,
+        adjust_ios=CASE WHEN ${update.clearAdjustIos} THEN '' WHEN ${update.adjustIos}<>'' THEN ${update.adjustIos} ELSE adjust_ios END
+        WHERE name=${name} RETURNING *`
+    : sqliteJsonRows<Record<string, unknown>>(`UPDATE game_registry SET app_id=${update.appId}, bundle_id=${sqliteLiteral(update.bundleId)},
+        adjust_android=CASE WHEN ${update.clearAdjustAndroid ? 1 : 0} THEN '' WHEN ${sqliteLiteral(update.adjustAndroid)}<>'' THEN ${sqliteLiteral(update.adjustAndroid)} ELSE adjust_android END,
+        adjust_ios=CASE WHEN ${update.clearAdjustIos ? 1 : 0} THEN '' WHEN ${sqliteLiteral(update.adjustIos)}<>'' THEN ${sqliteLiteral(update.adjustIos)} ELSE adjust_ios END
+        WHERE name=${sqliteLiteral(name)} RETURNING *`);
+  return rows[0] ? rowToGame(rows[0]) : undefined;
+}
+
 
 /** Private queue adapter. Statements and transactions are defined by the server store, never client input. */
 export function senseQueueDatabase(): import("./ludios-sense-queue-store").QueueDatabase {

@@ -1,5 +1,5 @@
-import { defaultGameIds, defaultGameNames, gameInputSchema, type GameSummary } from "@/lib/game-catalog";
-import { insertStoredGame, listStoredGames, type StoredGame } from "@/lib/db";
+import { defaultGameIds, defaultGameNames, gameInputSchema, gameNameSchema, gameUpdateSchema, type GameSummary } from "@/lib/game-catalog";
+import { insertStoredGame, listStoredGames, updateStoredGame, type StoredGame } from "@/lib/db";
 
 export async function registeredGames(): Promise<GameSummary[]> {
   const stored = await listStoredGames();
@@ -35,6 +35,24 @@ export async function addGame(input: unknown, actor: string): Promise<GameSummar
   return publicGame(game);
 }
 function conflict() { return new Response(JSON.stringify({ error: "A game with this name, app ID, or bundle ID already exists" }), { status: 409, headers: { "Content-Type": "application/json" } }); }
+
+export async function editGame(name: string, input: unknown): Promise<GameSummary> {
+  gameNameSchema.parse(name);
+  const parsed = gameUpdateSchema.parse(input);
+  if (parsed.name !== undefined && parsed.name !== name) {
+    throw new Response(JSON.stringify({ error: "The game key cannot be changed because dashboards and access grants use it" }), { status: 400 });
+  }
+  if (!(await storedGame(name))) throw new Response(JSON.stringify({ error: "Saved game not found. Only games added through Games Setting can be edited here." }), { status: 404 });
+  if ((await registeredGames()).some(game => game.name !== name && (game.appId === parsed.appId || game.bundleId === parsed.bundleId))) throw conflict();
+  try {
+    const updated = await updateStoredGame(name, parsed);
+    if (!updated) throw new Response(JSON.stringify({ error: "Saved game not found" }), { status: 404 });
+    return publicGame(updated);
+  } catch (error) {
+    if ((error as { code?: string }).code === "23505" || /UNIQUE constraint failed/.test(String(error))) throw conflict();
+    throw error;
+  }
+}
 
 function environmentMap(key: string): Record<string, Record<string, string>> {
   try {
