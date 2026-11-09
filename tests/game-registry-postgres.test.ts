@@ -9,6 +9,9 @@ vi.mock("postgres", async importOriginal => {
   const actual = await importOriginal<{ default: typeof postgres }>();
   return { ...actual, default: (...args: unknown[]) => args.length === 1 ? actual.default(args[0] as never) : mock.client };
 });
+import { getEventGenerationRecord, saveEventGenerationRecord } from "@/lib/db";
+import { seedGenerationConfig } from "@/lib/event-generation-config";
+import { getLibrarySnapshot } from "@/lib/db";
 import { addGame, editGame, gameAppId, storedGame } from "@/lib/game-registry";
 
 let pg: PGlite;
@@ -34,3 +37,17 @@ it("edits the private registry through the production Postgres driver, preservin
   await expect(editGame(first.name, { appId: 3015, bundleId: "com.example.pgupdated" })).rejects.toHaveProperty("status", 409);
   expect((await pg.query<{ relrowsecurity: boolean }>("SELECT relrowsecurity FROM pg_class WHERE oid='cerebral.game_registry'::regclass")).rows[0].relrowsecurity).toBe(true);
 }, 15000);
+
+
+it("persists admin draft and publication with revision checks in private Postgres storage", async () => {
+  expect(await getEventGenerationRecord()).toBeNull();
+  const config = seedGenerationConfig(getLibrarySnapshot());
+  const record = { revision: 1, version: 0, draft: config, published: config, updatedBy: "admin", updatedAt: "2026-11-09" };
+  expect(await saveEventGenerationRecord(record, 0)).toBe(true);
+  expect(await saveEventGenerationRecord(record, 0)).toBe(false);
+  expect(await getEventGenerationRecord()).toEqual(record);
+  expect(await saveEventGenerationRecord({ ...record, revision: 2, version: 1 }, 1)).toBe(true);
+  expect(await saveEventGenerationRecord({ ...record, revision: 2 }, 1)).toBe(false);
+  expect((await getEventGenerationRecord())?.version).toBe(1);
+  expect((await pg.query<{ relrowsecurity: boolean }>("SELECT relrowsecurity FROM pg_class WHERE oid='cerebral.event_generation_settings'::regclass")).rows[0].relrowsecurity).toBe(true);
+});

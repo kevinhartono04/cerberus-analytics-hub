@@ -1856,3 +1856,50 @@ export function senseQueueDatabase(): import("./ludios-sense-queue-store").Queue
   });
   return wrap(getSql());
 }
+
+// One durable row contains both draft and published configuration. Revision checks
+// prevent one administrator from silently overwriting another's work.
+export type EventGenerationRecord = {
+  revision: number;
+  version: number;
+  draft: import("@/lib/event-generation-config").GenerationConfig;
+  published: import("@/lib/event-generation-config").GenerationConfig;
+  updatedBy: string;
+  updatedAt: string;
+};
+let eventGenerationTableReady: Promise<void> | null = null;
+async function ensureEventGenerationTable() {
+  const ddl = "CREATE TABLE IF NOT EXISTS event_generation_settings (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, configuration TEXT NOT NULL)";
+  if (shouldUseLocalSqlite()) { sqliteExec(ddl); return; }
+  if (!eventGenerationTableReady) {
+    eventGenerationTableReady = getSql().begin(async transaction => {
+      await transaction.unsafe(ddl);
+      if (process.env.CEREBRAL_DATABASE_URL) await transaction`ALTER TABLE event_generation_settings ENABLE ROW LEVEL SECURITY`;
+    }).then(() => undefined).catch(error => { eventGenerationTableReady = null; throw error; });
+  }
+  await eventGenerationTableReady;
+}
+export async function getEventGenerationRecord(): Promise<EventGenerationRecord | null> {
+  await ensureEventGenerationTable();
+  const rows = shouldUseLocalSqlite()
+    ? sqliteJsonRows<{ configuration: string }>("SELECT configuration FROM event_generation_settings WHERE id = 'global'")
+    : await getSql()<{ configuration: string }[]>`SELECT configuration FROM event_generation_settings WHERE id = 'global'`;
+  return rows[0] ? JSON.parse(rows[0].configuration) as EventGenerationRecord : null;
+}
+export async function saveEventGenerationRecord(record: EventGenerationRecord, expectedRevision: number): Promise<boolean> {
+  await ensureEventGenerationTable();
+  const json = JSON.stringify(record);
+  if (shouldUseLocalSqlite()) {
+    // SQL goes over stdin to support large catalogs without OS argument limits.
+    const statement = expectedRevision === 0
+      ? `INSERT INTO event_generation_settings (id, revision, configuration) VALUES ('global', ${record.revision}, ${sqliteLiteral(json)}) ON CONFLICT(id) DO NOTHING;`
+      : `UPDATE event_generation_settings SET revision = ${record.revision}, configuration = ${sqliteLiteral(json)} WHERE id = 'global' AND revision = ${expectedRevision};`;
+    const output = execFileSync("sqlite3", ["-cmd", ".timeout 5000", localSqlitePath], { encoding: "utf8", input: `${statement}\nSELECT changes();`, maxBuffer: 1024 * 1024 });
+    return output.trim() === "1";
+  }
+  const sql = getSql();
+  const rows = expectedRevision === 0
+    ? await sql`INSERT INTO event_generation_settings (id, revision, configuration) VALUES ('global', ${record.revision}, ${json}) ON CONFLICT(id) DO NOTHING RETURNING id`
+    : await sql`UPDATE event_generation_settings SET revision = ${record.revision}, configuration = ${json} WHERE id = 'global' AND revision = ${expectedRevision} RETURNING id`;
+  return rows.length === 1;
+}

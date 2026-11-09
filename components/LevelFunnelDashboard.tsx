@@ -777,14 +777,16 @@ export default function LevelFunnelDashboard() {
 
       {accessError ? <div className="mb-5 rounded-[10px] border border-rose/30 bg-rose/10 px-4 py-3 text-sm font-semibold text-rose">{accessError}</div> : null}
       <form onSubmit={(event: FormEvent) => { event.preventDefault(); void runCheck(); }} className="mb-5 rounded-2xl border border-line/70 bg-surface-card p-4 shadow-soft">
-        <div className="grid items-start gap-[14px] md:grid-cols-2 xl:grid-cols-[minmax(130px,1fr)_130px_160px_300px_190px_auto_auto]">
+        <div className="grid items-start gap-[14px] md:grid-cols-2 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,2fr)_minmax(0,1.4fr)] [&>*]:min-w-0">
           <FunnelFilterDropdown label="App" value={filters.appName} options={selectableApps.map((app) => ({ value: app, label: app }))} onChange={(appName) => updateFilters({ appName, appVersions: [] })} disabled={!allowedApps?.length} />
           <FunnelMultiSelect label="Platform" values={filters.platforms} options={[{ value: "android", label: "android" }, { value: "ios", label: "ios" }]} onChange={(platforms) => updateFilters({ platforms, appVersions: [] })} emptyLabel="Select platform" required />
           <FunnelVersionMultiSelect values={filters.appVersions} options={versions} loading={versionsLoading} error={versionError} onChange={(appVersions) => updateFilters({ appVersions })} />
           <FunnelDateRangePicker startDate={filters.startDate} endDate={filters.endDate} onChange={(range) => updateFilters(range)} />
           <FunnelLevelRange minLevel={filters.minLevel} maxLevel={filters.maxLevel} onChange={(range) => updateFilters(range)} />
-          <button type="submit" disabled={loading || !allowedApps?.length} className="focus-ring mt-[18px] inline-flex h-10 items-center justify-center gap-2 rounded-[8px] bg-cobalt px-4 text-sm font-bold text-white hover:bg-cobalt/90 disabled:cursor-not-allowed disabled:opacity-50">{loading ? <RefreshCw className="h-4 w-4 animate-spin" /> : null}{loading ? "Running…" : "Run"}</button>
-          <button type="button" onClick={() => void runCheck(true)} disabled={loading || !allowedApps?.length} className="focus-ring mt-[18px] inline-flex h-10 items-center gap-2 rounded-[8px] border border-line/70 bg-surface-panel px-4 text-sm font-semibold text-slate-300 hover:bg-sage disabled:opacity-60"><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />Refresh</button>
+          <div className="flex flex-wrap justify-end gap-3 md:col-span-2 xl:col-span-5">
+          <button type="submit" disabled={loading || !allowedApps?.length} className="focus-ring inline-flex h-10 items-center justify-center gap-2 rounded-[8px] bg-cobalt px-4 text-sm font-bold text-white hover:bg-cobalt/90 disabled:cursor-not-allowed disabled:opacity-50">{loading ? <RefreshCw className="h-4 w-4 animate-spin" /> : null}{loading ? "Running…" : "Run"}</button>
+          <button type="button" onClick={() => void runCheck(true)} disabled={loading || !allowedApps?.length} className="focus-ring inline-flex h-10 items-center gap-2 rounded-[8px] border border-line/70 bg-surface-panel px-4 text-sm font-semibold text-slate-300 hover:bg-sage disabled:opacity-60"><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />Refresh</button>
+          </div>
         </div>
         <p className="mt-4 border-t border-line/60 pt-4 text-xs text-slate-500">Run uses Count’s cache when available. Use Refresh to force a new query. Results are capped at 1,000 rows; use Level range to inspect later levels or narrow a dense range. A new level hash pauses only that changed level while it is adopted.</p>
         {pendingJob ? <div role="status" className={`mt-3 rounded-lg border px-3 py-2 text-xs ${slowQuery ? "border-amber/40 bg-amber/10 text-amber" : "border-cobalt/30 bg-cobalt/10 text-slate-300"}`}>

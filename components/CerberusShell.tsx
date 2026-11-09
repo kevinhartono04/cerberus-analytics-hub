@@ -200,7 +200,7 @@ export default function CerberusShell<T extends string>({
   user?: ShellUser;
   contentClassName?: string;
   activeLaunchSection?: "technical" | "level-funnel" | "game-monitoring" | "incent-config-validator" | "adjust-events-check";
-  activeAdminSection?: "games" | "users";
+  activeAdminSection?: "games" | "users" | "event-generation";
   children: ReactNode;
 }) {
   const hasExplicitUser = user !== undefined;
@@ -272,7 +272,7 @@ export default function CerberusShell<T extends string>({
   });
   const adminSections = [
     { id: "games", label: "Games Setting", href: "/admin/games" },
-    ...(sidebarUser?.role === "admin" ? [{ id: "users", label: "Users Access", href: "/admin/users" }] : []),
+    ...(sidebarUser?.role === "admin" ? [{ id: "users", label: "Users Access", href: "/admin/users" }, { id: "event-generation", label: "Event Generation", href: "/admin/event-generation" }] : []),
   ];
   const adminSectionLinks = adminSections.map((section) => (
     <a key={section.id} href={section.href} aria-current={currentProduct === "admin" && activeAdminSection === section.id ? "page" : undefined} className={`focus-ring rounded-md px-2 py-1.5 text-xs font-semibold transition-colors ${currentProduct === "admin" && activeAdminSection === section.id ? "bg-cobalt/10 text-cobalt" : "text-slate-500 hover:bg-sage hover:text-ink"}`}>{section.label}</a>
