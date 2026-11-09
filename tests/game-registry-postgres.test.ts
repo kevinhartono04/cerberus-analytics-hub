@@ -16,7 +16,8 @@ let client: ReturnType<typeof postgres>;
 beforeAll(async () => {
   pg = new PGlite();
   await pg.exec("CREATE ROLE cerebral_app; CREATE SCHEMA cerebral AUTHORIZATION cerebral_app; SET ROLE cerebral_app; SET search_path TO cerebral,public");
-  client = postgres({ max: 1, prepare: false, fetch_types: true, socket: () => new PGliteWire(pg) });
+  const options = { max: 1, prepare: false, fetch_types: true, socket: () => new PGliteWire(pg) };
+  client = postgres(options);
   mock.client = client;
   vi.stubEnv("CEREBRAL_DATABASE_URL", "postgres://fixture@localhost/test");
 });
