@@ -60,6 +60,13 @@ export const gameInputSchema = z.object({
   adjustIos: z.string().trim().max(128).regex(/^[a-zA-Z0-9]*$/, "Use the iOS app token").default(""),
 });
 export type GameInput = z.infer<typeof gameInputSchema>;
+export const gameUpdateSchema = gameInputSchema.omit({ name: true }).extend({
+  name: gameNameSchema.optional(),
+  clearAdjustAndroid: z.boolean().default(false),
+  clearAdjustIos: z.boolean().default(false),
+}).strict().refine(value => !(value.clearAdjustAndroid && value.adjustAndroid), "Replace or remove the Android token, not both")
+  .refine(value => !(value.clearAdjustIos && value.adjustIos), "Replace or remove the iOS token, not both");
+export type GameUpdate = z.infer<typeof gameUpdateSchema>;
 export type GameSummary = { name: string; appId: number; bundleId: string; adjustAndroidConfigured: boolean; adjustIosConfigured: boolean; createdAt?: string };
 export function validatedGameId(name: string, resolvedId?: number) {
   const id = resolvedId ?? defaultGameIds[name as keyof typeof defaultGameIds];
