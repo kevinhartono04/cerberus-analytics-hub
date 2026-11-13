@@ -19,6 +19,7 @@ export async function queueFixture(){
     ALTER TABLE cerebral.tech_launch_readiness_cache OWNER TO cerebral_app;`);
   await pg.exec(readFileSync(new URL("../../supabase/migrations/20261029092437_sense_work_queue.sql",import.meta.url),"utf8"));
   await pg.exec(readFileSync(new URL("../../supabase/migrations/20261113032021_sense_transfer_guards.sql",import.meta.url),"utf8"));
+  await pg.exec(readFileSync(new URL("../../supabase/migrations/20261113033426_sense_guard_roundtrips.sql",import.meta.url),"utf8"));
   const cache=new Map<string,unknown>(),charts=new Map<string,SenseGame>(),sql:string[]=[];
   const calls:{endpoint:string;parameters:Record<string,string|number>}[]=[];
   let failCheckpoint=false;
