@@ -1,7 +1,7 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import type { AppUser } from "@/lib/types";
 
-// This identity is only returned by the dedicated service API. It cannot sign in
+// This identity is only returned by explicitly opted-in service/reporting endpoints. It cannot sign in
 // through Google, acquire a human session, or inherit a database user's role.
 export function requireLiz(request: Request): AppUser {
   const configuredHash = process.env.CEREBRAL_LIZ_TOKEN_SHA256 ?? "";

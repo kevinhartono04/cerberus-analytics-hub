@@ -2,6 +2,7 @@ import type {SenseGame,SenseRunResponse,SenseStore} from "./ludios-sense-types";
 import type {QueueApp,QueueCandidate,QueueChange,QueueJob,QueueState,SharedChange} from "./ludios-sense-queue-types";
 import {QUEUE_PAGE_SIZE} from "./ludios-sense-queue-types";
 import {senseReadBytes} from "./ludios-sense-transfer";
+import {senseGenreOverrides,senseRetainedCandidatePredicate} from "./ludios-sense-discovery";
 
 // JSON is pre-encoded by this store. Bind as text before casting so postgres.js
 // does not JSON-encode the string a second time after parameter type discovery.
@@ -37,6 +38,7 @@ export class SenseQueueStore {
   async create(key:string,state:QueueState,source?:string):Promise<QueueJob>{
     return this.database.transaction(async db=>{
       await db.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))",[key]);
+      if(!source)await this.collectionSlot(db,key);
       const [old]=await db.query("SELECT expires_at,lease_until FROM cerebral.sense_queue_jobs WHERE job_key=$1 FOR UPDATE",[key]);
       if(old && iso(old.expires_at)<=new Date().toISOString()){
         if(old.lease_until && iso(old.lease_until)>new Date().toISOString())throw new Error("Expired scan is busy; retry shortly");
@@ -52,10 +54,25 @@ export class SenseQueueStore {
           await db.query(`INSERT INTO cerebral.sense_queue_candidates(job_key,store,app_id,discovered_date,stage,payload)
             SELECT $1,store,app_id,discovered_date,'finalize',payload FROM cerebral.sense_queue_candidates WHERE job_key=$2 AND result IS NOT NULL`,[key,source]);
         }else{
-          // Copy warm candidate snapshots within Postgres; no catalogue crosses the connection.
-          await db.query(`INSERT INTO cerebral.sense_queue_candidates(job_key,store,app_id,discovered_date,payload)
-            SELECT $1,store,app_id,discovered_date,payload FROM cerebral.sense_queue_apps
-            WHERE discovered_date BETWEEN $2::date-30 AND $2::date AND expires_at>now()`,[key,state.stores.android.rankingDate]);
+          // A paused same-date check may have learned games/metadata that have
+          // not reached shared finalization yet. Preserve those observations on
+          // an explicitly started rerun, without resuming/resetting the old job.
+          // Pick the latest classification before excluding known non-games.
+          await db.query(`WITH known AS (
+            SELECT store,app_id,discovered_date,payload FROM cerebral.sense_queue_apps WHERE expires_at>now()
+            UNION ALL
+            SELECT c.store,c.app_id,c.discovered_date,c.payload FROM cerebral.sense_queue_candidates c
+            JOIN cerebral.sense_queue_jobs j ON j.job_key=c.job_key
+            WHERE j.job_key<>$1 AND j.report_date=$4::date AND j.paused AND j.state->>'status'='running'
+              AND NOT (j.state ? 'source') AND j.expires_at>now()
+          ), latest AS (
+            SELECT DISTINCT ON(store,app_id) store,app_id,discovered_date,payload FROM known
+            WHERE discovered_date BETWEEN $2::date-30 AND $2::date
+            ORDER BY store,app_id,coalesce(payload->>'metadataAt','') DESC,
+              coalesce(payload->>'historyAt','') DESC,discovered_date DESC
+          ) INSERT INTO cerebral.sense_queue_candidates(job_key,store,app_id,discovered_date,payload)
+            SELECT $1,store,app_id,discovered_date,payload FROM latest
+            WHERE ${senseRetainedCandidatePredicate}`,[key,state.stores.android.rankingDate,senseGenreOverrides,state.filters.date]);
         }
         const counts=await db.query(`SELECT store,count(*)::integer AS count FROM cerebral.sense_queue_candidates WHERE job_key=$1 GROUP BY store`,[key]);
         for(const row of counts)state.stores[row.store as SenseStore].candidates=Number(row.count);
@@ -64,6 +81,12 @@ export class SenseQueueStore {
       const [row]=await db.query(`SELECT ${columns} FROM cerebral.sense_queue_jobs WHERE job_key=$1`,[key]);
       const current=job(row);await summary(db,current);return current;
     });
+  }
+  private async collectionSlot(db:QueueDatabase,key:string){
+    await db.query("SELECT pg_advisory_xact_lock(hashtextextended('sense:collection-slot',0))");
+    const [active]=await db.query(`SELECT job_key FROM cerebral.sense_queue_jobs WHERE job_key<>$1 AND NOT paused
+      AND state->>'status'='running' AND NOT (state ? 'source') AND expires_at>now() LIMIT 1`,[key]);
+    if(active)throw Response.json({error:"Another Sense collection is unfinished. Finish or pause it before starting another check."},{status:409});
   }
   async claim(key:string,token:string):Promise<QueueJob|null>{
     const [row]=await this.database.query(`UPDATE cerebral.sense_queue_jobs SET lease_token=$2,lease_until=now()+interval '90 seconds'
@@ -80,6 +103,10 @@ export class SenseQueueStore {
   }
   async pause(key:string,paused:boolean,reason?:string){
     return this.database.transaction(async db=>{
+      if(!paused){
+        const [saved]=await db.query("SELECT state ? 'source' AS derived FROM cerebral.sense_queue_jobs WHERE job_key=$1",[key]);
+        if(!saved?.derived)await this.collectionSlot(db,key);
+      }
       const [row]=await db.query(`UPDATE cerebral.sense_queue_jobs SET paused=$2,safety_reason=coalesce($3,safety_reason),updated_at=greatest(clock_timestamp(),updated_at+interval '1 millisecond')
         WHERE job_key=$1 AND ($2 OR safety_reason IS NULL) RETURNING ${columns}`,[key,paused,reason ?? null],{safetyControl:true});
       if(!row)throw Response.json({error:"This scan has a safety stop. Review its budget before resuming."},{status:409});

@@ -1,11 +1,17 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
-type Transfer = { operation: string; readBytes: number; reads: number; immutable: Map<string, {payload:string;expiresAt?:string}>; cacheBytes: number };
+type Transfer = { operation: string; readBytes: number; reads: number; immutable: Map<string, {payload:string;expiresAt?:string}>; cacheBytes: number; stepLimit?:number };
 const context = new AsyncLocalStorage<Transfer>();
 const CACHE_LIMIT = 32 * 1024 * 1024;
 const READ_LIMIT = 256 * 1024 * 1024;
 export const SENSE_RUN_READ_LIMIT = 1024 * 1024 * 1024;
 export function senseReadBytes() { return context.getStore()?.readBytes ?? 0; }
+
+export function limitSenseStepReads(start:number,bytes:number) {
+  const transfer=context.getStore();if(!transfer)return ()=>{};
+  const previous=transfer.stepLimit;transfer.stepLimit=start+bytes;
+  return ()=>{transfer.stepLimit=previous;};
+}
 
 /** Per invocation only: mutable checkpoints and controls are never cached. */
 export async function measureSenseTransfer<T>(operation: string, work: () => Promise<T>, options?:{isolated?:boolean}): Promise<T> {
@@ -28,7 +34,7 @@ export function countSenseRead(payload: string, enforce = true) {
   transfer.readBytes += Buffer.byteLength(payload);
   transfer.reads++;
   // Bounds subsequent application reads; this is payload accounting, not billed wire bytes.
-  if (enforce && transfer.readBytes > READ_LIMIT) throw new Error("Sense database transfer budget reached; pause and review this run.");
+  if (enforce && (transfer.readBytes > READ_LIMIT || transfer.stepLimit!==undefined && transfer.readBytes>transfer.stepLimit)) throw new Error("Sense database transfer budget reached; pause and review this run.");
 }
 
 export function cachedSensePage(key: string) {

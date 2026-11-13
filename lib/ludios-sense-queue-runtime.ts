@@ -2,7 +2,7 @@ import {randomUUID} from "node:crypto";
 import {claimSenseLease,getTechLaunchReadinessCache,releaseSenseLease,senseQueueDatabase,saveTechLaunchReadinessCache} from "./db";
 import {SenseQueueStore} from "./ludios-sense-queue-store";
 import {SenseQueueEngine} from "./ludios-sense-queue-engine";
-import {boundedSenseJson,hydrateSenseHistory,persistSenseHistory,persistSenseChart,readSenseDocument,senseChartKey} from "./ludios-sense-storage";
+import {readSenseHistoryWindow,boundedSenseJson,hydrateSenseHistory,persistSenseHistory,persistSenseChart,readSenseDocument,senseChartKey} from "./ludios-sense-storage";
 import {recordSenseOrganizationUsage,reserveSenseRequest} from "./ludios-sense-usage";
 import {sensorTowerRequest} from "./sensortower-api";
 
@@ -15,7 +15,7 @@ export function senseQueueRuntime(){
       return row && row.expiresAt>new Date().toISOString()?JSON.parse(row.payload) as T:null;
     },
     async writeCache(cacheKey,value,days=31){await saveTechLaunchReadinessCache({cacheKey,payload:boundedSenseJson(value),createdAt:new Date().toISOString(),expiresAt:new Date(Date.now()+days*86400000).toISOString()});},
-    hydrate:hydrateSenseHistory,persist:persistSenseHistory,
+    window:readSenseHistoryWindow,hydrate:hydrateSenseHistory,persist:persistSenseHistory,
     async chart(key,generatedAt,game){await persistSenseChart(senseChartKey(key,generatedAt,game.store,game.appId),game);},
     async reserve(){if(!process.env.SENSOR_TOWER_TOKEN?.trim())throw new Error("Sensor Tower is not configured on this server");await reserveSenseRequest();},
     async request(endpoint,parameters){

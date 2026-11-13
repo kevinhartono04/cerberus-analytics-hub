@@ -2,7 +2,8 @@ import { measureSenseTransfer } from "@/lib/ludios-sense-transfer";
 import { senseJsonResponse } from "@/lib/ludios-sense-response";
 import { after, NextResponse } from "next/server";
 import { ZodError } from "zod";
-import { assertInternalAppUser, jsonError, requireCurrentAppUser } from "@/lib/auth";
+import { jsonError } from "@/lib/auth";
+import { requireSenseReportingUser } from "@/lib/ludios-sense-auth";
 import { getSenseProgress, runSenseWorker, startSense } from "@/lib/ludios-sense";
 import { senseRequestSchema } from "@/lib/ludios-sense-types";
 export const runtime = "nodejs";
@@ -14,7 +15,7 @@ export async function POST(request: Request) {
 
 async function handle(request: Request) {
   try {
-    assertInternalAppUser(await requireCurrentAppUser(request));
+    await requireSenseReportingUser(request, "start");
     const result = await startSense(senseRequestSchema.parse(await request.json()));
     if (result.status === "running" && !result.paused) after(() => runSenseWorker(result.jobKey));
     return senseJsonResponse({...await getSenseProgress(result.jobKey),cached:result.cached});

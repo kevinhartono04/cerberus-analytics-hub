@@ -3,6 +3,7 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import postgres from "postgres";
 import { supabaseCa } from "@/lib/supabase-ca";
+import { senseHistoryWindowSql } from "@/lib/ludios-sense-history-window";
 import { countSenseRead } from "@/lib/ludios-sense-transfer";
 
 import type {
@@ -1209,7 +1210,7 @@ function rowToTechLaunchCacheRecord(row: Record<string, unknown>): TechLaunchRea
 }
 
 /** Reject oversized cache records in SQL, before transferring or parsing their payload. */
-export async function getTechLaunchReadinessCache(cacheKey: string, maxBytes = 128 * 1024 * 1024, options?: { senseProgress?: boolean; senseRanking?:boolean }): Promise<TechLaunchReadinessCacheRecord | null> {
+export async function getTechLaunchReadinessCache(cacheKey: string, maxBytes = 128 * 1024 * 1024, options?: { senseProgress?: boolean; senseRanking?:boolean; senseHistory?:{countries:string[];start:string;end:string} }): Promise<TechLaunchReadinessCacheRecord | null> {
   const map = (row: Record<string, unknown> | undefined) => {
     if (row && Number(row.payload_bytes) > maxBytes) throw new Error("Saved scan exceeds the safe storage limit; offline migration is required before resuming.");
     const record = row ? rowToTechLaunchCacheRecord(row) : null;
@@ -1226,6 +1227,11 @@ export async function getTechLaunchReadinessCache(cacheKey: string, maxBytes = 1
     return map(row);
   }
   const sql = await ensureTechLaunchCacheTable();
+  if(options?.senseHistory){
+    const window=options.senseHistory;
+    const [row]=await sql.unsafe<Record<string,unknown>[]>(senseHistoryWindowSql,[cacheKey,maxBytes,window.countries,window.start,window.end]);
+    return map(row);
+  }
   if(options?.senseRanking){
     const [row]=await sql<Record<string,unknown>[]>`
       SELECT cache_key,CASE WHEN octet_length(payload)<=${maxBytes} THEN CASE WHEN jsonb_typeof(payload::jsonb #> '{payload,data}')='array' THEN

@@ -1,6 +1,7 @@
 // @vitest-environment node
 import {afterEach,beforeEach,expect,it} from "vitest";
 import {readFileSync} from "node:fs";
+import {createHash} from "node:crypto";
 import {queueFixture,type QueueFixture} from "./helpers/sense-queue-postgres";
 import {queueKey} from "@/lib/ludios-sense-queue-types";
 let f:QueueFixture;
@@ -30,7 +31,9 @@ it("bootstraps inside Postgres, respects private-role access and preserves newer
 it("adopts the exact paused cursor and candidate snapshots while retaining attempts and the original checkpoint",async()=>{
  const source=await legacy();await f.pg.exec(bootstrap);
  await f.pg.query("SELECT set_config('sense.queue_adopt_key',$1,false)",[oldKey]);await f.pg.exec(adopt);
- const key=queueKey(filters),job=(await f.store.get(key))!;
+ // Historical adoption keeps its original unfiltered identity and cursor.
+ const key="sense:v1:"+createHash("sha256").update(JSON.stringify({engine:1,ruleVersion:"1.4-aggregate",date:filters.date,countries:filters.countries})).digest("hex"),job=(await f.store.get(key))!;
+ expect(key).not.toBe(queueKey(filters));
  expect(job.paused).toBe(true);expect(job.safetyReason).toContain("Legacy resource stop");expect(job.requests).toBe(72);
  expect(job.state.legacyReadBytes).toBe(418694119);expect(job.readBytes).toBe(0);
  expect(job.state.stores.android.offset).toBe(200);expect(job.state.stores.android.candidates).toBe(1);
