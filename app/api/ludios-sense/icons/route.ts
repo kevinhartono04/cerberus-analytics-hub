@@ -1,7 +1,8 @@
 import { measureSenseTransfer } from "@/lib/ludios-sense-transfer";
 import { NextResponse } from "next/server";
 import { z, ZodError } from "zod";
-import { assertInternalAppUser, jsonError, requireCurrentAppUser } from "@/lib/auth";
+import { jsonError } from "@/lib/auth";
+import { requireSenseReportingUser } from "@/lib/ludios-sense-auth";
 import { getSenseProgress, getSenseGame } from "@/lib/ludios-sense";
 import { getSenseIcons } from "@/lib/ludios-sense-icons";
 export const runtime = "nodejs";
@@ -11,7 +12,7 @@ export async function POST(request: Request) {
 
 async function handle(request: Request) {
   try {
-    assertInternalAppUser(await requireCurrentAppUser(request));
+    await requireSenseReportingUser(request, "icons");
     const input = z.object({ jobKey: z.string().regex(/^sense:v1:[a-f0-9]{64}$/), store: z.enum(["ios","android"]), appIds: z.array(z.string().min(1).max(200)).min(1).max(100) }).parse(await request.json());
     const { result } = await getSenseProgress(input.jobKey);
     if (!result) throw new Response("Report unavailable", { status: 404 });
