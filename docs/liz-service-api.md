@@ -65,3 +65,45 @@ Rotate by generating a new token, replacing the server hash, redeploying/restart
 the server, and updating Liz's secret. Only one token is accepted at a time.
 Revoke by removing the hash and redeploying/restarting all serving instances.
 Ensure obsolete deployments are no longer reachable when revoking a token.
+
+## Ludios Sense reporting with the same token
+
+The existing Liz bearer token also authenticates the following **POST** endpoints
+on the Cerebral host. These paths are `/api/ludios-sense/...`, not beneath
+`/api/service`. Send `Content-Type: application/json` and the same Authorization
+header. No additional token or environment variable is required.
+
+| Path | JSON body | Purpose |
+| --- | --- | --- |
+| `/api/ludios-sense/usage` | `{ "date": "2026-11-09", "countries": ["US"] }` | Read allowance and whether a saved report exists |
+| `/api/ludios-sense/cache` | Same date/countries | Retrieve/recalculate saved results without starting upstream collection |
+| `/api/ludios-sense` | Same date/countries | Start or reuse a report |
+| `/api/ludios-sense/status` | `{ "jobKey": "<returned jobKey>" }` | Poll progress without advancing collection |
+| `/api/ludios-sense/continue` | `{ "jobKey": "<returned jobKey>" }` | Continue a running queue job when its worker is inactive |
+| `/api/ludios-sense/report` | `{ "jobKey": "...", "generatedAt": "<result.generatedAt>", "revision": "<reportRevision>", "page": 0 }` | Read report rows in bounded pages |
+| `/api/ludios-sense/recent` | `{ "jobKey": "..." }` | Read the saved watchlist |
+| `/api/ludios-sense/game` | `{ "jobKey": "...", "generatedAt": "...", "store": "ios", "appId": "..." }` | Read chart history for a reported game |
+| `/api/ludios-sense/icons` | `{ "jobKey": "...", "store": "ios", "appIds": ["..."] }` | Read icons for games in the saved report |
+
+Dates must be valid ISO dates no later than today in Jakarta. Supported countries:
+US, JP, CA, RU, DE, AU, GB. Supply at least one. Store is `ios` or `android`.
+
+Suggested workflow: check usage/cache, start if needed, then poll status every
+10–15 seconds. Stop polling on completion or error. A running, unpaused queue job
+with `workerActive: false` can be continued explicitly; do not call continue on
+every poll. Status also supports `action: "pause"` or `"resume"` for operator-directed
+control. Do not automatically resume a budget-paused job.
+
+When `reportLoaded` is false and a completed/paused result is available, use its
+`result.generatedAt` and `reportRevision` to fetch report pages 0 through
+`pageCount - 1`. Omit `revision` if absent. Combine each page's `result.games`.
+On HTTP 409, refresh status and restart paging for the new revision rather than
+mixing versions. A completed report may still have partial coverage: retain its
+errors, coverage flags and reporting dates in Liz's summary.
+
+Liz shares the UI's caches, job controls, request allowance, collection admission
+and durable budgets. Access does not raise limits or bypass a disabled collector.
+It does not grant cron, configuration, admin or deletion access. The authorization
+log records `actor: "service:liz"` and `action: "sense.<operation>"`; authorization
+is not a guarantee that the scan completed successfully. Existing human Google
+session access remains supported, while an invalid supplied token fails closed.
