@@ -1,3 +1,6 @@
+import {selectSenseHistoryWindow} from "./ludios-sense-history-window";
+import {shiftDate} from "./ludios-sense-detection";
+import type {SenseCountry} from "./ludios-sense-types";
 import { encodeHistory, pageSenseManifest, MANIFEST_PAGE_LIMIT, MANIFEST_TOTAL_LIMIT } from "./ludios-sense-codec.mjs";
 import { createHash } from "node:crypto";
 import { getTechLaunchReadinessCache, saveTechLaunchReadinessCache } from "@/lib/db";
@@ -93,6 +96,20 @@ export async function hydrateSenseHistory(app: ShardedHistory) {
     app.histories=full.histories;app.historyWindows=full.historyWindows;app.countryHistory=full.countryHistory;
   } else app.histories=histories as StoredSenseHistory["histories"];
   hydrated.add(app);
+}
+/** Read a projected working window without mutating its original immutable reference. */
+export async function readSenseHistoryWindow(app:ShardedHistory,countries:SenseCountry[],end:string) {
+  if(!app.historyRef || hydrated.has(app))return selectSenseHistoryWindow(app,countries,end);
+  // A full immutable blob may already be present in this invocation; otherwise ask
+  // Postgres for only the working window. Never cache a projection under a full-blob key.
+  const cached=cachedSensePage(app.historyRef);
+  const row=cached!==undefined ? {payload:cached,expiresAt:app.historyRefExpiresAt} :
+    await getTechLaunchReadinessCache(app.historyRef,SENSE_HISTORY_LIMIT,{senseHistory:{countries,start:shiftDate(end,-27),end}});
+  if(!row || row.expiresAt && row.expiresAt<=new Date().toISOString())throw new Error("Saved game history is unavailable; restart this scan after storage recovery.");
+  if(Buffer.byteLength(row.payload)>SENSE_HISTORY_LIMIT)throw new Error("Saved game history exceeds the safe storage limit");
+  const value=JSON.parse(row.payload);
+  const full=value.format===4 ? {...app,histories:value.histories,historyWindows:value.historyWindows ?? app.historyWindows,countryHistory:value.countryHistory ?? app.countryHistory} : {...app,histories:value};
+  return selectSenseHistoryWindow(full,countries,end);
 }
 /** Immutable blobs are committed before their manifest. An interrupted save leaves only an expiring orphan. */
 export async function persistSenseHistory(app: ShardedHistory) {

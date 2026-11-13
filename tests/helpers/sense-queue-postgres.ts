@@ -1,10 +1,12 @@
+import {selectSenseHistoryWindow,senseHistoryWindowSql} from "@/lib/ludios-sense-history-window";
+import {shiftDate} from "@/lib/ludios-sense-detection";
 import {PGlite} from "@electric-sql/pglite";
 import {readFileSync} from "node:fs";
 import {createHash} from "node:crypto";
 import {SenseQueueStore} from "@/lib/ludios-sense-queue-store";
 import {SenseQueueEngine,type QueueServices} from "@/lib/ludios-sense-queue-engine";
 import type {QueueDatabase} from "@/lib/ludios-sense-queue-store";
-import {countSenseRead} from "@/lib/ludios-sense-transfer";
+import {cachedSensePage,rememberSensePage,countSenseRead} from "@/lib/ludios-sense-transfer";
 import {encodeHistory} from "@/lib/ludios-sense-codec.mjs";
 import {senseChartKey} from "@/lib/ludios-sense-storage";
 import type {QueueApp} from "@/lib/ludios-sense-queue-types";
@@ -32,14 +34,30 @@ export async function queueFixture(){
   const database=wrap(pg),store=new SenseQueueStore(database);
   const services:QueueServices={
     async readCache<T>(key:string,_maxBytes?:number,projection?:"ranking"):Promise<T|null>{
+      const remembered=projection?undefined:cachedSensePage(key);
+      if(remembered!==undefined)return JSON.parse(remembered) as T;
       let value=cache.get(key);if(value===undefined)return null;
       if(projection==="ranking"){
         const row=structuredClone(value) as {retrievedAt:string;payload:{data?:Record<string,unknown>[];meta?:unknown;entities?:{app_id?:Record<string,{name?:string}>}}};
         if(Array.isArray(row.payload.data))value={retrievedAt:row.retrievedAt,payload:{meta:row.payload.meta,data:row.payload.data.map(r=>({app_id:r.app_id,est_mobile_downloads:r.est_mobile_downloads,name:r.name ?? row.payload.entities?.app_id?.[String(r.app_id)]?.name ?? null}))}};
       }
-      countSenseRead(JSON.stringify(value));return structuredClone(value) as T;
+      const payload=JSON.stringify(value);countSenseRead(payload);
+      if(!projection)rememberSensePage(key,payload,"2099-01-01");
+      return structuredClone(value) as T;
     },
     async writeCache(key,value){cache.set(key,structuredClone(value));},
+    async window(app,countries,end){
+      if(!app.historyRef || Object.keys(app.histories).length)return selectSenseHistoryWindow(app,countries,end);
+      const remembered=cachedSensePage(app.historyRef);
+      if(remembered!==undefined){const saved=JSON.parse(remembered);return selectSenseHistoryWindow({...app,...saved},countries,end);}
+      const blob=cache.get(app.historyRef);if(!blob)throw new Error("Saved history is unavailable");
+      // Execute the same projection as production; seed insertion is test setup only.
+      await pg.query("INSERT INTO cerebral.tech_launch_readiness_cache VALUES($1,$2,$3,$4) ON CONFLICT(cache_key) DO NOTHING",[app.historyRef,JSON.stringify(blob),"2026-01-01","2099-01-01"]);
+      const [row]=await database.query(senseHistoryWindowSql.replace("FROM tech_launch_readiness_cache","FROM cerebral.tech_launch_readiness_cache"),[app.historyRef,256*1024,countries,shiftDate(end,-27),end]);
+      if(Number(row.payload_bytes)>256*1024)throw new Error("Saved game history exceeds the safe storage limit");
+      const saved=JSON.parse(String(row.payload));
+      return selectSenseHistoryWindow({...app,histories:saved.histories,historyWindows:saved.historyWindows ?? app.historyWindows,countryHistory:saved.countryHistory ?? app.countryHistory},countries,end);
+    },
     async hydrate(app){
       if(app.historyRef && !Object.keys(app.histories).length){
         const saved=await services.readCache<{histories:QueueApp["histories"];historyWindows:QueueApp["historyWindows"]}>(app.historyRef);

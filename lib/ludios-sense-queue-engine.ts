@@ -11,6 +11,7 @@ import type {SenseCountry,SenseFilters,SenseGame,SenseStore} from "./ludios-sens
 export interface QueueServices {
   readCache<T>(key:string,maxBytes?:number,projection?:"ranking"):Promise<T|null>;
   writeCache(key:string,value:unknown,days?:number):Promise<void>;
+  window(app:QueueApp,countries:SenseCountry[],end:string):Promise<import("./ludios-sense-history").StoredSenseHistory>;
   hydrate(app:QueueApp):Promise<void>;
   persist(app:QueueApp):Promise<void>;
   chart(key:string,generatedAt:string,game:SenseGame):Promise<void>;
@@ -191,7 +192,12 @@ export class SenseQueueEngine {
         if(normalized.has(key)&&normalized.get(key)!==value)throw new Error("Conflicting duplicate download observation");normalized.set(key,value);
       }
       for(const c of batch){
-        await this.services.hydrate(c.app);
+        // Cut excess retained history only in the candidate snapshot. Shared history
+        // is merged at finalization and old report references remain immutable.
+        if(index===0){
+          const working=await this.services.window(c.app,next.filters.countries,s.watermark!);
+          Object.assign(c.app,working);delete c.app.historyRef;delete c.app.historyRefExpiresAt;delete c.app.countryHistory;
+        }else await this.services.hydrate(c.app);
         for(const country of next.filters.countries){
           c.app.histories[country] ??= {};
           for(let i=0;i<7;i++){const d=shiftDate(start,i),value=normalized.get(`${c.appId}:${country}:${d}`);if(validDownloads(value))c.app.histories[country]![d]=value;else delete c.app.histories[country]![d];}
@@ -224,25 +230,37 @@ export class SenseQueueEngine {
     for(const c of batch){
       const app=c.app,t=s.watermark!;
       if(next.source&&requiredHistoryWeeks(app,next.filters.countries,t,false).length)throw new Error("Saved country coverage is unavailable");
-      await this.services.hydrate(app);
-      const aggregate=aggregateSenseHistory(app.histories,next.filters.countries,t),evaluation=evaluateSense(aggregate.history,t,app.releaseDate);
+      const previous=currentShared.find(a=>a.store===store&&a.appId===c.appId);
+      const mergeHistory=Boolean(previous && previous.version!==null && (!app.historyRef || previous.app.historyRef!==app.historyRef));
+      // Changed snapshots must be merged. Read the run-local blob once and reuse it
+      // for evaluation and merging instead of projecting and then fetching it again.
+      if(mergeHistory)await this.services.hydrate(app);
+      const working=await this.services.window(app,next.filters.countries,t);
+      const aggregate=aggregateSenseHistory(working.histories,next.filters.countries,t),evaluation=evaluateSense(aggregate.history,t,app.releaseDate);
       if(store==="android")evaluation.flags.push("latest_android_provisional");
       if(aggregate.unavailableCountries.length)evaluation.flags.push("some_countries_unavailable");
       const country=next.filters.countries.includes("US")?"US":next.filters.countries[0];
       const game:SenseGame={appId:c.appId,store,name:app.name,publisher:app.publisher,iconUrl:app.iconUrl,unifiedAppId:app.unifiedAppId,releaseDate:app.releaseDate,...classifySense(c.appId,store,app.categories),...aggregate,evaluation,retrievedAt:app.historyAt ?? this.services.now(),url:store==="ios"?`https://apps.apple.com/${country.toLowerCase()}/app/id${c.appId}`:`https://play.google.com/store/apps/details?id=${encodeURIComponent(c.appId)}&gl=${country}`};
       await this.services.chart(job.key,next.result!.generatedAt,game);
       game.history=[];game.historyLoaded=false;
-      await this.services.persist(app);
+      if(previous){shared.push({...previous,app:previous.version===null?jsonClone(app):await this.merge(previous.app,app,mergeHistory)});}
+      if(mergeHistory)await this.services.persist(app);
       changes.push({...change(c),stage:"reported",result:game});
-      const previous=currentShared.find(a=>a.store===store&&a.appId===c.appId);
-      if(previous){shared.push({...previous,app:previous.version===null?jsonClone(app):await this.merge(previous.app,app)});}
     }
     s.reports+=batch.length;next.progress=`Saving game reports (${next.stores.android.reports+next.stores.ios.reports} complete)…`;
     return {changes,shared};
   }
-  private async merge(previous:QueueApp,incoming:QueueApp){
+  private async merge(previous:QueueApp,incoming:QueueApp,incomingHydrated=false){
+    // Identical content needs no history read, merge, or write. Metadata can still advance.
+    if(previous.historyRef && previous.historyRef===incoming.historyRef){
+      const metadata=(incoming.metadataAt ?? "")>(previous.metadataAt ?? "")?incoming:previous;
+      return {...jsonClone(metadata),historyRef:previous.historyRef,
+        historyRefExpiresAt:(incoming.historyRefExpiresAt ?? "")>(previous.historyRefExpiresAt ?? "")?incoming.historyRefExpiresAt:previous.historyRefExpiresAt,
+        historyAt:(incoming.historyAt ?? "")>(previous.historyAt ?? "")?incoming.historyAt:previous.historyAt,
+        discoveredDate:previous.discoveredDate>incoming.discoveredDate?previous.discoveredDate:incoming.discoveredDate};
+    }
     const left=jsonClone(previous),right=jsonClone(incoming);
-    await this.services.hydrate(left);await this.services.hydrate(right);
+    await this.services.hydrate(left);if(!incomingHydrated)await this.services.hydrate(right);
     const histories:QueueApp["histories"]={},windows:NonNullable<QueueApp["historyWindows"]>={};
     for(const country of new Set([...Object.keys(left.histories),...Object.keys(right.histories),...Object.keys(left.historyWindows ?? {}),...Object.keys(right.historyWindows ?? {})]) as Set<SenseCountry>){
       const merged=mergeCountryHistory(left,right,country);histories[country]=merged.histories;windows[country]=merged.windows;

@@ -7,7 +7,7 @@ import {SenseQueueStore} from "@/lib/ludios-sense-queue-store";
 import {SenseQueueEngine} from "@/lib/ludios-sense-queue-engine";
 const mock=vi.hoisted(()=>({client:null as unknown}));
 vi.mock("postgres",async importOriginal=>{const actual=await importOriginal<{default:typeof postgres}>();return {...actual,default:(...args:unknown[])=>args.length===1?actual.default(args[0] as never):mock.client};});
-import {senseQueueDatabase} from "@/lib/db";
+import {getTechLaunchReadinessCache,senseQueueDatabase} from "@/lib/db";
 let f:QueueFixture,client:ReturnType<typeof postgres>;
 beforeAll(async()=>{
  f=await queueFixture();await f.pg.exec("SET search_path TO cerebral,public");
@@ -22,3 +22,10 @@ it("round-trips queue JSON and arrays through the real production driver and com
  for(let step=0;step<100&&run.status==="running";step++)run=await engine.advance(run.jobKey);
  expect(run.status).toBe("completed");expect((await store.report(run.jobKey,0)).result.games).toHaveLength(2);
 },30000);
+
+it("projects history through postgres.js array parameters without transferring unselected dates",async()=>{
+ const value={format:4,histories:{US:{"2026-01-01":99,"2026-11-12":10},JP:{"2026-11-12":20}},historyWindows:{US:[{start:"2026-01-01",end:"2026-11-12",at:"2026-11-13"}]}};
+ await f.pg.query("INSERT INTO cerebral.tech_launch_readiness_cache VALUES($1,$2,$3,$4)",["sense:driver-window",JSON.stringify(value),"2026-01-01","2099-01-01"]);
+ const row=await getTechLaunchReadinessCache("sense:driver-window",256*1024,{senseHistory:{countries:["US"],start:"2026-10-16",end:"2026-11-12"}});
+ expect(JSON.parse(row!.payload).histories).toEqual({US:{"2026-11-12":10}});
+});
