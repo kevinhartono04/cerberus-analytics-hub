@@ -1,8 +1,9 @@
+import {SenseTransferGuard,SENSE_STEP_LIMIT} from "./ludios-sense-guard";
 import {createHash,randomUUID} from "node:crypto";
 import {aggregateSenseHistory,classifySense,evaluateSense,senseRuleVersion,shiftDate,validDownloads} from "./ludios-sense-detection";
 import {historyWindows,mergeCountryHistory,mergeHistoryWindows,requiredHistoryWeeks} from "./ludios-sense-history";
 import {safeSenseIconUrl} from "./ludios-sense-icons";
-import {measureSenseTransfer,senseReadBytes} from "./ludios-sense-transfer";
+import {limitSenseStepReads,measureSenseTransfer,senseReadBytes} from "./ludios-sense-transfer";
 import {SenseQueueStore,queueProgress} from "./ludios-sense-queue-store";
 import {QUEUE_DISCOVERY_LIMIT,QUEUE_RUN_LIMIT,queueKey} from "./ludios-sense-queue-types";
 import type {QueueApp,QueueCandidate,QueueChange,QueueJob,QueueState,SharedChange,StoreCursor} from "./ludios-sense-queue-types";
@@ -71,16 +72,24 @@ export class SenseQueueEngine {
   }
   async advance(key:string,savedOnly=false){
     return measureSenseTransfer("queue_step",async()=>{
-      const readStart=senseReadBytes(),token=randomUUID();
+      const readStart=senseReadBytes(),token=randomUUID(),guard=new SenseTransferGuard(this.store.database),started=Date.now();
+      let reserved=false,failed=false,progressed:boolean|null=false,resetLimit=()=>{};
       try{
+        const permit=await guard.reserve(key,token);
+        if(!permit.reserved){
+          if(permit.reason){console.error("[ludios-sense]",JSON.stringify({event:"safety_stop",scan:key.slice(-8),reason:permit.reason}));return queueProgress(await this.store.pause(key,true,permit.reason));}
+          return this.progress(key);
+        }
+        reserved=true;resetLimit=limitSenseStepReads(readStart,SENSE_STEP_LIMIT);
         const externalPause=await this.services.readCache<boolean>(key+":paused",1024);
-        if(externalPause)return queueProgress(await this.store.pause(key,true));
+        if(externalPause){progressed=null;return queueProgress(await this.store.pause(key,true));}
         const current=await this.store.claim(key,token);
-        if(!current)return this.progress(key);
+        if(!current){progressed=null;return this.progress(key);}
         if(current.readBytes>=QUEUE_RUN_LIMIT || current.discoveryReadBytes>=QUEUE_DISCOVERY_LIMIT)
           return queueProgress(await this.store.pause(key,true,"Scan paused at its database transfer budget. Review before resuming."));
         if(savedOnly&&!current.state.source)throw new Error("Saved-data worker cannot perform an upstream scan");
-        if(current.state.retryAt && current.state.retryAt>this.services.now())return queueProgress(current);
+        if(current.state.retryAt && current.state.retryAt>this.services.now()){progressed=null;return queueProgress(current);}
+        progressed=false;
         const next=jsonClone(current.state),changes:QueueChange[]=[],shared:SharedChange[]=[];
         let ranking:{appId:string;name:string;date:string}[]|undefined;
         try{
@@ -93,6 +102,7 @@ export class SenseQueueEngine {
           }
           next.retry=0;delete next.retryAt;if(next.result?.coverageComplete!==false)delete next.error;
         }catch(error){
+          failed=true;
           const message=error instanceof Error?error.message:"Scan processing failed";
           if(message.includes("transfer budget"))throw error;
           if(message.includes("lease or was paused")||message.includes("Shared app changed"))return this.progress(key);
@@ -108,15 +118,21 @@ export class SenseQueueEngine {
           }
         }
         const updated=await this.store.commit(current,next,changes,readStart,{ranking,shared});
+        progressed=JSON.stringify(current.state.stores)!==JSON.stringify(next.stores)||changes.length>0||next.status!==current.state.status;
         if(updated.state.status==="running" && (updated.readBytes>=QUEUE_RUN_LIMIT||updated.discoveryReadBytes>=QUEUE_DISCOVERY_LIMIT))
           return queueProgress(await this.store.pause(key,true,"Scan paused at its database transfer budget. Review before resuming."));
         console.info("[ludios-sense]",JSON.stringify({event:"queue_step_completed",scan:key.slice(-8),store:next.store,phase:next.stores[next.store].phase,requests:updated.requests,readBytes:updated.readBytes,discoveryReadBytes:updated.discoveryReadBytes,rssBytes:process.memoryUsage().rss,heapBytes:process.memoryUsage().heapUsed}));
         return queueProgress(updated);
       }catch(error){
+        failed=true;
         if(error instanceof Error&&error.message.includes("transfer budget"))return queueProgress(await this.store.pause(key,true,error.message));
         if(error instanceof Error&&/lease or was paused|Shared app changed/.test(error.message))return this.progress(key);
         throw error;
-      }finally{await this.store.release(key,token);}
+      }finally{
+        resetLimit();
+        try{if(reserved)await guard.settle(token,senseReadBytes()-readStart,Date.now()-started,failed?false:progressed);}
+        finally{await this.store.release(key,token);}
+      }
     });
   }
   private async discovery(job:QueueJob,next:QueueState){

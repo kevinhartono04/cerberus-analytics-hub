@@ -37,6 +37,7 @@ export class SenseQueueStore {
   async create(key:string,state:QueueState,source?:string):Promise<QueueJob>{
     return this.database.transaction(async db=>{
       await db.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))",[key]);
+      if(!source)await this.collectionSlot(db,key);
       const [old]=await db.query("SELECT expires_at,lease_until FROM cerebral.sense_queue_jobs WHERE job_key=$1 FOR UPDATE",[key]);
       if(old && iso(old.expires_at)<=new Date().toISOString()){
         if(old.lease_until && iso(old.lease_until)>new Date().toISOString())throw new Error("Expired scan is busy; retry shortly");
@@ -65,6 +66,12 @@ export class SenseQueueStore {
       const current=job(row);await summary(db,current);return current;
     });
   }
+  private async collectionSlot(db:QueueDatabase,key:string){
+    await db.query("SELECT pg_advisory_xact_lock(hashtextextended('sense:collection-slot',0))");
+    const [active]=await db.query(`SELECT job_key FROM cerebral.sense_queue_jobs WHERE job_key<>$1 AND NOT paused
+      AND state->>'status'='running' AND NOT (state ? 'source') AND expires_at>now() LIMIT 1`,[key]);
+    if(active)throw Response.json({error:"Another Sense collection is unfinished. Finish or pause it before starting another check."},{status:409});
+  }
   async claim(key:string,token:string):Promise<QueueJob|null>{
     const [row]=await this.database.query(`UPDATE cerebral.sense_queue_jobs SET lease_token=$2,lease_until=now()+interval '90 seconds'
       WHERE job_key=$1 AND NOT paused AND state->>'status'='running' AND expires_at>now() AND (lease_until IS NULL OR lease_until<=now()) RETURNING ${columns}`,[key,token]);
@@ -80,6 +87,10 @@ export class SenseQueueStore {
   }
   async pause(key:string,paused:boolean,reason?:string){
     return this.database.transaction(async db=>{
+      if(!paused){
+        const [saved]=await db.query("SELECT state ? 'source' AS derived FROM cerebral.sense_queue_jobs WHERE job_key=$1",[key]);
+        if(!saved?.derived)await this.collectionSlot(db,key);
+      }
       const [row]=await db.query(`UPDATE cerebral.sense_queue_jobs SET paused=$2,safety_reason=coalesce($3,safety_reason),updated_at=greatest(clock_timestamp(),updated_at+interval '1 millisecond')
         WHERE job_key=$1 AND ($2 OR safety_reason IS NULL) RETURNING ${columns}`,[key,paused,reason ?? null],{safetyControl:true});
       if(!row)throw Response.json({error:"This scan has a safety stop. Review its budget before resuming."},{status:409});
