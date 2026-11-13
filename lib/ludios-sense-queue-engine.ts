@@ -1,3 +1,4 @@
+import {senseDiscoveryCategory,senseDiscoveryVersion} from "./ludios-sense-discovery";
 import {SenseTransferGuard,SENSE_STEP_LIMIT} from "./ludios-sense-guard";
 import {createHash,randomUUID} from "node:crypto";
 import {aggregateSenseHistory,classifySense,evaluateSense,senseRuleVersion,shiftDate,validDownloads} from "./ludios-sense-detection";
@@ -36,7 +37,7 @@ export class SenseQueueEngine {
     const source=await this.store.subsetSource(filters,senseRuleVersion);
     if(deriveOnly&&!source)return null;
     const today=this.services.now().slice(0,10),latest=filters.date<today?filters.date:shiftDate(today,-1);
-    const state:QueueState={engine:1,filters,status:"running",progress:"Discovering Android games across the selected countries…",store:"android",stores:{android:cursor(latest),ios:cursor(latest)},retry:0};
+    const state:QueueState={engine:1,discoveryVersion:senseDiscoveryVersion,filters,status:"running",progress:"Discovering Android games across the selected countries…",store:"android",stores:{android:cursor(latest),ios:cursor(latest)},retry:0};
     if(source?.state.result){
       const result=source.state.result;
       state.source={jobKey:source.key,generatedAt:result.generatedAt};
@@ -137,7 +138,7 @@ export class SenseQueueEngine {
   }
   private async discovery(job:QueueJob,next:QueueState){
     const store=next.store,s=next.stores[store],date=s.rankingDate;
-    const p=await this.request(job,"/v1/facets/metrics",{bundle:"mobile_store_top_apps",order_by:"est_mobile_downloads:desc",breakdown:"app_id",start_date:date,end_date:date,regions:next.filters.countries.join(","),devices:store==="ios"?"iphone,ipad":"android",entities:"app_id:name",limit:200,offset:s.offset}) as {data:{app_id:string|number;est_mobile_downloads:number;name?:string}[];entities?:{app_id?:Record<string,{name?:string}>};meta?:{total_count?:number}};
+    const p=await this.request(job,"/v1/facets/metrics",{bundle:"mobile_store_top_apps",...(next.discoveryVersion===senseDiscoveryVersion?{app_primary_categories:senseDiscoveryCategory(store)}:{}),order_by:"est_mobile_downloads:desc",breakdown:"app_id",start_date:date,end_date:date,regions:next.filters.countries.join(","),devices:store==="ios"?"iphone,ipad":"android",entities:"app_id:name",limit:200,offset:s.offset}) as {data:{app_id:string|number;est_mobile_downloads:number;name?:string}[];entities?:{app_id?:Record<string,{name?:string}>};meta?:{total_count?:number}};
     if(!Array.isArray(p?.data)||p.data.length>200)throw new Error("Unexpected Sensor Tower ranking response");
     const seen=new Set<string>(),ranking:{appId:string;name:string;date:string}[]=[];
     for(const row of p.data){

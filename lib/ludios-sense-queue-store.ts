@@ -2,6 +2,7 @@ import type {SenseGame,SenseRunResponse,SenseStore} from "./ludios-sense-types";
 import type {QueueApp,QueueCandidate,QueueChange,QueueJob,QueueState,SharedChange} from "./ludios-sense-queue-types";
 import {QUEUE_PAGE_SIZE} from "./ludios-sense-queue-types";
 import {senseReadBytes} from "./ludios-sense-transfer";
+import {senseGenreOverrides,senseRetainedCandidatePredicate} from "./ludios-sense-discovery";
 
 // JSON is pre-encoded by this store. Bind as text before casting so postgres.js
 // does not JSON-encode the string a second time after parameter type discovery.
@@ -56,7 +57,8 @@ export class SenseQueueStore {
           // Copy warm candidate snapshots within Postgres; no catalogue crosses the connection.
           await db.query(`INSERT INTO cerebral.sense_queue_candidates(job_key,store,app_id,discovered_date,payload)
             SELECT $1,store,app_id,discovered_date,payload FROM cerebral.sense_queue_apps
-            WHERE discovered_date BETWEEN $2::date-30 AND $2::date AND expires_at>now()`,[key,state.stores.android.rankingDate]);
+            WHERE discovered_date BETWEEN $2::date-30 AND $2::date AND expires_at>now()
+              AND ${senseRetainedCandidatePredicate}`,[key,state.stores.android.rankingDate,senseGenreOverrides]);
         }
         const counts=await db.query(`SELECT store,count(*)::integer AS count FROM cerebral.sense_queue_candidates WHERE job_key=$1 GROUP BY store`,[key]);
         for(const row of counts)state.stores[row.store as SenseStore].candidates=Number(row.count);
