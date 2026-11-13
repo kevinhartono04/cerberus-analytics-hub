@@ -107,3 +107,31 @@ It does not grant cron, configuration, admin or deletion access. The authorizati
 log records `actor: "service:liz"` and `action: "sense.<operation>"`; authorization
 is not a guarantee that the scan completed successfully. Existing human Google
 session access remains supported, while an invalid supplied token fails closed.
+
+## Deployment regression protection
+
+Deploy the current `main` branch. Keep ongoing production branches up to date
+with it before releasing; do not deploy an older local checkout.
+
+Both `npm run build` and the Vercel project Build Command run
+`node scripts/check-liz-access.mjs` before Next.js builds. The gate requires the
+authentication modules and all three regression test files, runs the actual API
+handler tests, and fails production builds if the token hash is missing or
+malformed. An older checkout without the gate fails the project Build Command.
+Tests cover the existing service API, Sense reporting, invalid/revoked tokens,
+human session access, and denied operations; they use test credentials and mocked
+backends without starting paid scans.
+
+Keep the project Build Command as:
+
+```sh
+node scripts/check-liz-access.mjs && npx next build
+```
+
+Do not override this command in deployment settings or `vercel.json`. Prebuilt
+uploads and rollbacks bypass building; operators must verify Liz access separately
+before promoting those. Administrators can intentionally remove these controls,
+so they protect normal builds rather than making access impossible to revoke.
+For a live smoke check, send the existing token to POST `/api/ludios-sense/usage`
+with valid date/countries and expect 200; missing/invalid tokens must return 401.
+Never put the raw Liz token in source code or build output.
