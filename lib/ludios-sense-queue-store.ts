@@ -177,17 +177,21 @@ export class SenseQueueStore {
       const updated=job(row);await summary(db,updated);return updated;
     });
   }
-  async report(key:string,page:number,revision?:string,generatedAt?:string){
+  async report(key:string,page:number,revision?:string,generatedAt?:string,scope:"all"|"shortlist"="all"){
     return this.database.transaction(async db=>{
       const [row]=await db.query(`SELECT ${columns} FROM cerebral.sense_queue_jobs WHERE job_key=$1 AND expires_at>now() FOR SHARE`,[key]);
       if(!row)throw Response.json({error:"Report unavailable"},{status:404});
       const current=job(row),meta=current.state.result;
       if(!meta || revision && current.updatedAt!==revision || generatedAt && meta.generatedAt!==generatedAt)throw Response.json({error:"Report changed; reload it"},{status:409});
-      const pages=Math.max(1,Math.ceil((current.state.stores.android.reports+current.state.stores.ios.reports)/QUEUE_PAGE_SIZE));
+      const totalRecords=current.state.stores.android.reports+current.state.stores.ios.reports;
+      let pages=Math.max(1,Math.ceil(totalRecords/QUEUE_PAGE_SIZE));
       if(!Number.isInteger(page)||page<0||page>=pages)throw Response.json({error:"Report page not found"},{status:404});
-      const rows=await db.query(`SELECT result FROM cerebral.sense_queue_candidates WHERE job_key=$1 AND result IS NOT NULL
+      const rows=await db.query(`SELECT result${scope==="shortlist"?", count(*) OVER()::integer AS matching_count":""} FROM cerebral.sense_queue_candidates WHERE job_key=$1 AND result IS NOT NULL
+        ${scope==="shortlist"?"AND sort_rank < 3":""}
         ORDER BY sort_rank,sort_added DESC,sort_growth DESC,app_id COLLATE "C",store LIMIT $2 OFFSET $3`,[key,QUEUE_PAGE_SIZE,page*QUEUE_PAGE_SIZE]);
-      return {result:{...meta,requests:current.requests,games:rows.map(r=>r.result as SenseGame)},page,pageCount:pages,revision:current.updatedAt};
+      if(scope==="shortlist")pages=Math.max(1,Math.ceil(Number(rows[0]?.matching_count ?? 0)/QUEUE_PAGE_SIZE));
+      if(page>=pages)throw Response.json({error:"Report page not found"},{status:404});
+      return {result:{...meta,requests:current.requests,games:rows.map(r=>r.result as SenseGame)},page,pageCount:pages,revision:current.updatedAt,scope,totalRecords};
     });
   }
   async detections(key:string):Promise<SenseGame[]>{

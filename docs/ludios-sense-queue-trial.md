@@ -61,3 +61,11 @@ All 6,045 eligible baseline IDs were present. Of those, 6,042 produced reports; 
 The initial full suite passed 543 tests (one skipped). After the same-date retention fix, 23 relevant tests passed; TypeScript and production build passed. The saved report and a full 28-day chart were verified in production. Evidence is in `../outputs/ludios-sense-validation/2026-11-13-games-only.json` with an accompanying screenshot.
 
 Supabase displayed 1.752 GB before and after the run, within its stated one-hour refresh delay. This is not evidence of zero billed egress; the billed delta remains unconfirmed. Daily and continuation schedules remain off. A next-day incremental check was not executed as part of this games-only change.
+
+### Saved-report shortlist loading
+
+Queue report reads accept an optional `scope: "shortlist"`, selecting only indexed `sort_rank < 3` rows (confirmed momentum, early warning and launch traction, including genre-review candidates). The existing report index bounds the query; no schema migration or new provider request is needed. Full-report API clients retain the default `all` scope. Responses remain revision-pinned, paginated and bounded; the total evaluated count comes from the existing job counters, not the number currently displayed.
+
+The UI loads this subset first, with retained detections loaded separately as before. Other signal views and their search/publisher/store filters use the complete signal subset. “All evaluated” explicitly loads the full report and retains it in page memory for subsequent switches. Until then its grouped count is omitted rather than presenting a partial count. Each report-page fetch has a 20-second timeout and an explicit retry; partial full-report pages are not presented as complete results. Daily and continuation schedules remain off.
+
+For the completed November 13 report, SQL measured 32 signal rows / 30,613 JSON bytes versus 6,183 rows / 5,877,753 bytes for the full report. This reduces initial report requests from 62 to one. These are row-payload sizes, excluding authentication, metadata and recent-detection reads, and are not Supabase billing figures. A production `EXPLAIN (ANALYZE, BUFFERS)` used `sense_queue_candidates_reports`, returned 32 rows and took 0.404 ms execution time (not end-to-end browser latency).

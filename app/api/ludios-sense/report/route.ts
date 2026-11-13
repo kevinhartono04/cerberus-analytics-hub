@@ -10,8 +10,8 @@ export async function POST(request: Request) {
   return measureSenseTransfer("report",async()=>{
     try {
       await requireSenseReportingUser(request, "report");
-      const input = z.object({jobKey:z.string().regex(/^sense:v1:[a-f0-9]{64}$/),generatedAt:z.string().datetime(),revision:z.string().datetime().optional(),page:z.number().int().min(0).max(511).default(0)}).parse(await request.json());
-      return senseJsonResponse(await getSenseReportPage(input.jobKey,input.generatedAt,input.page,input.revision));
+      const input = z.object({jobKey:z.string().regex(/^sense:v1:[a-f0-9]{64}$/),generatedAt:z.string().datetime(),revision:z.string().datetime().optional(),scope:z.enum(["all","shortlist"]).default("all"),page:z.number().int().min(0).max(511).default(0)}).parse(await request.json());
+      return senseJsonResponse(await getSenseReportPage(input.jobKey,input.generatedAt,input.page,input.revision,input.scope));
     } catch(error) {
       if (error instanceof ZodError) return Response.json({error:"Invalid report page"},{status:400});
       return jsonError(error);

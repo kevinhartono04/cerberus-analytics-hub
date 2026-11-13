@@ -57,7 +57,7 @@ describe("Liz Sense reporting access",()=>{
   expect((await resume(request({jobKey}))).status).toBe(200);
   expect(after).toHaveBeenCalledOnce();
   expect((await report(request({jobKey,generatedAt,page:0}))).status).toBe(200);
-  expect(mocks.page).toHaveBeenCalledWith(jobKey,generatedAt,0,undefined);
+  expect(mocks.page).toHaveBeenCalledWith(jobKey,generatedAt,0,undefined,"all");
   expect(mocks.human).not.toHaveBeenCalled();expect(mocks.internal).not.toHaveBeenCalled();
  });
  it("allows cached reports, watchlist and game detail reads",async()=>{

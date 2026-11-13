@@ -16,7 +16,7 @@ const inputClass = "focus-ring rounded-lg border border-line/70 bg-surface-panel
 function mergeProgress(previous: SenseRunResponse | null, next: SenseRunResponse) {
   return previous?.reportLoaded === true && next.reportLoaded === false && previous.jobKey === next.jobKey && previous.status === next.status && previous.reportRevision === next.reportRevision &&
     previous.result?.generatedAt === next.result?.generatedAt
-    ? {...next,result:previous.result,reportLoaded:true} : next;
+    ? {...next,result:previous.result,reportLoaded:true,reportScope:previous.reportScope,reportTotalRecords:previous.reportTotalRecords} : next;
 }
 async function call(path: string, body: unknown, signal?: AbortSignal): Promise<SenseRunResponse> {
   const res = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal });
@@ -100,12 +100,16 @@ export default function LudiosSense() {
   const busy = submitting || scan?.status === "running" && !paused && scan.workerActive !== false;
   const result = scan?.result;
   const currentGames = result?.games ?? [];
+  const reportScope = scan?.queueEngine === 1 && group !== "all" ? "shortlist" : "all";
+  const needsReport = scan?.reportLoaded === false || scan?.reportScope === "shortlist" && reportScope === "all";
+  const [reportProgress,setReportProgress] = useState("");
   // Fetch a completed immutable report version once, in bounded pages. Polling never fetches rows.
   useEffect(()=>{
-    if (!scan?.result || scan.reportLoaded !== false || scan.status === "running" && !paused) return;
+    if (!scan?.result || !needsReport || scan.status === "running" && !paused) return;
     const abort=new AbortController();
     const jobKey=scan.jobKey,generatedAt=scan.result.generatedAt;
     setReportError("");
+    setReportProgress(reportScope === "shortlist" ? "Loading saved shortlist…" : "Loading all evaluated games…");
     void (async()=>{
       if(reportRetry>0){
         const fresh=await call("/api/ludios-sense/status",{jobKey},abort.signal);
@@ -115,24 +119,37 @@ export default function LudiosSense() {
         }
       }
       const games:SenseGame[]=[];
-      let pageCount=scan.reportPageCount ?? 1,bytes=0;
+      let pageCount=1,bytes=0,totalRecords:number|undefined;
+      let loadedScope:"all"|"shortlist"=reportScope;
       for(let page=0;page<pageCount;page++) {
         if(pageCount>512)throw new Error("Saved report exceeds its page budget");
-        const res=await fetch("/api/ludios-sense/report",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({jobKey,generatedAt,page,revision:scan.reportRevision}),signal:abort.signal});
-        if(!res.ok)throw new Error(res.status===409 ? "Saved report changed. Retry to load its current version." : "Saved report could not be loaded. Retry to restore all games.");
-        const value=await res.json();
+        const request=new AbortController();
+        const cancel=()=>request.abort();
+        abort.signal.addEventListener("abort",cancel,{once:true});
+        let timer:ReturnType<typeof setTimeout>|undefined;
+        let value;
+        try {
+          value=await Promise.race([
+            fetch("/api/ludios-sense/report",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({jobKey,generatedAt,page,revision:scan.reportRevision,scope:reportScope}),signal:request.signal})
+              .then(async res=>{if(!res.ok)throw new Error(res.status===409 ? "Saved report changed. Retry to load its current version." : "Saved report could not be loaded. Retry to restore all games.");return res.json();}),
+            new Promise<never>((_,reject)=>{timer=setTimeout(()=>{reject(new Error("Saved report timed out. Retry without starting a new check."));request.abort();},20000);}),
+          ]);
+        } finally {clearTimeout(timer);abort.signal.removeEventListener("abort",cancel);}
+        totalRecords=value.totalRecords;
+        loadedScope=value.scope ?? "all"; // Legacy reports retain the original paging contract.
         if(value.result?.generatedAt!==generatedAt || !Array.isArray(value.result?.games) || value.page!==page || !Number.isInteger(value.pageCount) || value.pageCount<1)
           throw new Error("Saved report changed. Reload the selected report.");
         pageCount=value.pageCount;
         bytes+=new TextEncoder().encode(JSON.stringify(value.result.games)).byteLength;
         if(bytes>24*1024*1024)throw new Error("Saved report exceeds its page budget");
         games.push(...value.result.games);
+        if(!abort.signal.aborted)setReportProgress(`Loading ${reportScope === "shortlist" ? "shortlist" : "all evaluated games"} · ${page+1} of ${pageCount} pages`);
       }
       if(!abort.signal.aborted)setScan(current=>current?.jobKey===jobKey && current.result?.generatedAt===generatedAt
-        ? {...current,reportLoaded:true,result:{...current.result,games}} : current);
+        ? {...current,reportLoaded:true,reportScope:loadedScope,reportTotalRecords:totalRecords,result:{...current.result,games}} : current);
     })().catch(e=>{if(!abort.signal.aborted)setReportError(e instanceof Error?e.message:"Saved report unavailable");});
     return ()=>abort.abort();
-  },[scan?.jobKey,scan?.result?.generatedAt,scan?.reportRevision,scan?.reportLoaded,scan?.status,paused,reportRetry]);
+  },[scan?.jobKey,scan?.result?.generatedAt,scan?.reportRevision,scan?.reportLoaded,scan?.status,paused,reportRetry,needsReport,reportScope]);
   const games = useMemo(() => {
     const map = new Map(currentGames.map(g => [`${g.store}:${g.appId}`, g]));
     for (const game of recent) map.set(`${game.store}:${game.appId}`, game);
@@ -183,7 +200,7 @@ export default function LudiosSense() {
     ["attention","Worth attention"],["recent","Recent detections"],["included","Current signals"],
     ["review","Genre review"],["traction","Unconfirmed traction"],["all","All evaluated"],
   ];
-  const grouped = publisherGroups.filter(item => item.members.some(game => matchesGroup(game,group)) &&
+  const grouped = (needsReport && reportScope === "all" ? [] : publisherGroups).filter(item => item.members.some(game => matchesGroup(game,group)) &&
     item.members.some(game => `${game.name} ${game.publisher} ${game.appId}`.toLowerCase().includes(search.toLowerCase())));
   const visible = grouped.flatMap(item => item.members);
   const iconSelection = JSON.stringify(grouped.slice(0,limit).flatMap(group=>group.members).filter(g => g.watch?.currentObserved !== false && (g.iconUrl === undefined || g.unifiedAppId === undefined)).map(g => ({ appId:g.appId, store:g.store })));
@@ -354,12 +371,12 @@ export default function LudiosSense() {
     {error ? <div role="alert" className="mt-4 rounded-lg border border-rose-400/40 bg-rose-400/10 p-4 text-sm text-ink">{error}</div> : null}
     {scan?.status === "running" || scan?.status === "error" ? <div role="status" className="mt-4 flex items-center gap-3 rounded-xl border border-cobalt/20 bg-cobalt/5 p-4 text-sm text-ink">{busy ? <Loader2 className="h-4 w-4 animate-spin text-cobalt" /> : <Activity className="h-4 w-4 text-cobalt" />}<span>{paused ? scan.queueEngine===1 || scan.progress.includes("budget") ? scan.progress : "Check paused. Resume to continue from the saved step." : scan.workerActive===false ? "Check waiting. Resume to continue from the saved step." : scan.progress}</span></div> : null}
     {!scan ? <div className="sense-panel my-8 rounded-2xl border border-dashed border-cobalt/20 surface-card-gradient px-6 py-14 text-center"><Radar className="mx-auto mb-4 h-10 w-10 text-cobalt/60" /><h2 className="text-lg font-bold text-ink">Find the next game to investigate</h2><p className="mt-2 text-sm text-slate-500">Choose a date and markets, then run a check. Both stores are included.</p></div> : null}
-    {scan?.reportLoaded === false && result && (scan.status !== "running" || paused) ? <div className="mt-4 rounded-lg border border-line p-4 text-sm">{reportError ? <div role="alert">{reportError}<button className="focus-ring ml-3 underline" onClick={()=>setReportRetry(value=>value+1)}>Retry saved report</button></div> : <p role="status">Loading saved report…</p>}</div> : null}
+    {needsReport && result && (scan.status !== "running" || paused) ? <div className="mt-4 rounded-lg border border-line p-4 text-sm">{reportError ? <div role="alert">{reportError}<button className="focus-ring ml-3 underline" onClick={()=>setReportRetry(value=>value+1)}>Retry saved report</button></div> : <p role="status">{reportProgress}</p>}</div> : null}
     {result && scan?.reportLoaded !== false ? <>
       {!result.coverageComplete ? <div role="alert" className="mt-4 rounded-lg border border-amber-400/40 p-4 text-sm text-ink">Partial coverage: {result.errors.join(" ")} Results include only games whose history finished loading. Other games may have been missed.</div> : null}
       <details className="my-3 text-xs text-slate-500"><summary className="focus-ring w-fit cursor-pointer rounded text-[11px]">Report details</summary><div className="mt-2 space-y-2 rounded-xl border border-line/60 bg-surface-table p-4">
         <p>Requested t: {result.filters.date} · Evaluated: Android {result.watermarks.android ?? "unavailable"}, iOS {result.watermarks.ios ?? "unavailable"} · Retrieved {new Date(result.generatedAt).toLocaleString()}.</p>
-        <p>Countries: {result.filters.countries.map(c => senseCountries[c]).join(", ")} · {currentGames.length} game/store records evaluated. Latest Android estimates are provisional.</p>
+        <p>Countries: {result.filters.countries.map(c => senseCountries[c]).join(", ")} · {scan?.reportTotalRecords ?? currentGames.length} game/store records evaluated. Latest Android estimates are provisional.</p>
         <p>{result.reusedFrom ? `Recalculated from saved ${result.reusedFrom.countries.join(", ")} data · source retrieved ${new Date(result.reusedFrom.generatedAt).toLocaleString()} · No new Sensor Tower calls.` : scan?.cached ? `Shared saved report · ${scan.requests} API requests in the original scan · No new scan started.` : `${scan?.requests ?? 0} API requests.`} Actual reporting dates may be earlier.</p>
         <p>Recent detections are retained for seven reporting days using saved reports for the same markets. Holding scale requires at least 1,000 latest-day downloads and a three-day average of at least 80% of the last detected average.</p>
         <p>Download growth does not establish organic demand, retention, or commercial success. Investigate gameplay, differentiation, and updates. A single-market breakout may be diluted by flat volume elsewhere.</p>
@@ -367,7 +384,7 @@ export default function LudiosSense() {
       {changed ? <p className="mb-4 rounded-lg border border-amber-400/40 p-3 text-sm text-ink">Filters changed. Run check to update the report. These results use {result.filters.date} · {result.filters.countries.map(c => senseCountries[c]).join(", ")}.</p> : null}
       <section className="sense-panel mt-5 rounded-2xl border border-line/70 bg-surface-card" aria-label="Research shortlist">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line/60 p-4 sm:p-5"><h2 className="font-display text-base sm:text-lg font-bold text-ink">Research shortlist</h2><div className="grid w-full min-w-0 grid-cols-2 gap-2 sm:flex sm:w-auto sm:flex-wrap"><select aria-label="Store" className={`${inputClass} min-w-0 px-2 text-xs sm:px-3 sm:text-sm`} value={store} onChange={e => { setStore(e.target.value); setLimit(30); }}><option value="all">Both stores</option><option value="ios">iOS</option><option value="android">Android</option></select><label className="min-w-0"><span className="sr-only">Publisher</span><input type="search" aria-label="Publisher" list="sense-publishers" placeholder="All publishers" value={publisher} onChange={e => { setPublisher(e.target.value); setLimit(30); }} className={`${inputClass} w-full min-w-0 px-3 text-xs sm:w-44 sm:text-sm`} /><datalist id="sense-publishers">{publisherNames.map(name => <option key={name} value={name} />)}</datalist></label><label className="relative col-span-2 min-w-0"><Search aria-hidden="true" className="absolute left-3 top-3 h-4 w-4 text-slate-500" /><input aria-label="Search games" placeholder="Game or publisher" value={search} onChange={e => { setSearch(e.target.value); setLimit(30); }} className={`${inputClass} w-full min-w-0 pl-9 text-xs sm:w-48 sm:text-sm`} /></label></div></div>
-        <div role="group" aria-label="Signal group" className="flex gap-1.5 overflow-x-auto border-b border-line/60 p-3 sm:flex-wrap">{tabs.map(([value,label]) => <button key={value} aria-pressed={group === value} onClick={() => { setGroup(value); setLimit(30); }} className={`focus-ring shrink-0 whitespace-nowrap rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${group === value ? "bg-cobalt/10 text-cobalt" : "text-slate-500 hover:bg-surface-table"}`}>{label}<span className="ml-2 opacity-60">{["attention","recent"].includes(value) && (recentLoading || recentError) ? "…" : publisherGroups.filter(item => item.members.some(game => matchesGroup(game,value))).length}</span></button>)}</div>
+        <div role="group" aria-label="Signal group" className="flex gap-1.5 overflow-x-auto border-b border-line/60 p-3 sm:flex-wrap">{tabs.map(([value,label]) => <button key={value} aria-pressed={group === value} onClick={() => { setGroup(value); setLimit(30); }} className={`focus-ring shrink-0 whitespace-nowrap rounded-lg px-3 py-2 text-xs font-semibold transition-colors ${group === value ? "bg-cobalt/10 text-cobalt" : "text-slate-500 hover:bg-surface-table"}`}>{label}<span className="ml-2 opacity-60">{value === "all" && scan?.reportScope === "shortlist" ? "" : ["attention","recent"].includes(value) && (recentLoading || recentError) ? "…" : publisherGroups.filter(item => item.members.some(game => matchesGroup(game,value))).length}</span></button>)}</div>
         {recentError ? <div role="alert" className="px-5 pt-4 text-xs text-amber"><p>{recentError}</p><button className="focus-ring mt-2 rounded-lg border border-line px-3 py-2 font-semibold" onClick={() => setRecentAttempt(value => value+1)}>Retry saved detections</button></div> : null}
         {recentLoading ? <p role="status" className="px-5 pt-4 text-xs text-slate-500">Loading saved detections… This shortlist is incomplete until history loads.</p> : null}
         <div className="p-5 sm:p-6">
@@ -375,7 +392,7 @@ export default function LudiosSense() {
             const items = grouped.slice(0,limit).filter(item => rank === 0 ? senseAttentionRank(item.members[0]) < 2 : senseAttentionRank(item.members[0]) === 2);
             return items.length ? <div key={label} className="mb-7 last:mb-0"><div className="mb-5 flex items-center gap-3"><h3 className="text-xs font-bold text-ink">{label}</h3><span className="h-px flex-1 bg-line/60" /></div><SenseGameGrid groups={items} icons={icons} onInspect={game => setSelection(`${game.store}:${game.appId}`)} /></div> : null;
           }) : <SenseGameGrid groups={grouped.slice(0,limit)} icons={icons} onInspect={game => setSelection(`${game.store}:${game.appId}`)} />}
-          {!visible.length ? <div className="py-12 text-center"><Radar aria-hidden="true" className="mx-auto mb-3 h-8 w-8 text-cobalt/40" /><p className="text-sm font-semibold text-ink">{search ? "No games match your search" : "No games in this view"}</p><p className="mt-1 text-xs text-slate-500">Try another filter or browse all recent detections.</p></div> : null}
+          {!visible.length && !needsReport ? <div className="py-12 text-center"><Radar aria-hidden="true" className="mx-auto mb-3 h-8 w-8 text-cobalt/40" /><p className="text-sm font-semibold text-ink">{search ? "No games match your search" : "No games in this view"}</p><p className="mt-1 text-xs text-slate-500">Try another filter or browse all recent detections.</p></div> : null}
           {grouped.length > limit ? <button className="focus-ring mt-6 rounded-lg border border-line px-4 py-2 text-xs font-semibold text-cobalt" onClick={() => setLimit(v => v + 30)}>Show 30 more</button> : null}
         </div>
       </section>

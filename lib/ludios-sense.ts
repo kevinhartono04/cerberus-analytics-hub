@@ -248,14 +248,14 @@ export async function getSenseProgress(key: string): Promise<SenseRunResponse> {
 }
 
 /** One explicit saved report page, pinned to the requested report version. */
-export async function getSenseReportPage(key: string, generatedAt: string, page = 0, revision?: string) {
+export async function getSenseReportPage(key: string, generatedAt: string, page = 0, revision?: string, scope: "all"|"shortlist" = "all") {
   if (!/^sense:v1:[a-f0-9]{64}$/.test(key) || !Number.isInteger(page) || page<0 || page>=512)
     throw new Response("Invalid report page", {status:400});
   const record=await getTechLaunchReadinessCache(key+":summary",4*1024*1024);
   if(!record || record.expiresAt && record.expiresAt<=now())throw new Response("Report unavailable",{status:404});
   if(revision && record.createdAt!==revision)throw new Response("Report changed; reload it",{status:409});
   const summary=JSON.parse(record.payload) as SenseRunResponse & {result?:SenseResult & {gamePages?:string[]}};
-  if(summary.queueEngine===1)return (await queueRuntime()).store.report(key,page,revision,generatedAt);
+  if(summary.queueEngine===1)return (await queueRuntime()).store.report(key,page,revision,generatedAt,scope);
   if (!summary?.result || summary.result.generatedAt !== generatedAt) throw new Response("Report changed; reload it", {status:409});
   const {gamePages, ...metadata} = summary.result;
   const pageCount = gamePages?.length || 1;
