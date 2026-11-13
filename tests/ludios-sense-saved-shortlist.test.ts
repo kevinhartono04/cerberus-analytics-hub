@@ -22,6 +22,11 @@ it("reads only indexed signal rows, preserves pagination and pins report revisio
   await expect(f.store.report(run.jobKey,3,revision,generatedAt,"shortlist")).rejects.toMatchObject({status:404});
   await expect(f.store.report(run.jobKey,0,"2000-01-01",generatedAt,"shortlist")).rejects.toMatchObject({status:409});
   await expect(f.store.report(run.jobKey,0,revision,"2000-01-01","shortlist")).rejects.toMatchObject({status:409});
+  // Keep a quiet other-store version of a shortlisted title for store comparison.
+  await f.pg.query(`UPDATE cerebral.sense_queue_candidates SET result=result || '{"unifiedAppId":"linked"}'::jsonb WHERE job_key=$1 AND app_id IN ('1','6200')`,[run.jobKey]);
+  const linked=await Promise.all([0,1,2].map(page=>f.store.report(run.jobKey,page,revision,generatedAt,"shortlist")));
+  expect(linked.flatMap(p=>p.result.games).map(g=>g.appId)).toContain("6200");
+  expect(linked.flatMap(p=>p.result.games)).toHaveLength(206);
   await f.pg.query('UPDATE cerebral.sense_queue_candidates SET sort_rank=3 WHERE job_key=$1',[run.jobKey]);
   expect(await f.store.report(run.jobKey,0,revision,generatedAt,"shortlist")).toMatchObject({pageCount:1,totalRecords:6200,result:{games:[]}});
   expect(f.calls).toHaveLength(0);

@@ -187,7 +187,11 @@ export class SenseQueueStore {
       let pages=Math.max(1,Math.ceil(totalRecords/QUEUE_PAGE_SIZE));
       if(!Number.isInteger(page)||page<0||page>=pages)throw Response.json({error:"Report page not found"},{status:404});
       const rows=await db.query(`SELECT result${scope==="shortlist"?", count(*) OVER()::integer AS matching_count":""} FROM cerebral.sense_queue_candidates WHERE job_key=$1 AND result IS NOT NULL
-        ${scope==="shortlist"?"AND sort_rank < 3":""}
+        ${scope==="shortlist"?`AND (sort_rank < 3 OR result->>'unifiedAppId' IN (
+          SELECT result->>'unifiedAppId' FROM cerebral.sense_queue_candidates
+          WHERE job_key=$1 AND result IS NOT NULL AND sort_rank < 3
+            AND nullif(result->>'unifiedAppId','') IS NOT NULL
+        ))`:""}
         ORDER BY sort_rank,sort_added DESC,sort_growth DESC,app_id COLLATE "C",store LIMIT $2 OFFSET $3`,[key,QUEUE_PAGE_SIZE,page*QUEUE_PAGE_SIZE]);
       if(scope==="shortlist")pages=Math.max(1,Math.ceil(Number(rows[0]?.matching_count ?? 0)/QUEUE_PAGE_SIZE));
       if(page>=pages)throw Response.json({error:"Report page not found"},{status:404});
