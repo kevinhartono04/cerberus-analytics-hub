@@ -41,6 +41,23 @@ it("does not reinterpret a pre-filter discovery cursor under a different ranking
  expect(fixture.calls[0].parameters.app_primary_categories).toBeUndefined();
 });
 
+it("preserves games learned by a paused same-date run without resetting it or carrying non-games",async()=>{
+ const original=(await fixture.engine().start({date:"2026-11-13",countries:["US"]}))!;
+ for(const [appId,categories] of [["game",["GAME_STRATEGY"]],["unknown",[]],["business",["BUSINESS"]]] as [string,string[]][]){
+  const payload={appId,categories,name:appId,publisher:"",releaseDate:null,histories:{},discoveredDate:"2026-11-10",metadataAt:"2026-11-13T04:00:00Z"};
+  await fixture.pg.query("INSERT INTO cerebral.sense_queue_candidates(job_key,store,app_id,discovered_date,payload) VALUES($1,'android',$2,'2026-11-10',$3::jsonb)",[original.jobKey,appId,JSON.stringify(payload)]);
+ }
+ await fixture.store.pause(original.jobKey,true);
+ await fixture.pg.query("UPDATE cerebral.sense_queue_jobs SET requests=549,read_bytes=23916931 WHERE job_key=$1",[original.jobKey]);
+ const saved=(await fixture.store.get(original.jobKey))!;
+ const next=await fixture.store.create("sense:v1:"+"c".repeat(64),structuredClone(saved.state));
+ expect((await fixture.store.batch(next.key,"android","metadata")).map(c=>c.appId)).toEqual(["game","unknown"]);
+ expect(await fixture.store.get(original.jobKey)).toEqual(saved);
+ await fixture.store.pause(next.key,true);
+ const following=(await fixture.engine().start({date:"2026-11-14",countries:["US"]}))!;
+ expect(await fixture.store.batch(following.jobKey,"android","metadata")).toEqual([]);
+});
+
 it("discovers both stores with broad Games filters and unchanged markets, threshold and reporting dates",async()=>{
  const countries=["AU","CA","DE","GB","JP","RU","US"] as const;
  fixture.provider(async(endpoint,p)=>endpoint.endsWith("metrics")?{data:[{app_id:"below",est_mobile_downloads:999}],meta:{total_count:1}}:{apps:[]});

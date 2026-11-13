@@ -54,11 +54,25 @@ export class SenseQueueStore {
           await db.query(`INSERT INTO cerebral.sense_queue_candidates(job_key,store,app_id,discovered_date,stage,payload)
             SELECT $1,store,app_id,discovered_date,'finalize',payload FROM cerebral.sense_queue_candidates WHERE job_key=$2 AND result IS NOT NULL`,[key,source]);
         }else{
-          // Copy warm candidate snapshots within Postgres; no catalogue crosses the connection.
-          await db.query(`INSERT INTO cerebral.sense_queue_candidates(job_key,store,app_id,discovered_date,payload)
-            SELECT $1,store,app_id,discovered_date,payload FROM cerebral.sense_queue_apps
-            WHERE discovered_date BETWEEN $2::date-30 AND $2::date AND expires_at>now()
-              AND ${senseRetainedCandidatePredicate}`,[key,state.stores.android.rankingDate,senseGenreOverrides]);
+          // A paused same-date check may have learned games/metadata that have
+          // not reached shared finalization yet. Preserve those observations on
+          // an explicitly started rerun, without resuming/resetting the old job.
+          // Pick the latest classification before excluding known non-games.
+          await db.query(`WITH known AS (
+            SELECT store,app_id,discovered_date,payload FROM cerebral.sense_queue_apps WHERE expires_at>now()
+            UNION ALL
+            SELECT c.store,c.app_id,c.discovered_date,c.payload FROM cerebral.sense_queue_candidates c
+            JOIN cerebral.sense_queue_jobs j ON j.job_key=c.job_key
+            WHERE j.job_key<>$1 AND j.report_date=$4::date AND j.paused AND j.state->>'status'='running'
+              AND NOT (j.state ? 'source') AND j.expires_at>now()
+          ), latest AS (
+            SELECT DISTINCT ON(store,app_id) store,app_id,discovered_date,payload FROM known
+            WHERE discovered_date BETWEEN $2::date-30 AND $2::date
+            ORDER BY store,app_id,coalesce(payload->>'metadataAt','') DESC,
+              coalesce(payload->>'historyAt','') DESC,discovered_date DESC
+          ) INSERT INTO cerebral.sense_queue_candidates(job_key,store,app_id,discovered_date,payload)
+            SELECT $1,store,app_id,discovered_date,payload FROM latest
+            WHERE ${senseRetainedCandidatePredicate}`,[key,state.stores.android.rankingDate,senseGenreOverrides,state.filters.date]);
         }
         const counts=await db.query(`SELECT store,count(*)::integer AS count FROM cerebral.sense_queue_candidates WHERE job_key=$1 GROUP BY store`,[key]);
         for(const row of counts)state.stores[row.store as SenseStore].candidates=Number(row.count);
