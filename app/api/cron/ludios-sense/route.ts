@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { continuePendingSenseJobs } from "@/lib/ludios-sense";
 export const runtime = "nodejs";
 export const maxDuration = 300;
+export const preferredRegion = "iad1";
 export async function GET(request: Request) {
   const expected = process.env.CRON_SECRET ? `Bearer ${process.env.CRON_SECRET}` : "";
   const provided = request.headers.get("authorization") ?? "";

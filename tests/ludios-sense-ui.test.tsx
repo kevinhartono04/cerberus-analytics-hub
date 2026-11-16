@@ -263,13 +263,13 @@ it("loads a completed report once in pinned pages and keeps incomplete pages out
  expect(fetch.mock.calls.some(([url])=>url==="/api/ludios-sense")).toBe(false);
 });
 
-it("opening another user's inactive queue is read-only; Resume explicitly continues it",async()=>{
+it("opening another user's inactive queue is read-only; Continue now can expedite its next batch",async()=>{
  const scan={queueEngine:1,jobKey:"sense:v1:"+"c".repeat(64),status:"running",requests:71,progress:"Discovering games",paused:false,workerActive:false};
  const fetch=vi.fn(async(url:string)=>Response.json(url.endsWith("/cache")?{scan}:url.endsWith("/continue")?{accepted:true,scan:{...scan,workerActive:true}}:url.endsWith("/status")?scan:{}));
  vi.stubGlobal("fetch",fetch);const view=render(<LudiosSense/>);
  await waitFor(()=>expect(screen.getByText(/Check waiting/)).toBeInTheDocument());
  expect(fetch.mock.calls.some(([url])=>url.endsWith("/continue"))).toBe(false);
- fireEvent.click(screen.getByRole("button",{name:"Resume check"}));
+ fireEvent.click(screen.getByRole("button",{name:"Continue now"}));
  await waitFor(()=>expect(fetch.mock.calls.filter(([url])=>url.endsWith("/continue"))).toHaveLength(1));
  expect(fetch.mock.calls.some(([url])=>url==="/api/ludios-sense")).toBe(false);view.unmount();
 });
@@ -349,4 +349,19 @@ it("times out a stalled shortlist request and retries without collecting data",a
   expect(fetch.mock.calls.filter(([url])=>url.endsWith("/report"))).toHaveLength(2);
   expect(fetch.mock.calls.some(([url])=>url.endsWith("/continue")||url==="/api/ludios-sense")).toBe(false);
  }finally{view.unmount();vi.useRealTimers();}
+});
+
+
+it("can pause a server-continued check between worker batches",async()=>{
+ const scan={queueEngine:1,jobKey:"sense:v1:"+"f".repeat(64),status:"running",requests:247,progress:"Saved checkpoint",paused:false,workerActive:false};
+ const fetch=vi.fn(async(url:string,init:RequestInit)=>{
+  if(url.endsWith("/cache"))return Response.json({scan});
+  if(url.endsWith("/status")){expect(JSON.parse(init.body as string).action).toBe("pause");return Response.json({...scan,paused:true});}
+  return Response.json({});
+ });
+ vi.stubGlobal("fetch",fetch);const view=render(<LudiosSense/>);
+ await waitFor(()=>expect(screen.getByText(/Check waiting for the next server batch/)).toBeInTheDocument());
+ fireEvent.click(screen.getByRole("button",{name:"Pause check"}));
+ await waitFor(()=>expect(screen.getByRole("button",{name:"Resume check"})).toBeInTheDocument());
+ expect(fetch.mock.calls.some(([url])=>url.endsWith("/continue"))).toBe(false);view.unmount();
 });

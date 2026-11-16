@@ -2,7 +2,7 @@ import type {SenseGame,SenseRunResponse,SenseStore} from "./ludios-sense-types";
 import type {QueueApp,QueueCandidate,QueueChange,QueueJob,QueueState,SharedChange} from "./ludios-sense-queue-types";
 import {QUEUE_PAGE_SIZE} from "./ludios-sense-queue-types";
 import {senseReadBytes} from "./ludios-sense-transfer";
-import {senseGenreOverrides,senseRetainedCandidatePredicate} from "./ludios-sense-discovery";
+import {senseDiscoveryVersion,senseGenreOverrides,senseRetainedCandidatePredicate} from "./ludios-sense-discovery";
 
 // JSON is pre-encoded by this store. Bind as text before casting so postgres.js
 // does not JSON-encode the string a second time after parameter type discovery.
@@ -31,6 +31,18 @@ async function summary(database:QueueDatabase,current:QueueJob) {
 }
 export class SenseQueueStore {
   constructor(readonly database:QueueDatabase){}
+  /** Only existing current-engine jobs are eligible; this never creates or resumes a job. */
+  async pendingContinuations():Promise<Array<{key:string;savedOnly:boolean}>>{
+    const rows=await this.database.query(`SELECT job_key,state ? 'source' AS saved_only
+      FROM cerebral.sense_queue_jobs j
+      WHERE expires_at>now() AND NOT paused AND safety_reason IS NULL
+        AND state->>'status'='running' AND state->>'engine'='1'
+        AND state->>'discoveryVersion'=$1
+        AND NOT EXISTS (SELECT 1 FROM cerebral.sense_transfer_budgets b
+          WHERE b.scope='job:' || j.job_key AND b.stop_reason IS NOT NULL)
+      ORDER BY created_at,job_key LIMIT 10`,[senseDiscoveryVersion]);
+    return rows.map(row=>({key:String(row.job_key),savedOnly:Boolean(row.saved_only)}));
+  }
   async get(key:string):Promise<QueueJob|null>{
     const [row]=await this.database.query(`SELECT ${columns} FROM cerebral.sense_queue_jobs WHERE job_key=$1 AND expires_at>now()`,[key]);
     return row?job(row):null;

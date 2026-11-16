@@ -5,7 +5,7 @@ import { safeSenseIconUrl } from "@/lib/ludios-sense-icons";
 import { createHash, randomUUID } from "node:crypto";
 import { getSenseUsage, reserveSenseRequest, recordSenseOrganizationUsage } from "@/lib/ludios-sense-usage";
 import { sensorTowerRequest } from "@/lib/sensortower-api";
-import { claimSenseLease, getSenseGameReport, getSenseDetectionReports, getTechLaunchReadinessCache, listPendingSenseJobs, releaseSenseLease, saveTechLaunchReadinessCache } from "@/lib/db";
+import { claimSenseLease, getSenseGameReport, getSenseDetectionReports, getTechLaunchReadinessCache, releaseSenseLease, saveTechLaunchReadinessCache } from "@/lib/db";
 import { aggregateSenseHistory, classifySense, evaluateSense, senseRuleVersion, shiftDate, validDownloads } from "@/lib/ludios-sense-detection";
 import { senseCountryCodes, senseToday } from "@/lib/ludios-sense-types";
 import { measureSenseTransfer, senseReadBytes, SENSE_RUN_READ_LIMIT } from "@/lib/ludios-sense-transfer";
@@ -387,15 +387,23 @@ async function runMeasuredWorker(key: string, budgetMs: number, savedOnly: boole
 }
 
 export async function continuePendingSenseJobs() {
+  // Scheduled continuation is only for existing guarded queue jobs. The daily
+  // starter and legacy pending index must never be invoked from this path.
+  if(!queueEnabled())return 0;
   const token = randomUUID(), leaseKey = "sense:cron:discovery:lease";
-  // Covers the full 300-second invocation, including discovery and cleanup.
   if (!await claimSenseLease(leaseKey, token, new Date(Date.now() + 360000).toISOString())) return 0;
   try {
-    const pending = await listPendingSenseJobs();
-    const states = await Promise.all(pending.map(key => getSenseProgress(key)));
-    const keys = states.filter(s => s.status === "running" && !s.paused).slice(0,1).map(s => s.jobKey);
-    for (const key of keys) await runSenseWorker(key, Math.floor(240000 / Math.max(1, keys.length)));
-    return keys.length;
+    const pending = await (await queueRuntime()).store.pendingContinuations();
+    for(const candidate of pending){
+      const progress=await getSenseProgress(candidate.key);
+      if(progress.queueEngine!==1 || progress.status!=="running" || progress.paused || progress.workerActive)continue;
+      // The worker rechecks pause/safety state and claims its own lease before
+      // advancing the durable checkpoint. Browser and cron triggers may race.
+      trace("continuation_selected",{scan:candidate.key.slice(-8),requests:progress.requests,savedOnly:candidate.savedOnly});
+      await runSenseWorker(candidate.key,240000,candidate.savedOnly);
+      return 1;
+    }
+    return 0;
   } finally {
     await releaseSenseLease(leaseKey, token);
   }

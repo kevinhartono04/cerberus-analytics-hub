@@ -12,6 +12,8 @@ vi.mock("@/lib/db", () => ({
   listPendingSenseJobs:vi.fn(async()=>[]),
   releaseSenseLease: vi.fn(async(key:string,token:string)=>{if(leases.get(key)===token)leases.delete(key);}),
 }));
+const { pendingContinuations,queueProgress,queueAdvance,queueGet }=vi.hoisted(()=>({pendingContinuations:vi.fn<()=>Promise<Array<{key:string;savedOnly:boolean}>>>(async()=>[]),queueProgress:vi.fn(),queueAdvance:vi.fn(),queueGet:vi.fn(async()=>({}))}));
+vi.mock("@/lib/ludios-sense-queue-runtime",()=>({senseQueueRuntime:()=>({store:{pendingContinuations,get:queueGet},progress:queueProgress,advance:queueAdvance})}));
 vi.mock("@/lib/sensortower-api",()=>({sensorTowerRequest:async(url:URL)=>{const response=await fetch(url);return {status:response.status,body:await response.text()};}}));
 import { advanceSense, startSense, getSenseStatus, setSensePaused, runSenseWorker, getSenseGame, estimateSense, getCachedSense, startDailySense, continuePendingSenseJobs } from "@/lib/ludios-sense";
 import { senseToday } from "@/lib/ludios-sense-types";
@@ -277,18 +279,56 @@ describe("resumable Sense scan",()=>{
 
 
 describe("cron discovery lease", () => {
+  beforeEach(()=>{vi.stubEnv("SENSE_QUEUE_ENGINE","true");pendingContinuations.mockClear();});
+  afterEach(()=>{vi.unstubAllEnvs();});
   it("does not query pending jobs while another cron owns discovery", async () => {
-    const { listPendingSenseJobs } = await import("@/lib/db");
-    vi.mocked(listPendingSenseJobs).mockClear();
+    pendingContinuations.mockClear();
     leases.set("sense:cron:discovery:lease", "other-cron");
     expect(await continuePendingSenseJobs()).toBe(0);
-    expect(listPendingSenseJobs).not.toHaveBeenCalled();
+    expect(pendingContinuations).not.toHaveBeenCalled();
   });
   it("releases discovery lease when listing jobs fails", async () => {
-    const { listPendingSenseJobs } = await import("@/lib/db");
-    vi.mocked(listPendingSenseJobs).mockRejectedValueOnce(new Error("database unavailable"));
+    pendingContinuations.mockRejectedValueOnce(new Error("database unavailable"));
     await expect(continuePendingSenseJobs()).rejects.toThrow("database unavailable");
     expect(leases.has("sense:cron:discovery:lease")).toBe(false);
     expect(await continuePendingSenseJobs()).toBe(0);
   });
+});
+
+
+describe("server continuation without a browser",()=>{
+ const key="sense:v1:"+"e".repeat(64);
+ beforeEach(()=>{
+  vi.stubEnv("SENSE_QUEUE_ENGINE","true");pendingContinuations.mockReset();queueProgress.mockReset();queueAdvance.mockReset();
+  records.set(key+":summary",JSON.stringify({queueEngine:1,jobKey:key,status:"running",progress:"Saved checkpoint",requests:247}));
+  queueProgress.mockResolvedValue({queueEngine:1,jobKey:key,status:"running",paused:false,requests:247});
+  queueAdvance.mockResolvedValue({queueEngine:1,jobKey:key,status:"completed",requests:248});
+ });
+ afterEach(()=>vi.unstubAllEnvs());
+ it("advances an existing checkpoint without calling start or resetting its counters",async()=>{
+  pendingContinuations.mockResolvedValue([{key,savedOnly:false}]);
+  expect(await continuePendingSenseJobs()).toBe(1);
+  expect(queueAdvance).toHaveBeenCalledOnce();expect(queueAdvance).toHaveBeenCalledWith(key,false);
+  expect(leases.size).toBe(0);
+  expect(JSON.parse(records.get(key+":summary")!).requests).toBe(247);
+ });
+ it("preserves saved-only mode for derived reports",async()=>{
+  pendingContinuations.mockResolvedValue([{key,savedOnly:true}]);
+  expect(await continuePendingSenseJobs()).toBe(1);
+  expect(queueAdvance).toHaveBeenCalledOnce();expect(queueAdvance).toHaveBeenCalledWith(key,true);
+ });
+ it("does nothing with no pending job or a disabled queue",async()=>{
+  pendingContinuations.mockResolvedValue([]);expect(await continuePendingSenseJobs()).toBe(0);
+  vi.stubEnv("SENSE_QUEUE_ENGINE","false");pendingContinuations.mockClear();
+  expect(await continuePendingSenseJobs()).toBe(0);expect(pendingContinuations).not.toHaveBeenCalled();expect(queueAdvance).not.toHaveBeenCalled();
+ });
+ it.each([{paused:true},{status:"completed"},{queueEngine:undefined}])("rechecks stopped or ineligible jobs: %j",async change=>{
+  pendingContinuations.mockResolvedValue([{key,savedOnly:false}]);
+  queueProgress.mockResolvedValue({queueEngine:1,jobKey:key,status:"running",paused:false,...change});
+  expect(await continuePendingSenseJobs()).toBe(0);expect(queueAdvance).not.toHaveBeenCalled();
+ });
+ it("does not duplicate work when a browser or another invocation owns the worker lease",async()=>{
+  pendingContinuations.mockResolvedValue([{key,savedOnly:false}]);leases.set("sense:worker:"+key,"browser-worker");
+  await continuePendingSenseJobs();expect(queueAdvance).not.toHaveBeenCalled();expect(leases.get("sense:worker:"+key)).toBe("browser-worker");
+ });
 });
