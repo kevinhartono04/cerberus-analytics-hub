@@ -135,7 +135,7 @@ export class SenseQueueStore {
       SELECT c.app_id,c.store,c.payload,c.stage,c.weeks,c.week_index FROM cerebral.sense_queue_candidates c JOIN first f ON c.weeks=f.weeks AND c.week_index=f.week_index
       WHERE c.job_key=$1 AND c.store=$2 AND c.stage='history' ORDER BY c.app_id COLLATE "C" LIMIT 25`,[key,store]) :
       await this.database.query(`SELECT app_id,store,payload,stage,weeks,week_index FROM cerebral.sense_queue_candidates
-        WHERE job_key=$1 AND store=$2 AND stage=$3 ORDER BY app_id COLLATE "C" LIMIT 25`,[key,store,stage]);
+        WHERE job_key=$1 AND store=$2 AND stage=$3 ORDER BY CASE WHEN $3='metadata' THEN payload->>'metadataAt' END ASC NULLS FIRST,app_id COLLATE "C" LIMIT 25`,[key,store,stage]);
     return rows.map(candidate);
   }
   async shared(batch:QueueCandidate[]):Promise<SharedChange[]>{

@@ -15,6 +15,7 @@ export interface QueueServices {
   writeCache(key:string,value:unknown,days?:number):Promise<void>;
   window(app:QueueApp,countries:SenseCountry[],end:string):Promise<import("./ludios-sense-history").StoredSenseHistory>;
   hydrate(app:QueueApp):Promise<void>;
+  prefetchHistories?(apps:QueueApp[]):Promise<void>;
   persist(app:QueueApp):Promise<void>;
   chart(key:string,generatedAt:string,game:SenseGame):Promise<void>;
   request(endpoint:string,parameters:Record<string,string|number>):Promise<unknown>;
@@ -244,6 +245,13 @@ export class SenseQueueEngine {
       return {changes,shared};
     }
     const currentShared=next.source?[]:await this.store.shared(batch);
+    // Prefetch only changed snapshots that require a full archival merge. Unchanged
+    // snapshots still use the smaller 28-day projection for report evaluation.
+    const mergeApps=batch.flatMap(c=>{
+      const previous=currentShared.find(a=>a.store===store&&a.appId===c.appId);
+      return previous&&previous.version!==null&&(!c.app.historyRef||previous.app.historyRef!==c.app.historyRef)?[c.app,previous.app]:[];
+    });
+    await this.services.prefetchHistories?.(mergeApps);
     for(const c of batch){
       const app=c.app,t=s.watermark!;
       if(next.source&&requiredHistoryWeeks(app,next.filters.countries,t,false).length)throw new Error("Saved country coverage is unavailable");

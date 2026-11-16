@@ -1,3 +1,4 @@
+import {senseHistoryTransportSql} from "./ludios-sense-history-transport";
 import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
@@ -1209,8 +1210,25 @@ function rowToTechLaunchCacheRecord(row: Record<string, unknown>): TechLaunchRea
   return record;
 }
 
+/** Bounded batch for immutable history merges; original blob limits apply before transfer. */
+export async function getSenseHistoryBatch(keys:string[],maxBytes:number):Promise<TechLaunchReadinessCacheRecord[]> {
+  if(keys.length>5)throw new Error("History read batch exceeds limit");
+  if(shouldUseLocalSqlite()){
+    const rows=await Promise.all(keys.map(key=>getTechLaunchReadinessCache(key,maxBytes)));
+    return rows.filter((row):row is TechLaunchReadinessCacheRecord=>row!==null);
+  }
+  const sql=await ensureTechLaunchCacheTable();
+  const rows=await sql.unsafe<Record<string,unknown>[]>(senseHistoryTransportSql.replace("cache_key=$1 LIMIT 1","cache_key=ANY($1::text[])"),[keys,maxBytes]);
+  // Account for the entire received batch before enforcing the step ceiling.
+  countSenseRead(rows.map(row=>asString(row.payload)).join(""));
+  return rows.map(row=>{
+    if(Number(row.payload_bytes)>maxBytes)throw new Error("Saved game history exceeds the safe storage limit");
+    return {cacheKey:asString(row.cache_key),payload:asString(row.payload),createdAt:asString(row.created_at),expiresAt:asString(row.expires_at)};
+  });
+}
+
 /** Reject oversized cache records in SQL, before transferring or parsing their payload. */
-export async function getTechLaunchReadinessCache(cacheKey: string, maxBytes = 128 * 1024 * 1024, options?: { senseProgress?: boolean; senseRanking?:boolean; senseHistory?:{countries:string[];start:string;end:string} }): Promise<TechLaunchReadinessCacheRecord | null> {
+export async function getTechLaunchReadinessCache(cacheKey: string, maxBytes = 128 * 1024 * 1024, options?: { senseProgress?: boolean; senseRanking?:boolean; senseHistoryTransport?:boolean; senseHistory?:{countries:string[];start:string;end:string} }): Promise<TechLaunchReadinessCacheRecord | null> {
   const map = (row: Record<string, unknown> | undefined) => {
     if (row && Number(row.payload_bytes) > maxBytes) throw new Error("Saved scan exceeds the safe storage limit; offline migration is required before resuming.");
     const record = row ? rowToTechLaunchCacheRecord(row) : null;
@@ -1227,6 +1245,10 @@ export async function getTechLaunchReadinessCache(cacheKey: string, maxBytes = 1
     return map(row);
   }
   const sql = await ensureTechLaunchCacheTable();
+  if(options?.senseHistoryTransport){
+    const [row]=await sql.unsafe<Record<string,unknown>[]>(senseHistoryTransportSql,[cacheKey,maxBytes]);
+    return map(row);
+  }
   if(options?.senseHistory){
     const window=options.senseHistory;
     const [row]=await sql.unsafe<Record<string,unknown>[]>(senseHistoryWindowSql,[cacheKey,maxBytes,window.countries,window.start,window.end]);

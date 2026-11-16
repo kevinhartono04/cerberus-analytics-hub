@@ -1,9 +1,10 @@
+import {decodeSenseHistoryTransport} from "./ludios-sense-history-transport";
 import {selectSenseHistoryWindow} from "./ludios-sense-history-window";
 import {shiftDate} from "./ludios-sense-detection";
 import type {SenseCountry} from "./ludios-sense-types";
 import { encodeHistory, pageSenseManifest, MANIFEST_PAGE_LIMIT, MANIFEST_TOTAL_LIMIT } from "./ludios-sense-codec.mjs";
 import { createHash } from "node:crypto";
-import { getTechLaunchReadinessCache, saveTechLaunchReadinessCache } from "@/lib/db";
+import { getSenseHistoryBatch, getTechLaunchReadinessCache, saveTechLaunchReadinessCache } from "@/lib/db";
 import { type StoredSenseHistory } from "@/lib/ludios-sense-history";
 import { cachedSensePage, rememberSensePage } from "@/lib/ludios-sense-transfer";
 
@@ -20,18 +21,20 @@ export function boundedSenseJson(value: unknown, maxBytes = SENSE_RECORD_LIMIT) 
   if (Buffer.byteLength(payload) > maxBytes) throw new Error("Saved scan exceeds the safe storage limit; offline migration is required before resuming.");
   return payload;
 }
-export async function readSenseDocument<T>(key: string, maxBytes = SENSE_RECORD_LIMIT): Promise<T | null> {
+export async function readSenseDocument<T>(key: string, maxBytes = SENSE_RECORD_LIMIT, compactHistory = false): Promise<T | null> {
   const cached = cachedSensePage(key);
   if (cached !== undefined) {
     if (Buffer.byteLength(cached) > maxBytes) throw new Error("Saved scan exceeds the safe storage limit");
     return JSON.parse(cached) as T;
   }
-  const row = await getTechLaunchReadinessCache(key, maxBytes);
+  const row = await getTechLaunchReadinessCache(key, maxBytes,compactHistory?{senseHistoryTransport:true}:undefined);
   if (!row || (row.expiresAt && row.expiresAt <= new Date().toISOString())) return null;
   // Defense in depth for alternate adapters; SQL enforces this before transfer in production.
   if (Buffer.byteLength(row.payload) > maxBytes) throw new Error("Saved scan exceeds the safe storage limit; offline migration is required before resuming.");
-  rememberSensePage(key, row.payload,row.expiresAt);
-  return JSON.parse(row.payload) as T;
+  const payload=compactHistory?decodeSenseHistoryTransport(row.payload):row.payload;
+  if(Buffer.byteLength(payload)>maxBytes)throw new Error("Saved game history exceeds the safe storage limit");
+  rememberSensePage(key, payload,row.expiresAt);
+  return JSON.parse(payload) as T;
 }
 
 /** Select whole bounded pages containing a batch; retain untouched references for checkpoint writes. */
@@ -87,9 +90,24 @@ export async function readSenseRecord<T>(key: string, maxBytes = SENSE_RECORD_LI
   }
   return document as T;
 }
+/** Fetch only the full snapshots required by a merge, deduplicated in bounded batches. */
+export async function prefetchSenseHistories(apps:ShardedHistory[]) {
+  const keys=[...new Set(apps.filter(app=>app.historyRef&&!hydrated.has(app)).map(app=>app.historyRef!))]
+    .filter(key=>cachedSensePage(key)===undefined);
+  for(let offset=0;offset<keys.length;offset+=5){
+    const batch=keys.slice(offset,offset+5),rows=await getSenseHistoryBatch(batch,SENSE_HISTORY_LIMIT);
+    for(const key of batch){
+      const row=rows.find(row=>row.cacheKey===key);
+      if(!row || row.expiresAt && row.expiresAt<=new Date().toISOString())throw new Error("Saved game history is unavailable; restart this scan after storage recovery.");
+      const payload=decodeSenseHistoryTransport(row.payload);
+      if(Buffer.byteLength(payload)>SENSE_HISTORY_LIMIT)throw new Error("Saved game history exceeds the safe storage limit");
+      rememberSensePage(key,payload,row.expiresAt);
+    }
+  }
+}
 export async function hydrateSenseHistory(app: ShardedHistory) {
   if (!app.historyRef || hydrated.has(app)) return;
-  const histories = await readSenseRecord<StoredSenseHistory["histories"] | (StoredSenseHistory & {format:4})>(app.historyRef, SENSE_HISTORY_LIMIT);
+  const histories = await readSenseDocument<StoredSenseHistory["histories"] | (StoredSenseHistory & {format:4})>(app.historyRef, SENSE_HISTORY_LIMIT,true);
   if (!histories) throw new Error("Saved game history is unavailable; restart this scan after storage recovery.");
   if ("format" in histories && histories.format===4) {
     const full=histories as StoredSenseHistory & {format:4};
