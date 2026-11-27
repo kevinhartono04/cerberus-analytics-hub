@@ -2,7 +2,7 @@ import type {SenseGame,SenseRunResponse,SenseStore} from "./ludios-sense-types";
 import type {QueueApp,QueueCandidate,QueueChange,QueueJob,QueueState,SharedChange} from "./ludios-sense-queue-types";
 import {QUEUE_PAGE_SIZE} from "./ludios-sense-queue-types";
 import {senseReadBytes} from "./ludios-sense-transfer";
-import {senseGenreOverrides,senseRetainedCandidatePredicate} from "./ludios-sense-discovery";
+import {senseDiscoveryVersion,senseGenreOverrides,senseRetainedCandidatePredicate} from "./ludios-sense-discovery";
 
 // JSON is pre-encoded by this store. Bind as text before casting so postgres.js
 // does not JSON-encode the string a second time after parameter type discovery.
@@ -31,6 +31,18 @@ async function summary(database:QueueDatabase,current:QueueJob) {
 }
 export class SenseQueueStore {
   constructor(readonly database:QueueDatabase){}
+  /** Only existing current-engine jobs are eligible; this never creates or resumes a job. */
+  async pendingContinuations():Promise<Array<{key:string;savedOnly:boolean}>>{
+    const rows=await this.database.query(`SELECT job_key,state ? 'source' AS saved_only
+      FROM cerebral.sense_queue_jobs j
+      WHERE expires_at>now() AND NOT paused AND safety_reason IS NULL
+        AND state->>'status'='running' AND state->>'engine'='1'
+        AND state->>'discoveryVersion'=$1
+        AND NOT EXISTS (SELECT 1 FROM cerebral.sense_transfer_budgets b
+          WHERE b.scope='job:' || j.job_key AND b.stop_reason IS NOT NULL)
+      ORDER BY created_at,job_key LIMIT 10`,[senseDiscoveryVersion]);
+    return rows.map(row=>({key:String(row.job_key),savedOnly:Boolean(row.saved_only)}));
+  }
   async get(key:string):Promise<QueueJob|null>{
     const [row]=await this.database.query(`SELECT ${columns} FROM cerebral.sense_queue_jobs WHERE job_key=$1 AND expires_at>now()`,[key]);
     return row?job(row):null;
@@ -123,7 +135,7 @@ export class SenseQueueStore {
       SELECT c.app_id,c.store,c.payload,c.stage,c.weeks,c.week_index FROM cerebral.sense_queue_candidates c JOIN first f ON c.weeks=f.weeks AND c.week_index=f.week_index
       WHERE c.job_key=$1 AND c.store=$2 AND c.stage='history' ORDER BY c.app_id COLLATE "C" LIMIT 25`,[key,store]) :
       await this.database.query(`SELECT app_id,store,payload,stage,weeks,week_index FROM cerebral.sense_queue_candidates
-        WHERE job_key=$1 AND store=$2 AND stage=$3 ORDER BY app_id COLLATE "C" LIMIT 25`,[key,store,stage]);
+        WHERE job_key=$1 AND store=$2 AND stage=$3 ORDER BY CASE WHEN $3='metadata' THEN payload->>'metadataAt' END ASC NULLS FIRST,app_id COLLATE "C" LIMIT 25`,[key,store,stage]);
     return rows.map(candidate);
   }
   async shared(batch:QueueCandidate[]):Promise<SharedChange[]>{
@@ -177,17 +189,25 @@ export class SenseQueueStore {
       const updated=job(row);await summary(db,updated);return updated;
     });
   }
-  async report(key:string,page:number,revision?:string,generatedAt?:string){
+  async report(key:string,page:number,revision?:string,generatedAt?:string,scope:"all"|"shortlist"="all"){
     return this.database.transaction(async db=>{
       const [row]=await db.query(`SELECT ${columns} FROM cerebral.sense_queue_jobs WHERE job_key=$1 AND expires_at>now() FOR SHARE`,[key]);
       if(!row)throw Response.json({error:"Report unavailable"},{status:404});
       const current=job(row),meta=current.state.result;
       if(!meta || revision && current.updatedAt!==revision || generatedAt && meta.generatedAt!==generatedAt)throw Response.json({error:"Report changed; reload it"},{status:409});
-      const pages=Math.max(1,Math.ceil((current.state.stores.android.reports+current.state.stores.ios.reports)/QUEUE_PAGE_SIZE));
+      const totalRecords=current.state.stores.android.reports+current.state.stores.ios.reports;
+      let pages=Math.max(1,Math.ceil(totalRecords/QUEUE_PAGE_SIZE));
       if(!Number.isInteger(page)||page<0||page>=pages)throw Response.json({error:"Report page not found"},{status:404});
-      const rows=await db.query(`SELECT result FROM cerebral.sense_queue_candidates WHERE job_key=$1 AND result IS NOT NULL
+      const rows=await db.query(`SELECT result${scope==="shortlist"?", count(*) OVER()::integer AS matching_count":""} FROM cerebral.sense_queue_candidates WHERE job_key=$1 AND result IS NOT NULL
+        ${scope==="shortlist"?`AND (sort_rank < 3 OR result->>'unifiedAppId' IN (
+          SELECT result->>'unifiedAppId' FROM cerebral.sense_queue_candidates
+          WHERE job_key=$1 AND result IS NOT NULL AND sort_rank < 3
+            AND nullif(result->>'unifiedAppId','') IS NOT NULL
+        ))`:""}
         ORDER BY sort_rank,sort_added DESC,sort_growth DESC,app_id COLLATE "C",store LIMIT $2 OFFSET $3`,[key,QUEUE_PAGE_SIZE,page*QUEUE_PAGE_SIZE]);
-      return {result:{...meta,requests:current.requests,games:rows.map(r=>r.result as SenseGame)},page,pageCount:pages,revision:current.updatedAt};
+      if(scope==="shortlist")pages=Math.max(1,Math.ceil(Number(rows[0]?.matching_count ?? 0)/QUEUE_PAGE_SIZE));
+      if(page>=pages)throw Response.json({error:"Report page not found"},{status:404});
+      return {result:{...meta,requests:current.requests,games:rows.map(r=>r.result as SenseGame)},page,pageCount:pages,revision:current.updatedAt,scope,totalRecords};
     });
   }
   async detections(key:string):Promise<SenseGame[]>{

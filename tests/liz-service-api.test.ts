@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/db", () => ({ getSavedSpec: vi.fn(), listSavedSpecs: vi.fn(), saveSpec: vi.fn() }));
-vi.mock("@/lib/game-registry", () => ({ registeredGames: vi.fn() }));
+vi.mock("@/lib/game-registry", () => ({ registeredGames: vi.fn(), addGame: vi.fn() }));
 import { GET, POST, PUT, DELETE, PATCH } from "@/app/api/service/[...path]/route";
 import { getSavedSpec, listSavedSpecs, saveSpec } from "@/lib/db";
 import { registeredGames } from "@/lib/game-registry";
@@ -64,7 +64,7 @@ describe("Liz credential boundary", () => {
 
 describe("Liz permitted operations", () => {
   it("reads games, spec summaries and spec contents without granting deletion", async () => {
-    expect(await (await GET(request(), context("games"))).json()).toEqual({ games: [], canManage: false });
+    expect(await (await GET(request(), context("games"))).json()).toEqual({ games: [], canManage: true, canCreate: true, canEdit: false, canDelete: false });
     const list = await GET(request(), context("specs"));
     expect(list.headers.get("cache-control")).toBe("no-store");
     expect(await list.json()).toEqual([{ ...summary, canEdit: true, canDelete: false }]);
@@ -97,7 +97,7 @@ describe("Liz permitted operations", () => {
     expect(saveSpec).not.toHaveBeenCalled();
   });
   it.each([
-    ["DELETE", ["specs", "existing"]], ["POST", ["games"]],
+    ["DELETE", ["specs", "existing"]], ["PATCH", ["games", "existing"]],
     ["GET", ["users"]], ["PUT", ["users", "admin"]],
     ["PATCH", ["specs", "existing"]], ["POST", ["specs", "import"]],
     ["GET", ["specs", "existing", "extra"]],

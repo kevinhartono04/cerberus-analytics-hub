@@ -34,3 +34,32 @@ it("rejects absent and expired history rather than inventing an empty report",as
  await pg.query("INSERT INTO tech_launch_readiness_cache VALUES($1,$2,$3,$4)",["expired",JSON.stringify({US:{[end]:10}}),"2000-01-01","2000-01-02"]);
  await expect(readSenseHistoryWindow({histories:{},historyRef:"expired"},["US"],end)).rejects.toThrow("unavailable");
 });
+it("round trips compact archival batches without changing values, gaps, coverage or immutable blobs",async()=>{
+ const {getSenseHistoryBatch}=await import("@/lib/db");
+ const {decodeSenseHistoryTransport}=await import("@/lib/ludios-sense-history-transport");
+ const {hydrateSenseHistory,prefetchSenseHistories}=await import("@/lib/ludios-sense-storage");
+ const {measureSenseTransfer}=await import("@/lib/ludios-sense-transfer");
+ const key="sense:blob:v4:"+"a".repeat(64);
+ const histories={US:Object.fromEntries(Array.from({length:118},(_,i)=>[shiftDate(end,i-117),i===0?0:i===5?null:12345.5])),JP:{},DE:{[end]:0}};
+ delete histories.US[shiftDate(end,-50)];
+ const payload={format:4,histories,historyWindows:{US:[{start:shiftDate(end,-117),end,at:"2026-11-13T00:00:00Z"}]},countryHistory:{DE:{start:end,end,at:"older"}}};
+ await pg.query("INSERT INTO tech_launch_readiness_cache VALUES($1,$2,$3,$4)",[key,JSON.stringify(payload),"2026-01-01","2099-01-01"]);
+ const [packed]=await getSenseHistoryBatch([key],256*1024);
+ expect(JSON.parse(decodeSenseHistoryTransport(packed.payload))).toEqual(payload);
+ expect(Buffer.byteLength(packed.payload)).toBeLessThan(Buffer.byteLength(JSON.stringify(payload))*.8);
+ await expect(getSenseHistoryBatch([key],5)).rejects.toThrow("safe storage limit");
+ await expect(getSenseHistoryBatch(Array(6).fill(key),256*1024)).rejects.toThrow("batch exceeds");
+ await measureSenseTransfer("compact-test",async()=>{
+  const apps=[{histories:{},historyRef:key},{histories:{},historyRef:key}];
+  const before=mock.query.mock.calls.length;
+  await prefetchSenseHistories(apps);
+  const after=mock.query.mock.calls.length;
+  expect(after-before).toBe(1);
+  for(const app of apps){await hydrateSenseHistory(app);expect(app.histories).toEqual(histories);}
+  expect(mock.query.mock.calls.length).toBe(after);
+ });
+ const stored=await getTechLaunchReadinessCache(key);expect(JSON.parse(stored!.payload)).toEqual(payload);
+ const [legacy]=await getSenseHistoryBatch(["legacy"],256*1024);expect(JSON.parse(decodeSenseHistoryTransport(legacy.payload))).toEqual({US:{[end]:10},JP:{[end]:9}});
+ await expect(prefetchSenseHistories([{histories:{},historyRef:"absent"}])).rejects.toThrow("unavailable");
+ await expect(prefetchSenseHistories([{histories:{},historyRef:"expired"}])).rejects.toThrow("unavailable");
+});

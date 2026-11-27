@@ -2,8 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 import { senseToday, senseRequestSchema } from "@/lib/ludios-sense-types";
 import configuration from "@/vercel.json";
 describe("WIB daily reporting calendar",()=>{
-  it("keeps Sense schedules paused during IO recovery",()=>{
-    expect(configuration.crons.some(c=>c.path.startsWith("/api/cron/ludios-sense"))).toBe(false);
+  it("keeps daily creation off while enabling continuation of existing jobs",()=>{
+    expect(configuration.crons.some(c=>c.path === "/api/cron/ludios-sense-daily")).toBe(false);
+    expect(configuration.crons.filter(c=>c.path.startsWith("/api/cron/ludios-sense"))).toEqual([{path:"/api/cron/ludios-sense",schedule:"* * * * *"}]);
   });
   it("maps 21:00 UTC to the following WIB reporting day",()=>{
     expect(senseToday(new Date("2026-10-01T21:00:00Z"))).toBe("2026-10-02");

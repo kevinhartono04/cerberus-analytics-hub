@@ -132,3 +132,21 @@ it("recreates an expired job atomically without overriding a live paused job",as
  expect(fresh.requests).toBe(0);expect(fresh.paused).toBe(false);
  expect((await fixture.pg.query("SELECT count(*)::integer AS n FROM cerebral.sense_queue_candidates")).rows).toEqual([{n:0}]);
 });
+it("packs interleaved stale metadata into full requests without losing fresh candidates",async()=>{
+ fixture.services.now=()=>"2026-11-16T00:00:00.000Z";
+ const start=(await fixture.engine().start(filters))!;
+ const ids=Array.from({length:100},(_,i)=>String(i).padStart(3,"0"));
+ await fixture.pg.query(`UPDATE cerebral.sense_queue_jobs SET state=jsonb_set(jsonb_set(state,'{stores,android,phase}','"metadata"'),'{stores,android,watermark}','"2026-09-28"') WHERE job_key=$1`,[start.jobKey]);
+ for(let i=0;i<ids.length;i++){
+  const app={appId:ids[i],name:ids[i],publisher:"",categories:["GAME_PUZZLE"],releaseDate:null,discoveredDate:filters.date,histories:{},...(i%2?{metadataAt:"2026-11-15T00:00:00.000Z"}:i%4?{metadataAt:"2026-10-01T00:00:00.000Z"}:{})};
+  await fixture.pg.query(`INSERT INTO cerebral.sense_queue_candidates(job_key,store,app_id,discovered_date,payload) VALUES($1,'android',$2,$3,$4)`,[start.jobKey,ids[i],filters.date,JSON.stringify(app)]);
+ }
+ fixture.provider(async(endpoint,p)=>({apps:String(p.app_ids).split(",").map(app_id=>({app_id,name:app_id,categories:["GAME_PUZZLE"]}))}));
+ for(let i=0;i<4;i++)await fixture.engine().advance(start.jobKey);
+ expect(fixture.calls).toHaveLength(2);
+ expect(fixture.calls.map(call=>String(call.parameters.app_ids).split(",").length)).toEqual([25,25]);
+ const refreshed=fixture.calls.flatMap(call=>String(call.parameters.app_ids).split(","));
+ expect(new Set(refreshed)).toEqual(new Set(ids.filter((_,i)=>i%2===0)));
+ const result=await fixture.pg.query<{app_id:string;stage:string}>("SELECT app_id,stage FROM cerebral.sense_queue_candidates WHERE job_key=$1",[start.jobKey]);
+ expect(result.rows).toHaveLength(100);expect(result.rows.every(row=>row.stage==="history")).toBe(true);
+});

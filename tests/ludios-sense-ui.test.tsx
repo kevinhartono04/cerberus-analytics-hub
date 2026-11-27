@@ -263,13 +263,13 @@ it("loads a completed report once in pinned pages and keeps incomplete pages out
  expect(fetch.mock.calls.some(([url])=>url==="/api/ludios-sense")).toBe(false);
 });
 
-it("opening another user's inactive queue is read-only; Resume explicitly continues it",async()=>{
+it("opening another user's inactive queue is read-only; Continue now can expedite its next batch",async()=>{
  const scan={queueEngine:1,jobKey:"sense:v1:"+"c".repeat(64),status:"running",requests:71,progress:"Discovering games",paused:false,workerActive:false};
  const fetch=vi.fn(async(url:string)=>Response.json(url.endsWith("/cache")?{scan}:url.endsWith("/continue")?{accepted:true,scan:{...scan,workerActive:true}}:url.endsWith("/status")?scan:{}));
  vi.stubGlobal("fetch",fetch);const view=render(<LudiosSense/>);
  await waitFor(()=>expect(screen.getByText(/Check waiting/)).toBeInTheDocument());
  expect(fetch.mock.calls.some(([url])=>url.endsWith("/continue"))).toBe(false);
- fireEvent.click(screen.getByRole("button",{name:"Resume check"}));
+ fireEvent.click(screen.getByRole("button",{name:"Continue now"}));
  await waitFor(()=>expect(fetch.mock.calls.filter(([url])=>url.endsWith("/continue"))).toHaveLength(1));
  expect(fetch.mock.calls.some(([url])=>url==="/api/ludios-sense")).toBe(false);view.unmount();
 });
@@ -290,5 +290,78 @@ it("does not transfer continuation ownership from a previous job to another shar
  const fetch=vi.fn(async(url:string)=>Response.json(url.endsWith("/cache")?{scan}:{}));
  vi.stubGlobal("fetch",fetch);const view=render(<LudiosSense/>);
  await waitFor(()=>expect(screen.getByText(/Check waiting/)).toBeInTheDocument());
+ expect(fetch.mock.calls.some(([url])=>url.endsWith("/continue"))).toBe(false);view.unmount();
+});
+
+
+it("shows the queue shortlist before all records and loads all only on demand, once",async()=>{
+ const date=senseToday(),generatedAt=new Date().toISOString(),jobKey="sense:v1:"+"d".repeat(64);
+ const game={appId:"signal",store:"ios",name:"Signal game",publisher:"Studio",genre:"Puzzle",classification:"included",releaseDate:null,iconUrl:null,unifiedAppId:null,url:"https://example.com",history:[],availableCountries:["US"],unavailableCountries:[],evaluation:{date,signal:"early_warning",latest:2000,recentAverage:1800,baseline:1000,growth:2,added:1000,flags:[]},retrievedAt:generatedAt};
+ const quiet={...game,appId:"quiet",name:"Quiet game",evaluation:{...game.evaluation,signal:"none"}};
+ const result={filters:{date,countries:["AU","CA","DE","GB","JP","RU","US"]},games:[],generatedAt,watermarks:{ios:date},coverageComplete:true};
+ const fetch=vi.fn(async(url:string,init:RequestInit)=>{
+  if(url.endsWith("/cache"))return Response.json({scan:{queueEngine:1,jobKey,status:"completed",requests:944,reportLoaded:false,reportPageCount:62,result}});
+  if(url.endsWith("/report")){
+   const input=JSON.parse(init.body as string);
+   return Response.json({scope:input.scope,totalRecords:6183,page:input.page,pageCount:1,result:{...result,games:input.scope==="shortlist"?[game]:[game,quiet]}});
+  }
+  return Response.json(url.endsWith("/recent")?{games:[]}:{});
+ });
+ vi.stubGlobal("fetch",fetch);render(<LudiosSense/>);
+ await waitFor(()=>expect(screen.getByRole("button",{name:"Inspect Signal game, ios"})).toBeInTheDocument());
+ const reports=()=>fetch.mock.calls.filter(([url])=>url.endsWith("/report")).map(([,init])=>JSON.parse(init.body as string));
+ expect(reports().map(r=>r.scope)).toEqual(["shortlist"]);
+ fireEvent.click(screen.getByText("Report details"));
+ expect(screen.getByText(/6183 game\/store records evaluated/)).toBeInTheDocument();
+ fireEvent.click(screen.getByRole("button",{name:/Genre review/}));
+ fireEvent.change(screen.getByLabelText("Search games"),{target:{value:"Signal"}});
+ expect(reports()).toHaveLength(1);
+ fireEvent.change(screen.getByLabelText("Search games"),{target:{value:""}});
+ fireEvent.click(screen.getByRole("button",{name:/All evaluated/}));
+ await waitFor(()=>expect(screen.getByRole("button",{name:"Inspect Quiet game, ios"})).toBeInTheDocument());
+ expect(reports().map(r=>r.scope)).toEqual(["shortlist","all"]);
+ fireEvent.click(screen.getByRole("button",{name:/Worth attention/}));
+ fireEvent.click(screen.getByRole("button",{name:/All evaluated/}));
+ expect(reports()).toHaveLength(2);
+ expect(fetch.mock.calls.some(([url])=>url.endsWith("/continue")||url==="/api/ludios-sense")).toBe(false);
+});
+
+it("times out a stalled shortlist request and retries without collecting data",async()=>{
+ vi.useFakeTimers();
+ const date=senseToday(),generatedAt=new Date().toISOString(),jobKey="sense:v1:"+"e".repeat(64);
+ const result={filters:{date,countries:["US"]},games:[],generatedAt,watermarks:{ios:date},coverageComplete:true};
+ let stalled=true;
+ const fetch=vi.fn(async(url:string,init:RequestInit)=>{
+  if(url.endsWith("/cache"))return Response.json({scan:{queueEngine:1,jobKey,status:"completed",requests:1,reportLoaded:false,reportPageCount:62,result}});
+  if(url.endsWith("/report"))return stalled?new Promise<Response>(()=>{}):Response.json({scope:"shortlist",totalRecords:6183,page:0,pageCount:1,result});
+  if(url.endsWith("/status"))return Response.json({jobKey});
+  return Response.json(url.endsWith("/recent")?{games:[]}:{});
+ });
+ vi.stubGlobal("fetch",fetch);const view=render(<LudiosSense/>);
+ try {
+  await act(()=>vi.advanceTimersByTimeAsync(400));
+  expect(screen.getByText("Loading saved shortlist…")).toBeInTheDocument();
+  await act(()=>vi.advanceTimersByTimeAsync(20000));
+  expect(screen.getByRole("alert")).toHaveTextContent("Saved report timed out");
+  stalled=false;fireEvent.click(screen.getByRole("button",{name:"Retry saved report"}));
+  await act(()=>vi.advanceTimersByTimeAsync(1));
+  expect(screen.getByText("Research shortlist")).toBeInTheDocument();
+  expect(fetch.mock.calls.filter(([url])=>url.endsWith("/report"))).toHaveLength(2);
+  expect(fetch.mock.calls.some(([url])=>url.endsWith("/continue")||url==="/api/ludios-sense")).toBe(false);
+ }finally{view.unmount();vi.useRealTimers();}
+});
+
+
+it("can pause a server-continued check between worker batches",async()=>{
+ const scan={queueEngine:1,jobKey:"sense:v1:"+"f".repeat(64),status:"running",requests:247,progress:"Saved checkpoint",paused:false,workerActive:false};
+ const fetch=vi.fn(async(url:string,init:RequestInit)=>{
+  if(url.endsWith("/cache"))return Response.json({scan});
+  if(url.endsWith("/status")){expect(JSON.parse(init.body as string).action).toBe("pause");return Response.json({...scan,paused:true});}
+  return Response.json({});
+ });
+ vi.stubGlobal("fetch",fetch);const view=render(<LudiosSense/>);
+ await waitFor(()=>expect(screen.getByText(/Check waiting for the next server batch/)).toBeInTheDocument());
+ fireEvent.click(screen.getByRole("button",{name:"Pause check"}));
+ await waitFor(()=>expect(screen.getByRole("button",{name:"Resume check"})).toBeInTheDocument());
  expect(fetch.mock.calls.some(([url])=>url.endsWith("/continue"))).toBe(false);view.unmount();
 });

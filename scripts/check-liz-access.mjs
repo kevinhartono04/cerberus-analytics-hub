@@ -6,6 +6,7 @@ import path from "node:path";
 const root = fileURLToPath(new URL("..", import.meta.url));
 const tests = [
   "tests/liz-service-api.test.ts",
+  "tests/liz-game-registration.test.ts",
   "tests/liz-sense-reporting.test.ts",
   "tests/ludios-sense-api.test.ts",
 ];

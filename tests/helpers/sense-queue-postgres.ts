@@ -1,3 +1,4 @@
+import {senseHistoryTransportSql,decodeSenseHistoryTransport} from "@/lib/ludios-sense-history-transport";
 import {selectSenseHistoryWindow,senseHistoryWindowSql} from "@/lib/ludios-sense-history-window";
 import {shiftDate} from "@/lib/ludios-sense-detection";
 import {PGlite} from "@electric-sql/pglite";
@@ -59,6 +60,16 @@ export async function queueFixture(){
       if(Number(row.payload_bytes)>256*1024)throw new Error("Saved game history exceeds the safe storage limit");
       const saved=JSON.parse(String(row.payload));
       return selectSenseHistoryWindow({...app,histories:saved.histories,historyWindows:saved.historyWindows ?? app.historyWindows,countryHistory:saved.countryHistory ?? app.countryHistory},countries,end);
+    },
+    async prefetchHistories(apps){
+      const keys=[...new Set(apps.map(app=>app.historyRef).filter((key):key is string=>Boolean(key)))].filter(key=>cachedSensePage(key)===undefined);
+      for(let i=0;i<keys.length;i+=5){
+        const batch=keys.slice(i,i+5);
+        for(const key of batch){const blob=cache.get(key);if(!blob)throw new Error("Saved history is unavailable");
+          await pg.query("INSERT INTO cerebral.tech_launch_readiness_cache VALUES($1,$2,$3,$4) ON CONFLICT(cache_key) DO NOTHING",[key,JSON.stringify(blob),"2026-01-01","2099-01-01"]);}
+        const rows=await database.query(senseHistoryTransportSql.replace("FROM tech_launch_readiness_cache","FROM cerebral.tech_launch_readiness_cache").replace("cache_key=$1 LIMIT 1","cache_key=ANY($1::text[])"),[batch,256*1024]);
+        for(const row of rows){if(Number(row.payload_bytes)>256*1024)throw new Error("History too large");rememberSensePage(String(row.cache_key),decodeSenseHistoryTransport(String(row.payload)),"2099-01-01");}
+      }
     },
     async hydrate(app){
       if(app.historyRef && !Object.keys(app.histories).length){

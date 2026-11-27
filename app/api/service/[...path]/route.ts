@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { ZodError } from "zod";
 import { getSavedSpec, listSavedSpecs, saveSpec } from "@/lib/db";
-import { registeredGames } from "@/lib/game-registry";
+import { addGame, registeredGames } from "@/lib/game-registry";
 import { requireLiz } from "@/lib/service-auth";
 import { generatedSpecSchema, type SavedSpecSummary } from "@/lib/types";
 
@@ -16,6 +16,7 @@ async function handle(request: Request, context: Context) {
   let actor: string | null = null;
   let action = "unsupported";
   let specId: string | undefined;
+  let gameName: string | undefined;
   let status = 500;
   const reply = (body: unknown, code = 200) => {
     status = code;
@@ -31,7 +32,13 @@ async function handle(request: Request, context: Context) {
     const method = request.method;
     if (path.length === 1 && path[0] === "games" && method === "GET") {
       action = "games.read";
-      return reply({ games: await registeredGames(), canManage: false });
+      return reply({ games: await registeredGames(), canManage: true, canCreate: true, canEdit: false, canDelete: false });
+    }
+    if (path.length === 1 && path[0] === "games" && method === "POST") {
+      action = "games.create";
+      const game = await addGame(await request.json(), user.id);
+      gameName = game.name;
+      return reply({ game }, 201);
     }
     if (path.length === 1 && path[0] === "specs" && method === "GET") {
       action = "specs.list";
@@ -57,8 +64,9 @@ async function handle(request: Request, context: Context) {
     }
     return reply({ error: "This operation is not permitted for Liz" }, 403);
   } catch (error) {
-    if (error instanceof Response) return reply({ error: "Unauthorized" }, error.status);
-    if (error instanceof ZodError) return reply({ error: "Invalid spec", issues: error.issues }, 400);
+    if (error instanceof Response) return reply({ error: error.status === 409 && action === "games.create"
+      ? "A game with this name, app ID, or bundle ID already exists" : "Unauthorized" }, error.status);
+    if (error instanceof ZodError) return reply({ error: action === "games.create" ? "Invalid game" : "Invalid spec", issues: error.issues }, 400);
     if (error instanceof SyntaxError) return reply({ error: "Invalid JSON" }, 400);
     // Do not return database errors or credentials to a caller.
     return reply({ error: "Service operation failed", requestId }, 500);
@@ -67,7 +75,7 @@ async function handle(request: Request, context: Context) {
     // Existing owners are preserved by saveSpec; audit actor is separate from owner.
     console.info(JSON.stringify({
       event: "cerebral.service_access", timestamp: new Date().toISOString(),
-      requestId, actor, action, specId, status,
+      requestId, actor, action, specId, gameName, status,
     }));
   }
 }
