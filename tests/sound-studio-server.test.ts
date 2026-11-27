@@ -4,15 +4,15 @@ import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {beforeAll,afterAll,describe,it,expect,vi} from 'vitest';
 const identity=vi.hoisted(()=>({user:{id:'editor-1',email:'editor@tripledotstudios.com',name:'Editor One',role:'editor'} as any}));
-vi.mock('@/lib/auth',()=>({
+vi.mock('@/lib/auth',async importOriginal=>({
+ ...await importOriginal<typeof import('@/lib/auth')>(),
  requireCurrentAppUser:async()=>{if(!identity.user)throw new Response('Unauthorized',{status:401});return identity.user;},
- assertInternalAppUser:(user:any)=>{if(!user.email.endsWith('@tripledotstudios.com'))throw new Response('Forbidden',{status:403});},
- canCreateSpec:(user:any)=>['admin','editor'].includes(user.role),
 }));
 import {GET,PUT} from '@/app/api/sound-studio/state/route';
 import {POST,PATCH} from '@/app/api/sound-studio/uploads/route';
 import {GET as getFile,PUT as putFile} from '@/app/api/sound-studio/files/[id]/route';
 import {readSoundRecord} from '@/lib/sound-studio-store';
+import {POST as importCatalog} from '@/app/api/sound-studio/catalog/route';
 const directory=mkdtempSync(path.join(tmpdir(),'sound-studio-test-'));
 const editor={...identity.user};
 const request=(url:string,method='GET',body?:unknown)=>new Request('http://localhost'+url,{method,...(body===undefined?{}:{headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})});
@@ -60,7 +60,27 @@ describe('Sound Studio shared server',()=>{
   expect((await PATCH(request('/api/sound-studio/uploads','PATCH',{id:ticket.id}))).status).toBe(200);
   const full=await getFile(request(ticket.url),context);expect(Buffer.from(await full.arrayBuffer())).toEqual(content);
   const part=await getFile(new Request('http://localhost'+ticket.url,{headers:{range:'bytes=0-3'}}),context);expect(part.status).toBe(206);expect(await part.text()).toBe('RIFF');
+  identity.user={...editor,role:'viewer'};
+  expect((await GET(request('/api/sound-studio/state'))).status).toBe(200);
+  const viewerFile=await getFile(request(ticket.url),context);expect(viewerFile.status).toBe(200);expect(Buffer.from(await viewerFile.arrayBuffer())).toEqual(content);
+  const before=await (await GET(request('/api/sound-studio/state'))).json();
+  expect((await PUT(request('/api/sound-studio/state','PUT',before))).status).toBe(403);
+  expect((await POST(request('/api/sound-studio/uploads','POST',{name:'blocked.wav',size:13}))).status).toBe(403);
+  expect((await PATCH(request('/api/sound-studio/uploads','PATCH',{id:ticket.id}))).status).toBe(403);
+  expect((await putFile(new Request('http://localhost'+ticket.url,{method:'PUT',body:content}),context)).status).toBe(403);
+  expect((await importCatalog(request('/api/sound-studio/catalog','POST',{}))).status).toBe(403);
+  expect(await (await GET(request('/api/sound-studio/state'))).json()).toEqual(before);
+  identity.user={...editor,email:'external@example.com'};expect((await getFile(request(ticket.url),context)).status).toBe(403);
   identity.user=null;expect((await getFile(request(ticket.url),context)).status).toBe(401);identity.user=editor;
   expect((await readSoundRecord<any>('file:'+ticket.id))?.value.ready).toBe(true);
+ });
+ it('allows internal admins to save and limits catalog imports to admins',async()=>{
+  identity.user=editor;
+  expect((await importCatalog(request('/api/sound-studio/catalog','POST',{schemaVersion:1,sounds:[]}))).status).toBe(403);
+  identity.user={...editor,id:'admin-1',name:'Admin One',role:'admin'};
+  const current=await (await GET(request('/api/sound-studio/state'))).json();
+  expect((await PUT(request('/api/sound-studio/state','PUT',current))).status).toBe(200);
+  expect((await importCatalog(request('/api/sound-studio/catalog','POST',{schemaVersion:1,sounds:[]}))).status).toBe(200);
+  identity.user=editor;
  });
 });

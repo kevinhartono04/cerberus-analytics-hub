@@ -4,6 +4,24 @@ import {unzipSync} from 'fflate';
 import {downloadArchive,uniqueDownloadNames,canDownloadFile,specFiles} from '../components/sound-studio/workspace/download-files.js';
 import {resizeColumn,normalizedWidths,DEFAULT_WIDTHS,MIN_WIDTHS,validWidths} from '../components/sound-studio/workspace/column-widths.js';
 const a={url:'/a.wav',name:'tap.wav',type:'audio'},b={url:'/b.wav',name:'tap.wav',type:'audio'};
+test('ZIP authenticates Cerebral media requests without enabling cross-origin credentials',async()=>{
+ const files=[
+  {url:'/api/sound-studio/files/audio-1',name:'sound.wav'},
+  {url:'https://cerebral.example/api/sound-studio/files/video-1',name:'preview.mp4'},
+  {url:'https://storage.example/signed/audio-2',name:'external.wav'},
+ ];
+ const calls=[];
+ const result=await downloadArchive(files,{fetchFile:async(url,options)=>{
+  calls.push({url,credentials:options.credentials});
+  if(options.credentials!=='same-origin')return new Response('Unauthorized',{status:401});
+  return new Response(new Uint8Array([1,2,3]),{headers:{'content-type':'application/octet-stream'}});
+ }});
+ assert.deepEqual(calls,files.map(file=>({url:file.url,credentials:'same-origin'})));
+ assert.equal(result.count,3);assert.deepEqual(result.failures,[]);
+ const archive=unzipSync(result.bytes);
+ assert.deepEqual(Object.keys(archive),files.map(file=>file.name));
+ assert.deepEqual([...archive['sound.wav']],[1,2,3]);
+});
 test('ZIP contains exact selected bytes, preserves duplicate filenames and excludes unselected files',async()=>{
  const calls=[];const result=await downloadArchive([a,b],{fetchFile:async url=>{calls.push(url);return new Response(new Uint8Array([url==='/a.wav'?1:2,3]),{headers:{'content-type':'audio/wav'}});}});
  assert.deepEqual(calls,['/a.wav','/b.wav']);assert.equal(result.count,2);assert.deepEqual(result.failures,[]);

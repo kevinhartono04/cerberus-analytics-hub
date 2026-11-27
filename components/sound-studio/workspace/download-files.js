@@ -45,7 +45,8 @@ export async function downloadArchive(files,{signal,onProgress=()=>{},fetchFile=
     signal?.addEventListener('abort',cancel,{once:true});
     const timer=setTimeout(cancel,30000);
     try{
-      const response=await fetchFile(file.url,{signal:controller.signal,credentials:'omit'});
+      // Cerebral media requires the session cookie; never send it to external sources.
+      const response=await fetchFile(file.url,{signal:controller.signal,credentials:'same-origin'});
       if(!response.ok)throw Error('source unavailable');
       const type=response.headers.get('content-type') || '';
       if(/text\/|json|xml/i.test(type))throw Error('source returned a page, not a media file');
