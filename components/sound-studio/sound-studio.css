@@ -3523,7 +3523,7 @@ html[data-theme] .sound-studio .inspector:not(.is-editing) .inspector-heading h4
 }
 
 /* Spec readiness is separate from each cue implementation status. */
-.sound-studio .spec-stage {display:inline-flex;margin:0 0 10px;font-size:12px;}
+.sound-studio .spec-stage {display:inline-flex;margin:12px 0 10px;font-size:12px;}
 .sound-studio .spec-stage-draft {color:#d9be8d;background:rgba(178,137,66,.18);border:1px solid rgba(178,137,66,.4);}
 .sound-studio .spec-stage-final {color:#9bcab7;background:rgba(63,142,111,.16);border:1px solid rgba(63,142,111,.4);}
 html[data-theme="light"] .sound-studio .spec-stage-draft {color:#765316;}
@@ -3644,3 +3644,35 @@ html[data-theme] .sound-studio select.status-select {padding:6px 32px 6px 12px;b
 .sound-studio .download-files-modal li {font-size:12px;overflow-wrap:anywhere;margin:6px 0;}
 @media (max-width:1100px) {.sound-studio .column-resize {display:none;}}
 @media (forced-colors:active) {html[data-theme] .sound-studio select {appearance:auto;background-image:none;}}
+
+/* Compact laptop editing: core fields first, media on a second line.
+   Larger screens keep the spreadsheet; smaller tablets retain stacked fields. */
+@media (min-width: 1200px) and (max-width: 1550px) {
+ .sound-studio .new-cue-table tr {
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, .85fr) minmax(0, 1.65fr) minmax(196px, 1.3fr) minmax(0, 1fr) 30px;
+  gap: 10px 12px;
+  padding: 12px;
+  align-items: start;
+ }
+ .sound-studio .new-cue-table td:nth-child(1) {grid-column: 1; grid-row: 1;}
+ .sound-studio .new-cue-table td:nth-child(2) {grid-column: 2; grid-row: 1;}
+ .sound-studio .new-cue-table td:nth-child(3) {grid-column: 3; grid-row: 1;}
+ .sound-studio .new-cue-table td:nth-child(6) {grid-column: 4; grid-row: 1; padding-right: 0;}
+ .sound-studio .new-cue-table td:nth-child(7) {grid-column: 5; grid-row: 1;}
+ .sound-studio .new-cue-table td:nth-child(8) {grid-column: 6; grid-row: 1; align-self: start; padding-top: 22px;}
+ .sound-studio .new-cue-table td:nth-child(4) {grid-column: 1 / 4; grid-row: 2;}
+ .sound-studio .new-cue-table td:nth-child(5) {grid-column: 4 / 7; grid-row: 2;}
+ .sound-studio .new-cue-table td::before {font-size: 11px; line-height: 16px; margin-bottom: 6px;}
+ .sound-studio .new-cue-table td:nth-child(3)::before {content: 'Description/Trigger When';}
+ .sound-studio .new-cue-table td input,
+ .sound-studio .new-cue-table td select,
+ .sound-studio .new-cue-table td textarea {font-size: 12px; line-height: 1.4;}
+ .sound-studio .new-cue-table td textarea {height: 52px; min-height: 52px; padding: 7px 8px; resize: vertical;}
+ .sound-studio .new-cue-table td[data-label="Current Status"] .status-select {width: 100%; max-width: none;}
+ .sound-studio .new-cue-table .audio-drop-area {padding: 8px;}
+ .sound-studio .new-cue-table .audio-drop-hint {font-size: 11px; gap: 6px; margin-bottom: 6px;}
+ .sound-studio .new-cue-table .audio-drop-hint svg {width: 14px; height: 14px;}
+ .sound-studio .new-cue-table .audio-drop-hint small {display: none;}
+ .sound-studio .new-cue-table .attachment-input {gap: 6px;}
+ .sound-studio .new-cue-table .attachment-input .button {font-size: 12px; padding: 6px 9px;}
+}
