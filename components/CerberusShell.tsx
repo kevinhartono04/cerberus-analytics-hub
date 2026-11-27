@@ -7,6 +7,10 @@ import {
   ClipboardCheck,
   Gauge,
   Headphones,
+  FolderOpen,
+  Files,
+  ListMusic,
+  Plus,
   LogIn,
   LogOut,
   Moon,
@@ -20,7 +24,14 @@ import {
 import Image from "next/image";
 import React, { CSSProperties, ReactNode, useEffect, useState } from "react";
 
-export type HubProductId = "spec-generator" | "tech-launch" | "spec-check" | "cs-assistance" | "ludios-sense" | "admin";
+export type HubProductId = "spec-generator" | "tech-launch" | "spec-check" | "cs-assistance" | "ludios-sense" | "admin" | "sound-studio";
+export type SoundStudioPage = "viewer" | "saved" | "library" | "new";
+const soundNavigationItems = [
+  { id: "viewer", label: "Sound Specs", icon: ListMusic },
+  { id: "saved", label: "Saved Specs", icon: FolderOpen },
+  { id: "library", label: "Uploaded Files", icon: Files },
+  { id: "new", label: "New Game", icon: Plus },
+] satisfies ShellNavItem<SoundStudioPage>[];
 type Theme = "dark" | "light";
 
 function readStoredTheme(): Theme {
@@ -45,6 +56,7 @@ type ProductItem = {
 
 const products: ProductItem[] = [
   { id: "spec-generator", label: "Event Studio", href: "/", icon: Wand2, accent: "#7c6cff" },
+  { id: "sound-studio", label: "Sound Studio", href: "/sound-studio", icon: ListMusic, accent: "#7c6cff" },
   { id: "tech-launch", label: "Launch Signal", href: "/tech-launch", icon: Gauge, accent: "#28c7b7" },
   { id: "spec-check", label: "Signal QA", href: "/spec-check", icon: ClipboardCheck, accent: "#f59b56" },
   { id: "cs-assistance", label: "CS Assistance", href: "/cs-assistance", icon: Headphones, accent: "#28c7b7" },
@@ -189,6 +201,7 @@ export default function CerberusShell<T extends string>({
   contentClassName = "max-w-[1320px]",
   activeLaunchSection = "technical",
   activeAdminSection = "games",
+  soundNavigation,
   children,
 }: {
   currentProduct: HubProductId;
@@ -201,6 +214,11 @@ export default function CerberusShell<T extends string>({
   contentClassName?: string;
   activeLaunchSection?: "technical" | "level-funnel" | "game-monitoring" | "incent-config-validator" | "adjust-events-check";
   activeAdminSection?: "games" | "users" | "event-generation";
+  soundNavigation?: {
+    active: SoundStudioPage;
+    canCreate: boolean;
+    onChange: (page: SoundStudioPage) => void;
+  };
   children: ReactNode;
 }) {
   const hasExplicitUser = user !== undefined;
@@ -314,7 +332,7 @@ export default function CerberusShell<T extends string>({
             </div>
           </div>
 
-          <nav className="flex flex-1 flex-col gap-6 px-3 py-4" aria-label="Cerebral workspace">
+          <nav className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-3 py-4" aria-label="Cerebral workspace">
             <div>
               {collapsed ? null : (
                 <div className="px-3 pb-2 font-mono text-[10px] uppercase tracking-[0.16em] text-slate-500 max-md:hidden">
@@ -363,7 +381,7 @@ export default function CerberusShell<T extends string>({
               </div>
             </div>
 
-            {navItems.length ? (
+            {currentProduct !== "sound-studio" && navItems.length ? (
               <div>
                 {collapsed ? null : (
                   <div className="px-3 pb-2 font-mono text-[10px] uppercase tracking-[0.16em] text-slate-500 max-md:hidden">
@@ -393,6 +411,28 @@ export default function CerberusShell<T extends string>({
                         {collapsed ? null : <span className="truncate max-md:hidden">{item.label}</span>}
                       </button>
                     );
+                  })}
+                </div>
+              </div>
+            ) : null}
+            {currentProduct === "sound-studio" && sidebarUser?.accountType !== "external" ? (
+              <div role="group" aria-label="Sound Studio workspace">
+                {collapsed ? null : <div className="px-3 pb-2 font-mono text-[10px] uppercase tracking-[0.16em] text-slate-500 max-md:hidden">Workspace</div>}
+                <div className="flex flex-col gap-1">
+                  {soundNavigationItems.filter(item => item.id !== "new" || !soundNavigation || soundNavigation.canCreate).map(item => {
+                    const Icon = item.icon;
+                    const active = currentProduct === "sound-studio" && soundNavigation?.active === item.id;
+                    return <a key={item.id} href={`/sound-studio#page=${item.id}`} aria-label={item.label} title={item.label}
+                      aria-current={active ? "page" : undefined}
+                      onClick={event => {
+                        if (!soundNavigation || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+                        event.preventDefault();
+                        soundNavigation.onChange(item.id);
+                      }}
+                      className={`focus-ring flex h-9 w-full items-center gap-3 rounded-[9px] border-l-2 px-3 text-sm font-medium transition-colors ${collapsed ? "justify-center" : "justify-start max-md:justify-center"} ${active ? "border-cobalt bg-cobalt/15 text-ink" : "border-transparent text-slate-500 hover:bg-sage hover:text-ink"}`}>
+                      <Icon className={`h-4 w-4 shrink-0 ${active ? "text-cobalt" : ""}`} />
+                      {collapsed ? null : <span className="truncate max-md:hidden">{item.label}</span>}
+                    </a>;
                   })}
                 </div>
               </div>

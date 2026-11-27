@@ -14,3 +14,7 @@ playwright-report
 
 # Supabase CLI local state
 supabase/.temp/
+
+# Local Sound Studio uploads stay outside source control.
+data/sound-studio-media/
+data/sound-studio/

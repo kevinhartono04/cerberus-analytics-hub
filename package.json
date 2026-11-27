@@ -10,13 +10,15 @@
     "lint": "next lint",
     "test": "vitest run",
     "test:ui": "playwright test",
-    "test:liz-access": "node scripts/check-liz-access.mjs"
+    "test:liz-access": "node scripts/check-liz-access.mjs",
+    "test:sound-studio": "node --test tests/sound-studio-*.test.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
     "@tanstack/react-table": "^8.21.3",
     "csv-parse": "^7.0.0",
     "drizzle-orm": "^0.45.2",
+    "exceljs": "^4.4.0",
     "fast-xml-parser": "^5.9.3",
     "fflate": "^0.8.3",
     "lucide-react": "^0.475.0",

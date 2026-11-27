@@ -1,0 +1,212 @@
+{
+  "schemaVersion": 3,
+  "revision": 0,
+  "assets": [
+    {
+      "id": "asset_0_0",
+      "name": "sample_0_0.wav",
+      "sourceGame": "Fixture Game 0",
+      "category": "UI",
+      "audioUrl": "https://example.com/sample_0_0.wav",
+      "libraryId": "",
+      "libraryUrl": "",
+      "tags": []
+    },
+    {
+      "id": "asset_0_1",
+      "name": "sample_0_1.wav",
+      "sourceGame": "Fixture Game 0",
+      "category": "UI",
+      "audioUrl": "https://example.com/sample_0_1.wav",
+      "libraryId": "",
+      "libraryUrl": "",
+      "tags": []
+    },
+    {
+      "id": "asset_1_0",
+      "name": "sample_1_0.wav",
+      "sourceGame": "Fixture Game 1",
+      "category": "UI",
+      "audioUrl": "https://example.com/sample_1_0.wav",
+      "libraryId": "",
+      "libraryUrl": "",
+      "tags": []
+    },
+    {
+      "id": "asset_1_1",
+      "name": "sample_1_1.wav",
+      "sourceGame": "Fixture Game 1",
+      "category": "UI",
+      "audioUrl": "https://example.com/sample_1_1.wav",
+      "libraryId": "",
+      "libraryUrl": "",
+      "tags": []
+    },
+    {
+      "id": "asset_2_0",
+      "name": "sample_2_0.wav",
+      "sourceGame": "Fixture Game 2",
+      "category": "UI",
+      "audioUrl": "https://example.com/sample_2_0.wav",
+      "libraryId": "",
+      "libraryUrl": "",
+      "tags": []
+    },
+    {
+      "id": "asset_2_1",
+      "name": "sample_2_1.wav",
+      "sourceGame": "Fixture Game 2",
+      "category": "UI",
+      "audioUrl": "https://example.com/sample_2_1.wav",
+      "libraryId": "",
+      "libraryUrl": "",
+      "tags": []
+    }
+  ],
+  "games": [
+    {
+      "id": "game_0",
+      "name": "Fixture Game 0",
+      "cues": [
+        {
+          "id": "cue_0_0",
+          "name": "button_0",
+          "category": "UI",
+          "status": "Open",
+          "description": "Example sound description",
+          "trigger": "Example trigger",
+          "notes": "Optional fixture note",
+          "referenceUrl": "",
+          "libraryReferenceId": "",
+          "libraryReferenceUrl": "",
+          "assetId": "asset_0_0",
+          "videoUrl": "https://example.com/video_0_0.mp4",
+          "videoName": "video_0_0.mp4",
+          "createdAt": null,
+          "createdBy": null,
+          "updatedAt": null,
+          "updatedBy": null
+        },
+        {
+          "id": "cue_0_1",
+          "name": "button_1",
+          "category": "UI",
+          "status": "Open",
+          "description": "Example sound description",
+          "trigger": "Example trigger",
+          "notes": "Optional fixture note",
+          "referenceUrl": "",
+          "libraryReferenceId": "",
+          "libraryReferenceUrl": "",
+          "assetId": "asset_0_1",
+          "videoUrl": "https://example.com/video_0_1.mp4",
+          "videoName": "video_0_1.mp4",
+          "createdAt": null,
+          "createdBy": null,
+          "updatedAt": null,
+          "updatedBy": null
+        }
+      ],
+      "createdAt": null,
+      "createdBy": null,
+      "updatedAt": null,
+      "updatedBy": null
+    },
+    {
+      "id": "game_1",
+      "name": "Fixture Game 1",
+      "cues": [
+        {
+          "id": "cue_1_0",
+          "name": "button_0",
+          "category": "UI",
+          "status": "Open",
+          "description": "Example sound description",
+          "trigger": "Example trigger",
+          "notes": "Optional fixture note",
+          "referenceUrl": "",
+          "libraryReferenceId": "",
+          "libraryReferenceUrl": "",
+          "assetId": "asset_1_0",
+          "videoUrl": "https://example.com/video_1_0.mp4",
+          "videoName": "video_1_0.mp4",
+          "createdAt": null,
+          "createdBy": null,
+          "updatedAt": null,
+          "updatedBy": null
+        },
+        {
+          "id": "cue_1_1",
+          "name": "button_1",
+          "category": "UI",
+          "status": "Open",
+          "description": "Example sound description",
+          "trigger": "Example trigger",
+          "notes": "Optional fixture note",
+          "referenceUrl": "",
+          "libraryReferenceId": "",
+          "libraryReferenceUrl": "",
+          "assetId": "asset_1_1",
+          "videoUrl": "https://example.com/video_1_1.mp4",
+          "videoName": "video_1_1.mp4",
+          "createdAt": null,
+          "createdBy": null,
+          "updatedAt": null,
+          "updatedBy": null
+        }
+      ],
+      "createdAt": null,
+      "createdBy": null,
+      "updatedAt": null,
+      "updatedBy": null
+    },
+    {
+      "id": "game_2",
+      "name": "Fixture Game 2",
+      "cues": [
+        {
+          "id": "cue_2_0",
+          "name": "button_0",
+          "category": "UI",
+          "status": "Open",
+          "description": "Example sound description",
+          "trigger": "Example trigger",
+          "notes": "Optional fixture note",
+          "referenceUrl": "",
+          "libraryReferenceId": "",
+          "libraryReferenceUrl": "",
+          "assetId": "asset_2_0",
+          "videoUrl": "https://example.com/video_2_0.mp4",
+          "videoName": "video_2_0.mp4",
+          "createdAt": null,
+          "createdBy": null,
+          "updatedAt": null,
+          "updatedBy": null
+        },
+        {
+          "id": "cue_2_1",
+          "name": "button_1",
+          "category": "UI",
+          "status": "Open",
+          "description": "Example sound description",
+          "trigger": "Example trigger",
+          "notes": "Optional fixture note",
+          "referenceUrl": "",
+          "libraryReferenceId": "",
+          "libraryReferenceUrl": "",
+          "assetId": "asset_2_1",
+          "videoUrl": "https://example.com/video_2_1.mp4",
+          "videoName": "video_2_1.mp4",
+          "createdAt": null,
+          "createdBy": null,
+          "updatedAt": null,
+          "updatedBy": null
+        }
+      ],
+      "createdAt": null,
+      "createdBy": null,
+      "updatedAt": null,
+      "updatedBy": null
+    }
+  ]
+}
