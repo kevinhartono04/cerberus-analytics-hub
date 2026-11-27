@@ -4,7 +4,7 @@ Status: implemented; disabled unless the server token hash is configured. Mergin
 
 Liz has a dedicated service identity (`service:liz`) and access to all games and
 all saved specs through `/api/service`. This includes editing specs owned by
-humans. It has no delete, game-management, user-administration, code-editing, or
+humans. It can also create games. It has no delete, game-editing, user-administration, code-editing, or
 deployment capability. These explicit bot permissions are separate from human
 editor ownership rules; Google sign-in and human routes remain unchanged.
 The service uses the existing spec schema and storage functions.
@@ -33,13 +33,14 @@ an `X-Request-Id`. There are no additional allowed service operations.
 
 | Method | Path | Result |
 | --- | --- | --- |
-| GET | `/api/service/games` | `{ games, canManage: false }` |
+| GET | `/api/service/games` | `{ games, canManage: true, canCreate: true, canEdit: false, canDelete: false }` |
+| POST | `/api/service/games` | Create a game; returns `{ game }` with HTTP 201 |
 | GET | `/api/service/specs` | Array of spec summaries; `canEdit: true`, `canDelete: false` |
 | GET | `/api/service/specs/{id}` | Full saved spec |
 | POST | `/api/service/specs` | Create a spec; returns summary with HTTP 201 |
 | PUT | `/api/service/specs/{id}` | Replace an existing spec; returns summary |
 
-POST and PUT accept the full `GeneratedSpec` JSON described by
+Spec POST and PUT accept the full `GeneratedSpec` JSON described by
 `generatedSpecSchema` in `lib/types.ts`, not partial patches or natural-language
 instructions. POST assigns a new ID, ignoring any submitted ID. PUT requires its
 body ID to match the URL and returns 404 when the spec does not exist. Use GET to
@@ -115,7 +116,7 @@ with it before releasing; do not deploy an older local checkout.
 
 Both `npm run build` and the Vercel project Build Command run
 `node scripts/check-liz-access.mjs` before Next.js builds. The gate requires the
-authentication modules and all three regression test files, runs the actual API
+authentication modules and all four regression test files, runs the actual API
 handler tests, and fails production builds if the token hash is missing or
 malformed. An older checkout without the gate fails the project Build Command.
 Tests cover the existing service API, Sense reporting, invalid/revoked tokens,
@@ -125,7 +126,7 @@ backends without starting paid scans.
 Keep the project Build Command as:
 
 ```sh
-node scripts/check-liz-access.mjs && npx next build
+node scripts/check-liz-access.mjs && npx vitest run tests/liz-game-registration.test.ts && npx next build
 ```
 
 Do not override this command in deployment settings or `vercel.json`. Prebuilt
@@ -135,3 +136,29 @@ so they protect normal builds rather than making access impossible to revoke.
 For a live smoke check, send the existing token to POST `/api/ludios-sense/usage`
 with valid date/countries and expect 200; missing/invalid tokens must return 401.
 Never put the raw Liz token in source code or build output.
+
+## Adding games with Liz
+
+Use the existing token with POST `/api/service/games`. Required JSON fields:
+
+- `name`: stable lowercase game key (letters, numbers, underscores or hyphens; starts with a letter), such as `rotateclips`.
+- `appId`: the actual positive integer Cerebral/telemetry app ID; do not guess it.
+- `bundleId`: the actual bundle/package ID in dotted notation; do not guess it.
+- `adjustAndroid`, `adjustIos`: optional platform app tokens, defaulting to empty strings.
+
+The API uses the same registration validation and storage as the human Games
+Setting form. Success returns HTTP 201 with a public game summary. GET
+`/api/service/games` then lists the new game. `canManage: true` means Liz may add
+games; explicit `canEdit: false` and `canDelete: false` keep this grant create-only.
+Existing games cannot be overwritten through this endpoint.
+
+Duplicate name, app ID or bundle ID returns HTTP 409. On an ambiguous timeout,
+read the games list before retrying; the uniqueness checks prevent duplicate
+registration. Invalid fields return 400, and missing/invalid tokens return 401.
+Registrations record `createdBy: service:liz`. Responses and audit logs never
+include raw Adjust tokens. Adding a game does not grant admin or partner-access
+management permissions.
+
+The deployment gate includes `tests/liz-game-registration.test.ts`, exercising the
+real registry against isolated storage mocks, including creation, attribution,
+validation, duplicates, and permission boundaries.
